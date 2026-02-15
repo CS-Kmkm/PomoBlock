@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "workHours": {
+    "start": "09:00",
+    "end": "18:00",
+    "days": [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday"
+    ]
+  },
+  "generation": {
+    "autoEnabled": true,
+    "autoTime": "05:30",
+    "catchUpOnAppStart": true,
+    "placementStrategy": "keep",
+    "maxShiftMinutes": 120,
+    "createIfNoSlot": false,
+    "respectSuppression": true
+  },
+  "blockDurationMinutes": 50,
+  "breakDurationMinutes": 10,
+  "minBlockGapMinutes": 5
+}

@@ -5,6 +5,8 @@
   "type": "module",
   "description": "PomBlock core implementation from blocksched tasks",
   "scripts": {
+    "init": "node src/cli.js init",
+    "status": "node src/cli.js status",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },

@@ -1,0 +1,8 @@
+node_modules/
+state/*
+logs/*
+!state/.gitkeep
+!logs/.gitkeep
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
