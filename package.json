@@ -1,0 +1,14 @@
+{
+  "name": "pomblock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PomBlock core implementation from blocksched tasks",
+  "scripts": {
+    "test": "node --test",
+    "test:watch": "node --test --watch"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
