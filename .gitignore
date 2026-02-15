@@ -6,3 +6,5 @@ logs/*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+src-tauri/target/
+src-tauri/gen/
