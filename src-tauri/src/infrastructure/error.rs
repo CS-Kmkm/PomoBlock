@@ -10,4 +10,10 @@ pub enum InfraError {
     Sqlite(#[from] rusqlite::Error),
     #[error("Invalid config: {0}")]
     InvalidConfig(String),
+    #[error("Credential error: {0}")]
+    Credential(String),
+    #[error("OAuth error: {0}")]
+    OAuth(String),
+    #[error("Sync token expired")]
+    SyncTokenExpired,
 }
