@@ -1,3 +1,9 @@
+pub mod calendar_cache;
 pub mod config;
+pub mod credential_store;
 pub mod error;
+pub mod event_mapper;
+pub mod google_calendar_client;
+pub mod oauth_client;
 pub mod storage;
+pub mod sync_state_repository;

@@ -131,3 +131,57 @@ pub fn load_configs(config_dir: &Path) -> Result<ConfigBundle, InfraError> {
         overrides: read_config(&config_dir.join(OVERRIDES_JSON))?,
     })
 }
+
+pub fn read_blocks_calendar_id(config_dir: &Path) -> Result<Option<String>, InfraError> {
+    let calendars = read_config(&config_dir.join(CALENDARS_JSON))?;
+    Ok(calendars
+        .get("blocksCalendarId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
+}
+
+pub fn read_blocks_calendar_name(config_dir: &Path) -> Result<String, InfraError> {
+    let app = read_config(&config_dir.join(APP_JSON))?;
+    let name = app
+        .get("blocksCalendarName")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Blocks");
+    Ok(name.to_string())
+}
+
+pub fn read_timezone(config_dir: &Path) -> Result<Option<String>, InfraError> {
+    let app = read_config(&config_dir.join(APP_JSON))?;
+    Ok(app
+        .get("timezone")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
+}
+
+pub fn save_blocks_calendar_id(config_dir: &Path, calendar_id: &str) -> Result<(), InfraError> {
+    let calendar_id = calendar_id.trim();
+    if calendar_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "blocksCalendarId must not be empty".to_string(),
+        ));
+    }
+
+    let path = config_dir.join(CALENDARS_JSON);
+    let mut calendars = read_config(&path)?;
+    let object = calendars.as_object_mut().ok_or_else(|| {
+        InfraError::InvalidConfig(format!("invalid object structure in {}", path.display()))
+    })?;
+    object.insert(
+        "blocksCalendarId".to_string(),
+        serde_json::Value::String(calendar_id.to_string()),
+    );
+
+    let formatted = serde_json::to_string_pretty(&calendars)?;
+    fs::write(path, format!("{formatted}\n"))?;
+    Ok(())
+}
