@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -180,6 +180,20 @@ pub struct Policy {
     pub min_block_gap_minutes: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PolicyOverride {
+    pub work_hours: Option<WorkHours>,
+    pub block_duration_minutes: Option<u32>,
+    pub break_duration_minutes: Option<u32>,
+    pub min_block_gap_minutes: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TimeSlot {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+}
+
 impl Policy {
     pub fn validate(&self) -> Result<(), String> {
         self.work_hours.validate()?;
@@ -191,6 +205,65 @@ impl Policy {
             return Err("policy.break_duration_minutes must be > 0".to_string());
         }
         Ok(())
+    }
+
+    pub fn is_within_work_hours(&self, time: DateTime<Utc>) -> bool {
+        let Some(start) = parse_hhmm(&self.work_hours.start) else {
+            return false;
+        };
+        let Some(end) = parse_hhmm(&self.work_hours.end) else {
+            return false;
+        };
+
+        let day = weekday_name(time.weekday());
+        let is_active_day = self
+            .work_hours
+            .days
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(day));
+        if !is_active_day {
+            return false;
+        }
+
+        let current = time.time();
+        if start <= end {
+            current >= start && current < end
+        } else {
+            current >= start || current < end
+        }
+    }
+
+    pub fn filter_slots(&self, slots: Vec<TimeSlot>) -> Vec<TimeSlot> {
+        slots
+            .into_iter()
+            .filter(|slot| {
+                if slot.end <= slot.start {
+                    return false;
+                }
+
+                self.is_within_work_hours(slot.start)
+                    && self.is_within_work_hours(slot.end - chrono::Duration::seconds(1))
+            })
+            .collect()
+    }
+
+    pub fn apply_override(&self, override_policy: &PolicyOverride) -> Policy {
+        Policy {
+            work_hours: override_policy
+                .work_hours
+                .clone()
+                .unwrap_or_else(|| self.work_hours.clone()),
+            generation: self.generation.clone(),
+            block_duration_minutes: override_policy
+                .block_duration_minutes
+                .unwrap_or(self.block_duration_minutes),
+            break_duration_minutes: override_policy
+                .break_duration_minutes
+                .unwrap_or(self.break_duration_minutes),
+            min_block_gap_minutes: override_policy
+                .min_block_gap_minutes
+                .unwrap_or(self.min_block_gap_minutes),
+        }
     }
 }
 
@@ -326,9 +399,26 @@ fn validate_date(value: &str, field_name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_hhmm(value: &str) -> Option<NaiveTime> {
+    NaiveTime::parse_from_str(value, "%H:%M").ok()
+}
+
+fn weekday_name(weekday: Weekday) -> &'static str {
+    match weekday {
+        Weekday::Mon => "Monday",
+        Weekday::Tue => "Tuesday",
+        Weekday::Wed => "Wednesday",
+        Weekday::Thu => "Thursday",
+        Weekday::Fri => "Friday",
+        Weekday::Sat => "Saturday",
+        Weekday::Sun => "Sunday",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn fixed_time(value: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(value)
@@ -463,6 +553,60 @@ mod tests {
         assert!(sample_policy().validate().is_ok());
         assert!(sample_routine().validate().is_ok());
         assert!(sample_template().validate().is_ok());
+    }
+
+    #[test]
+    fn policy_work_hours_and_filter_slots() {
+        let policy = sample_policy();
+        let inside = fixed_time("2026-02-16T10:00:00Z");
+        let outside = fixed_time("2026-02-16T19:00:00Z");
+        assert!(policy.is_within_work_hours(inside));
+        assert!(!policy.is_within_work_hours(outside));
+
+        let slots = vec![
+            TimeSlot {
+                start: fixed_time("2026-02-16T09:30:00Z"),
+                end: fixed_time("2026-02-16T10:00:00Z"),
+            },
+            TimeSlot {
+                start: fixed_time("2026-02-16T18:30:00Z"),
+                end: fixed_time("2026-02-16T19:00:00Z"),
+            },
+        ];
+        let filtered = policy.filter_slots(slots);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].start, fixed_time("2026-02-16T09:30:00Z"));
+    }
+
+    // Feature: blocksched, Property 29: user override values must take precedence
+    proptest! {
+        #[test]
+        fn property29_user_override_values_take_precedence(
+            base_block_duration in 1u32..240u32,
+            override_block_duration in 1u32..240u32,
+            base_break_duration in 1u32..120u32,
+            override_break_duration in 1u32..120u32,
+            base_gap in 0u32..60u32,
+            override_gap in 0u32..60u32
+        ) {
+            let mut base = sample_policy();
+            base.block_duration_minutes = base_block_duration;
+            base.break_duration_minutes = base_break_duration;
+            base.min_block_gap_minutes = base_gap;
+
+            let override_policy = PolicyOverride {
+                work_hours: None,
+                block_duration_minutes: Some(override_block_duration),
+                break_duration_minutes: Some(override_break_duration),
+                min_block_gap_minutes: Some(override_gap),
+            };
+
+            let effective = base.apply_override(&override_policy);
+
+            prop_assert_eq!(effective.block_duration_minutes, override_block_duration);
+            prop_assert_eq!(effective.break_duration_minutes, override_break_duration);
+            prop_assert_eq!(effective.min_block_gap_minutes, override_gap);
+        }
     }
 
     #[test]
