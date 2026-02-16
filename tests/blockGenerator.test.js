@@ -92,3 +92,45 @@ test("Feature: blocksched, Property 9: generated blocks stay within work hours",
     assert.equal(end > start, true);
   }
 });
+
+test("Feature: blocksched, Property 11: generation is prevented for overlapping time bands", () => {
+  const generator = new BlockGenerator(POLICY);
+  const date = "2026-02-16";
+
+  for (let run = 0; run < 100; run += 1) {
+    const existingEvents = randomEvents(date, Math.floor(Math.random() * 6));
+    const existingBlocks = [
+      {
+        id: `existing-${run}`,
+        instance: `rtn:rtn_focus:${date}:0`,
+        date,
+        startAt: "2026-02-16T09:00:00.000Z",
+        endAt: "2026-02-16T09:50:00.000Z",
+        type: "deep",
+        firmness: "soft",
+        status: "planned",
+        source: "routine",
+        sourceId: "rtn_focus",
+        plannedPomodoros: 2,
+      },
+    ];
+
+    const generated = generator.generateBlocks(date, existingEvents, {
+      source: "routine",
+      sourceId: "rtn_focus",
+      existingBlocks,
+      maxBlocks: 20,
+    });
+
+    for (const block of generated) {
+      assert.equal(
+        overlaps(block, existingBlocks[0]),
+        false,
+        "newly generated block must not overlap existing block"
+      );
+      for (const event of existingEvents) {
+        assert.equal(overlaps(block, event), false);
+      }
+    }
+  }
+});
