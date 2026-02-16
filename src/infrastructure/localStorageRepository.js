@@ -12,6 +12,14 @@ function toIso(value) {
   return new Date(value).toISOString();
 }
 
+function removeTaskRef(taskRefsJson, taskId) {
+  const refs = JSON.parse(taskRefsJson ?? "[]");
+  if (!Array.isArray(refs)) {
+    return "[]";
+  }
+  return JSON.stringify(refs.filter((ref) => ref !== taskId));
+}
+
 export class LocalStorageRepository {
   constructor(databasePath) {
     this.db = new DatabaseSync(databasePath);
@@ -275,5 +283,50 @@ export class LocalStorageRepository {
       LIMIT ?
     `)
       .all(limit);
+  }
+
+  deletePomodoroLog(logId) {
+    this.db.prepare(`DELETE FROM pomodoro_logs WHERE id = ?`).run(logId);
+  }
+
+  clearPomodoroLogs() {
+    this.db.prepare(`DELETE FROM pomodoro_logs`).run();
+  }
+
+  deleteBlock(blockId) {
+    this.db.prepare(`DELETE FROM pomodoro_logs WHERE block_id = ?`).run(blockId);
+    this.db.prepare(`DELETE FROM blocks WHERE id = ?`).run(blockId);
+  }
+
+  deleteTask(taskId) {
+    this.db.prepare(`DELETE FROM pomodoro_logs WHERE task_id = ?`).run(taskId);
+
+    const relatedBlocks = this.db
+      .prepare(`SELECT id, task_refs FROM blocks WHERE task_id = ? OR task_refs LIKE ?`)
+      .all(taskId, `%${taskId}%`);
+    for (const row of relatedBlocks) {
+      this.db
+        .prepare(`
+        UPDATE blocks
+        SET task_id = CASE WHEN task_id = ? THEN NULL ELSE task_id END,
+            task_refs = ?
+        WHERE id = ?
+      `)
+        .run(taskId, removeTaskRef(row.task_refs, taskId), row.id);
+    }
+
+    this.db.prepare(`DELETE FROM tasks WHERE id = ?`).run(taskId);
+  }
+
+  clearSyncState() {
+    this.db.prepare(`DELETE FROM sync_state WHERE id = 1`).run();
+  }
+
+  clearSuppressions() {
+    this.db.prepare(`DELETE FROM suppressions`).run();
+  }
+
+  clearAuditLogs() {
+    this.db.prepare(`DELETE FROM audit_logs`).run();
   }
 }
