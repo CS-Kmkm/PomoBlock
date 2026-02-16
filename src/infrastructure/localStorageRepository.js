@@ -98,6 +98,31 @@ export class LocalStorageRepository {
     );
   }
 
+  loadBlockById(blockId) {
+    const row = this.db.prepare(`SELECT * FROM blocks WHERE id = ?`).get(blockId);
+    if (!row) {
+      return null;
+    }
+
+    return createBlock({
+      id: row.id,
+      instance: row.instance,
+      date: row.date,
+      startAt: row.start_time,
+      endAt: row.end_time,
+      type: row.type,
+      firmness: row.firmness,
+      plannedPomodoros: row.planned_pomodoros,
+      status: row.status,
+      source: row.source,
+      sourceId: row.source_id,
+      taskRefs: JSON.parse(row.task_refs ?? "[]"),
+      calendarEventId: row.calendar_event_id,
+      taskId: row.task_id,
+      createdAt: row.created_at,
+    });
+  }
+
   saveTask(taskInput) {
     const task = createTask(taskInput);
     const statement = this.db.prepare(`
