@@ -6,73 +6,73 @@ PomBlockは、Tauriベースのデスクトップアプリケーションで、R
 
 ## タスク
 
-- [ ] 1. プロジェクト構造とインフラストラクチャの初期化
+- [x] 1. プロジェクト構造とインフラストラクチャの初期化
   - Tauriプロジェクトの初期化（Rust + TypeScript）
   - 依存関係の追加（proptest, serde, tokio, reqwest, git2, rusqlite等）
   - ディレクトリ構造の作成（src/infrastructure, src/domain, src/application, src-ui）
   - SQLiteデータベーススキーマの作成
   - _要件: 全体_
 
-- [ ] 2. OAuth認証とトークン管理の実装
-  - [ ] 2.1 CredentialStoreトレイトとWindows Credential Manager実装
+- [x] 2. OAuth認証とトークン管理の実装
+  - [x] 2.1 CredentialStoreトレイトとWindows Credential Manager実装
     - Windows Credential Manager APIを使用したトークン保存/読み込み/削除
     - _要件: 1.2, 1.5_
   
-  - [ ] 2.2 OAuthトークンのラウンドトリッププロパティテスト
+  - [x] 2.2 OAuthトークンのラウンドトリッププロパティテスト
     - **プロパティ1: OAuth トークンのラウンドトリップ**
     - **検証: 要件 1.2**
   
-  - [ ] 2.3 OAuthManagerの実装
+  - [x] 2.3 OAuthManagerの実装
     - Google OAuth 2.0フローの実装（認証、リフレッシュ）
     - トークン有効性チェック
     - _要件: 1.1, 1.3, 1.4_
   
-  - [ ] 2.4 OAuth認証のプロパティテスト
+  - [x] 2.4 OAuth認証のプロパティテスト
     - **プロパティ2: 有効なトークンでの再認証不要**
     - **プロパティ3: 無効なトークンでの再認証**
     - **検証: 要件 1.3, 1.4**
 
-- [ ] 3. Google Calendar同期サービスの実装
-  - [ ] 3.1 GoogleCalendarClientの実装
+- [x] 3. Google Calendar同期サービスの実装
+  - [x] 3.1 GoogleCalendarClientの実装
     - Google Calendar API v3クライアント（イベント取得/作成/更新/削除）
     - syncTokenを使用した差分同期
     - _要件: 2.1, 2.2, 2.4_
   
-  - [ ] 3.2 SyncStateRepositoryの実装
+  - [x] 3.2 SyncStateRepositoryの実装
     - syncTokenと最終同期時刻のローカル保存/読み込み
     - _要件: 2.4_
   
-  - [ ] 3.3 CalendarSyncServiceの実装
+  - [x] 3.3 CalendarSyncServiceの実装
     - 差分同期ロジック（追加/更新/削除の検出）
     - ネットワークエラー時のリトライロジック
     - _要件: 2.1, 2.2, 2.3, 2.5_
   
-  - [ ] 3.4 Calendar同期のプロパティテスト
+  - [x] 3.4 Calendar同期のプロパティテスト
     - **プロパティ5: 外部編集の検出と反映**
     - **プロパティ6: 同期後のSyncToken保存**
     - **プロパティ7: 同期後のキャッシュ更新**
     - **検証: 要件 2.2, 2.4, 2.5**
 
-- [ ] 4. チェックポイント - 認証と同期のテスト
+- [x] 4. チェックポイント - 認証と同期のテスト
   - すべてのテストが通ることを確認し、質問があればユーザーに確認する
 
-- [ ] 5. ドメインモデルの実装
-  - [ ] 5.1 Block、Task、Pomodoro、Policy、Routine、Templateモデルの定義
+- [x] 5. ドメインモデルの実装
+  - [x] 5.1 Block、Task、Pomodoro、Policy、Routine、Templateモデルの定義
     - 各モデルの構造体とenum定義
     - Serdeによるシリアライゼーション/デシリアライゼーション
     - _要件: 3.1, 6.1, 5.1, 10.1, 9.1_
   
-  - [ ] 5.2 ドメインモデルのユニットテスト
+  - [x] 5.2 ドメインモデルのユニットテスト
     - 各モデルの基本的な生成と検証
     - _要件: 全ドメインモデル_
 
-- [ ] 6. ポリシーエンジンの実装
-  - [ ] 6.1 Policyの実装
+- [x] 6. ポリシーエンジンの実装
+  - [x] 6.1 Policyの実装
     - 勤務時間チェック（is_within_work_hours）
     - タイムスロットフィルタリング（filter_slots）
     - _要件: 10.2, 10.3_
   
-  - [ ] 6.2 ポリシーのプロパティテスト
+  - [x] 6.2 ポリシーのプロパティテスト
     - **プロパティ29: ユーザー指定値の優先**
     - **検証: 要件 10.3**
 
