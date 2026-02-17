@@ -9,6 +9,8 @@
     "status": "node src/cli.js status",
     "doctor": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "rust:check": "powershell -ExecutionPolicy Bypass -File scripts/rust-check.ps1",
+    "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",
+    "build:windows:debug": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -Debug",
     "test": "node --test",
     "test:watch": "node --test --watch"
   },
