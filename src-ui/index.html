@@ -26,7 +26,16 @@
           <p class="brand-kicker">Workflow Console</p>
           <h1>PomBlock</h1>
         </div>
-        <div id="global-status" class="status-chip" aria-live="polite">Ready</div>
+        <div class="status-stack">
+          <div id="global-status" class="status-chip" aria-live="polite">Ready</div>
+          <div id="global-progress" class="progress-chip" aria-live="polite" hidden>
+            <span id="global-progress-label">処理中</span>
+            <div class="progress-track">
+              <span id="global-progress-fill" class="progress-fill"></span>
+            </div>
+            <span id="global-progress-value">0%</span>
+          </div>
+        </div>
       </header>
 
       <nav class="route-nav" id="route-nav" aria-label="Main navigation">

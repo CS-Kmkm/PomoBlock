@@ -3,8 +3,19 @@
 const appRoot = /** @type {HTMLElement} */ (document.getElementById("app"));
 const navRoot = /** @type {HTMLElement} */ (document.getElementById("route-nav"));
 const statusChip = /** @type {HTMLElement} */ (document.getElementById("global-status"));
+const progressChip = /** @type {HTMLElement | null} */ (document.getElementById("global-progress"));
+const progressLabel = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-label"));
+const progressFill = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-fill"));
+const progressValue = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-value"));
 
 const routes = ["auth", "dashboard", "blocks", "pomodoro", "tasks", "reflection", "settings"];
+const longRunningCommands = new Set(["sync_calendar", "generate_blocks"]);
+const longRunningLabels = {
+  sync_calendar: "カレンダー同期",
+  generate_blocks: "ブロック生成",
+};
+const progressTargetPercent = 92;
+const progressUpdateIntervalMs = 180;
 
 /** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null}} Block */
 /** @typedef {{id:string,title:string,description:string|null,estimated_pomodoros:number|null,status:string,completed_pomodoros:number}} Task */
@@ -38,6 +49,15 @@ const mockState = {
     start_time: null,
   },
   logs: [],
+};
+
+const progressState = {
+  active: false,
+  command: "",
+  label: "",
+  percent: 0,
+  timerId: 0,
+  hideTimerId: 0,
 };
 
 function nextMockId(prefix) {
@@ -85,6 +105,70 @@ function setStatus(message) {
   statusChip.textContent = message;
 }
 
+function clearProgressTimers() {
+  if (progressState.timerId) {
+    clearInterval(progressState.timerId);
+    progressState.timerId = 0;
+  }
+  if (progressState.hideTimerId) {
+    clearTimeout(progressState.hideTimerId);
+    progressState.hideTimerId = 0;
+  }
+}
+
+function renderGlobalProgress() {
+  if (!progressChip || !progressLabel || !progressFill || !progressValue) return;
+  progressChip.hidden = !progressState.active;
+  if (!progressState.active) return;
+  progressLabel.textContent = progressState.label;
+  progressValue.textContent = `${progressState.percent}%`;
+  progressFill.style.width = `${progressState.percent}%`;
+}
+
+function setProgressPercent(percent) {
+  progressState.percent = Math.max(0, Math.min(100, Math.round(percent)));
+  renderGlobalProgress();
+}
+
+function beginLongRunningProgress(command) {
+  const label = longRunningLabels[command] ?? command;
+  clearProgressTimers();
+  progressState.active = true;
+  progressState.command = command;
+  progressState.label = `${label} 実行中`;
+  setProgressPercent(5);
+  progressState.timerId = setInterval(() => {
+    if (!progressState.active || progressState.percent >= progressTargetPercent) return;
+    const remaining = progressTargetPercent - progressState.percent;
+    const step = Math.max(1, Math.round(remaining / 6));
+    setProgressPercent(progressState.percent + step);
+  }, progressUpdateIntervalMs);
+}
+
+function finishLongRunningProgress(success) {
+  if (!progressState.active) return;
+  clearProgressTimers();
+  progressState.label = success ? "完了" : "失敗";
+  setProgressPercent(100);
+  progressState.hideTimerId = setTimeout(() => {
+    progressState.active = false;
+    progressState.command = "";
+    progressState.label = "";
+    progressState.percent = 0;
+    renderGlobalProgress();
+    progressState.hideTimerId = 0;
+  }, success ? 360 : 900);
+}
+
+function waitForNextFrame() {
+  if (typeof window.requestAnimationFrame === "function") {
+    return new Promise((resolve) => {
+      window.requestAnimationFrame(() => setTimeout(resolve, 0));
+    });
+  }
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function getRoute() {
   const hash = window.location.hash.replace(/^#\/?/, "");
   return routes.includes(hash) ? hash : "dashboard";
@@ -117,6 +201,23 @@ async function safeInvoke(name, payload = {}) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`${name} failed: ${message}`);
+    throw error;
+  }
+}
+
+async function invokeCommandWithProgress(name, payload = {}) {
+  if (!longRunningCommands.has(name)) {
+    return safeInvoke(name, payload);
+  }
+
+  beginLongRunningProgress(name);
+  await waitForNextFrame();
+  try {
+    const result = await safeInvoke(name, payload);
+    finishLongRunningProgress(true);
+    return result;
+  } catch (error) {
+    finishLongRunningProgress(false);
     throw error;
   }
 }
@@ -374,13 +475,13 @@ function renderDashboard() {
   `;
 
   document.getElementById("dashboard-sync")?.addEventListener("click", async () => {
-    await safeInvoke("sync_calendar", {});
+    await invokeCommandWithProgress("sync_calendar", {});
     await refreshCoreData(today);
     renderDashboard();
   });
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
     const date = /** @type {HTMLInputElement} */ (document.getElementById("dashboard-date")).value || today;
-    await safeInvoke("generate_blocks", { date });
+    await invokeCommandWithProgress("generate_blocks", { date });
     await refreshCoreData(date);
     renderDashboard();
   });
@@ -439,7 +540,7 @@ function renderBlocks() {
   document.getElementById("block-load")?.addEventListener("click", reload);
   document.getElementById("block-generate")?.addEventListener("click", async () => {
     const date = /** @type {HTMLInputElement} */ (document.getElementById("block-date")).value || today;
-    await safeInvoke("generate_blocks", { date });
+    await invokeCommandWithProgress("generate_blocks", { date });
     await reload();
   });
 
