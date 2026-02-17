@@ -22,11 +22,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
+use tokio::task::JoinSet;
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8080/oauth2/callback";
 const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
+const BLOCK_CREATION_CONCURRENCY: usize = 4;
+const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -346,6 +350,7 @@ pub async fn sync_calendar_impl(
 }
 
 pub async fn generate_blocks_impl(state: &AppState, date: String) -> Result<Vec<Block>, InfraError> {
+    let started_at = Instant::now();
     let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
         .map_err(|error| InfraError::InvalidConfig(format!("date must be YYYY-MM-DD: {error}")))?;
     let policy = load_runtime_policy(state.config_dir());
@@ -392,7 +397,6 @@ pub async fn generate_blocks_impl(state: &AppState, date: String) -> Result<Vec<
     let busy_intervals = merge_intervals(busy_intervals);
     let free_slots = free_slots(window_start, window_end, &busy_intervals);
 
-    let mut taken_intervals = busy_intervals;
     let mut existing_instances = existing_blocks
         .iter()
         .map(|stored| stored.block.instance.clone())
@@ -412,45 +416,31 @@ pub async fn generate_blocks_impl(state: &AppState, date: String) -> Result<Vec<
     for slot in free_slots {
         let mut cursor = slot.start;
         while cursor + block_duration <= slot.end {
-            let candidate = Interval {
-                start: cursor,
-                end: cursor + block_duration,
-            };
-            let overlaps_existing = taken_intervals
-                .iter()
-                .any(|interval| overlaps(interval, &candidate));
-            if !overlaps_existing {
-                let instance = format!("rtn:auto:{}:{}", date, instance_index);
-                let range_key = (
-                    candidate.start.timestamp_millis(),
-                    candidate.end.timestamp_millis(),
-                );
-                if !existing_instances.contains(&instance) && !existing_ranges.contains(&range_key)
-                {
-                    let block = Block {
-                        id: next_id("blk"),
-                        instance: instance.clone(),
-                        date: date.to_string(),
-                        start_at: candidate.start,
-                        end_at: candidate.end,
-                        block_type: BlockType::Deep,
-                        firmness: Firmness::Draft,
-                        planned_pomodoros: planned_pomodoros(policy.block_duration_minutes),
-                        source: "routine".to_string(),
-                        source_id: Some("auto".to_string()),
-                    };
-                    generated.push(StoredBlock {
-                        block,
-                        calendar_event_id: None,
-                    });
-                    existing_instances.insert(instance);
-                    existing_ranges.insert(range_key);
-                    taken_intervals.push(candidate.clone());
-                }
-                instance_index = instance_index.saturating_add(1);
+            let candidate_end = cursor + block_duration;
+            let instance = format!("rtn:auto:{}:{}", date, instance_index);
+            let range_key = (cursor.timestamp_millis(), candidate_end.timestamp_millis());
+
+            if existing_instances.insert(instance.clone()) && existing_ranges.insert(range_key) {
+                let block = Block {
+                    id: next_id("blk"),
+                    instance,
+                    date: date.to_string(),
+                    start_at: cursor,
+                    end_at: candidate_end,
+                    block_type: BlockType::Deep,
+                    firmness: Firmness::Draft,
+                    planned_pomodoros: planned_pomodoros(policy.block_duration_minutes),
+                    source: "routine".to_string(),
+                    source_id: Some("auto".to_string()),
+                };
+                generated.push(StoredBlock {
+                    block,
+                    calendar_event_id: None,
+                });
             }
 
-            cursor = candidate.end + gap;
+            instance_index = instance_index.saturating_add(1);
+            cursor = candidate_end + gap;
         }
     }
 
@@ -478,16 +468,13 @@ pub async fn generate_blocks_impl(state: &AppState, date: String) -> Result<Vec<
     {
         let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
         let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-        let sync_service = CalendarSyncService::new(
+        let sync_service = Arc::new(CalendarSyncService::new(
             Arc::clone(&calendar_client),
             sync_state_repo,
             Arc::clone(&state.calendar_cache),
-        );
-        for stored in &mut generated {
-            let event = encode_block_event(&stored.block);
-            let event_id = sync_service.create_event(token, calendar_id, &event).await?;
-            stored.calendar_event_id = Some(event_id);
-        }
+        ));
+        create_calendar_events_for_generated_blocks(sync_service, token, calendar_id, &mut generated)
+            .await?;
     }
 
     {
@@ -502,10 +489,25 @@ pub async fn generate_blocks_impl(state: &AppState, date: String) -> Result<Vec<
         }
     }
 
+    let elapsed_ms = started_at.elapsed().as_millis();
     state.log_info(
         "generate_blocks",
-        &format!("generated {} blocks for {}", generated.len(), date),
+        &format!(
+            "generated {} blocks for {} in {}ms",
+            generated.len(),
+            date,
+            elapsed_ms
+        ),
     );
+    if elapsed_ms > BLOCK_GENERATION_TARGET_MS {
+        state.log_error(
+            "generate_blocks",
+            &format!(
+                "generation for {} exceeded target {}ms (actual={}ms)",
+                date, BLOCK_GENERATION_TARGET_MS, elapsed_ms
+            ),
+        );
+    }
 
     Ok(generated.into_iter().map(|stored| stored.block).collect())
 }
@@ -1361,10 +1363,9 @@ fn free_slots(
         return Vec::new();
     }
 
-    let merged = merge_intervals(busy_intervals.to_vec());
     let mut slots = Vec::new();
     let mut cursor = window_start;
-    for interval in merged {
+    for interval in busy_intervals {
         if interval.start > cursor {
             slots.push(Interval {
                 start: cursor,
@@ -1389,9 +1390,10 @@ fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
         return intervals;
     }
 
-    intervals.sort_by(|left, right| left.start.cmp(&right.start));
-    let mut merged = vec![intervals.remove(0)];
-    for interval in intervals {
+    intervals.sort_unstable_by(|left, right| left.start.cmp(&right.start));
+    let mut iter = intervals.into_iter();
+    let mut merged = vec![iter.next().expect("intervals is non-empty")];
+    for interval in iter {
         let last = merged
             .last_mut()
             .expect("merged always contains at least one interval");
@@ -1406,17 +1408,82 @@ fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
     merged
 }
 
-fn overlaps(left: &Interval, right: &Interval) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
 fn planned_pomodoros(block_duration_minutes: u32) -> i32 {
     ((block_duration_minutes + 12) / 25).max(1) as i32
+}
+
+async fn create_calendar_events_for_generated_blocks(
+    sync_service: Arc<
+        CalendarSyncService<
+            ReqwestGoogleCalendarClient,
+            SqliteSyncStateRepository,
+            InMemoryCalendarCacheRepository,
+        >,
+    >,
+    access_token: &str,
+    calendar_id: &str,
+    generated: &mut [StoredBlock],
+) -> Result<(), InfraError> {
+    if generated.is_empty() {
+        return Ok(());
+    }
+
+    let mut create_tasks: JoinSet<Result<(usize, String), InfraError>> = JoinSet::new();
+    let mut created_event_ids = vec![None; generated.len()];
+    let access_token = access_token.to_string();
+    let calendar_id = calendar_id.to_string();
+
+    for (index, stored) in generated.iter().enumerate() {
+        let sync_service = Arc::clone(&sync_service);
+        let access_token = access_token.clone();
+        let calendar_id = calendar_id.clone();
+        let event = encode_block_event(&stored.block);
+
+        create_tasks.spawn(async move {
+            let event_id = sync_service
+                .create_event(&access_token, &calendar_id, &event)
+                .await?;
+            Ok((index, event_id))
+        });
+
+        if create_tasks.len() >= BLOCK_CREATION_CONCURRENCY {
+            collect_created_event_id(&mut create_tasks, &mut created_event_ids).await?;
+        }
+    }
+
+    while !create_tasks.is_empty() {
+        collect_created_event_id(&mut create_tasks, &mut created_event_ids).await?;
+    }
+
+    for (index, event_id) in created_event_ids.into_iter().enumerate() {
+        if let Some(event_id) = event_id {
+            generated[index].calendar_event_id = Some(event_id);
+        }
+    }
+
+    Ok(())
+}
+
+async fn collect_created_event_id(
+    create_tasks: &mut JoinSet<Result<(usize, String), InfraError>>,
+    created_event_ids: &mut [Option<String>],
+) -> Result<(), InfraError> {
+    let Some(join_result) = create_tasks.join_next().await else {
+        return Ok(());
+    };
+    let created = join_result.map_err(|error| {
+        InfraError::OAuth(format!("failed to join calendar event creation task: {error}"))
+    })??;
+    if let Some(slot) = created_event_ids.get_mut(created.0) {
+        *slot = Some(created.1);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::infrastructure::event_mapper::CalendarEventDateTime;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static NEXT_TEMP_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
@@ -1618,5 +1685,54 @@ mod tests {
 
         let summary = get_reflection_summary_impl(&state, None, None).expect("summary");
         assert!(summary.interrupted_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn generate_to_confirm_stays_within_target_for_dense_calendar() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let date = "2026-02-16";
+        let day = NaiveDate::parse_from_str(date, "%Y-%m-%d").expect("valid date");
+        let day_start = Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).expect("midnight"));
+
+        let synced_events = (0..2_000)
+            .map(|index| {
+                let start = day_start + Duration::minutes(index as i64);
+                let end = start + Duration::seconds(30);
+                GoogleCalendarEvent {
+                    id: Some(format!("evt-{index}")),
+                    summary: Some("busy".to_string()),
+                    description: None,
+                    status: Some("confirmed".to_string()),
+                    updated: None,
+                    etag: None,
+                    start: CalendarEventDateTime {
+                        date_time: start.to_rfc3339(),
+                        time_zone: None,
+                    },
+                    end: CalendarEventDateTime {
+                        date_time: end.to_rfc3339(),
+                        time_zone: None,
+                    },
+                    extended_properties: None,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        {
+            let mut runtime = lock_runtime(&state).expect("runtime lock");
+            runtime.synced_events = synced_events;
+        }
+
+        let started = Instant::now();
+        let _generated = generate_blocks_impl(&state, date.to_string())
+            .await
+            .expect("generate blocks");
+        let _listed = list_blocks_impl(&state, Some(date.to_string())).expect("list blocks");
+        let elapsed_ms = started.elapsed().as_millis();
+        assert!(
+            elapsed_ms < BLOCK_GENERATION_TARGET_MS,
+            "generate-to-confirm exceeded target: {elapsed_ms}ms"
+        );
     }
 }
