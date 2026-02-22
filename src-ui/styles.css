@@ -349,6 +349,149 @@ th {
   background: linear-gradient(90deg, #2f8f71, #8acfb5);
 }
 
+.day-calendar {
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+.calendar-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.calendar-pill.block {
+  background: #dcefe7;
+  border-color: #b8d8cb;
+  color: #1d6f55;
+}
+
+.calendar-pill.event {
+  background: #ffe8cf;
+  border-color: #f2cb9f;
+  color: #9a5a21;
+}
+
+.calendar-pill.free {
+  background: #ebf2ef;
+  border-color: #c6d5ce;
+  color: #3f5c52;
+}
+
+.timeline-wrap {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fbf8;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.timeline-scale {
+  position: relative;
+  height: 16px;
+  margin-left: 82px;
+}
+
+.timeline-scale span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.timeline-scale span:last-child {
+  transform: translateX(-100%);
+}
+
+.timeline-lane {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.lane-label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.timeline-track {
+  position: relative;
+  height: 16px;
+  border-radius: 999px;
+  background: #edf2eb;
+  overflow: hidden;
+}
+
+.timeline-segment {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 999px;
+}
+
+.timeline-segment.block {
+  background: linear-gradient(90deg, #17624d, #2f8f71);
+}
+
+.timeline-segment.event {
+  background: linear-gradient(90deg, #d27f2f, #f0bd78);
+}
+
+.timeline-empty {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.day-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.day-slot-grid section {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+}
+
+.day-slot-grid h4 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.slot-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.slot-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 6px;
+  font-size: 0.88rem;
+}
+
+.slot-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 .small {
   font-size: 0.86rem;
   color: var(--muted);
@@ -369,6 +512,19 @@ th {
   .grid.two,
   .grid.three {
     grid-template-columns: 1fr;
+  }
+
+  .day-slot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-scale {
+    margin-left: 0;
+  }
+
+  .timeline-lane {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
 }
 

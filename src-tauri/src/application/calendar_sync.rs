@@ -31,6 +31,7 @@ pub struct SyncResult {
     pub added: Vec<GoogleCalendarEvent>,
     pub updated: Vec<GoogleCalendarEvent>,
     pub deleted: Vec<String>,
+    pub suppressed_instances: Vec<String>,
     pub next_sync_token: Option<String>,
 }
 
@@ -121,6 +122,7 @@ where
             added: sync_result.added,
             updated: sync_result.updated,
             deleted: sync_result.deleted,
+            suppressed_instances: sync_result.suppressed_instances,
             next_sync_token: response.next_sync_token,
         })
     }
@@ -240,6 +242,7 @@ where
         let mut added = Vec::new();
         let mut updated = Vec::new();
         let mut deleted = Vec::new();
+        let mut suppressed_instances = Vec::new();
 
         for event in events {
             let Some(event_id) = event
@@ -260,6 +263,9 @@ where
             let existing = self.cache_repository.get_by_id(&event_id)?;
 
             if is_cancelled {
+                if let Some(instance) = extract_managed_instance(&event) {
+                    suppressed_instances.push(instance);
+                }
                 if existing.is_some() {
                     self.cache_repository.remove(&event_id)?;
                     deleted.push(event_id);
@@ -284,6 +290,7 @@ where
             added,
             updated,
             deleted,
+            suppressed_instances,
         })
     }
 }
@@ -292,13 +299,26 @@ struct AppliedSyncResult {
     added: Vec<GoogleCalendarEvent>,
     updated: Vec<GoogleCalendarEvent>,
     deleted: Vec<String>,
+    suppressed_instances: Vec<String>,
+}
+
+fn extract_managed_instance(event: &GoogleCalendarEvent) -> Option<String> {
+    event
+        .extended_properties
+        .as_ref()
+        .and_then(|properties| properties.private.get("bs_instance"))
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::infrastructure::calendar_cache::{CalendarCacheRepository, InMemoryCalendarCacheRepository};
-    use crate::infrastructure::event_mapper::CalendarEventDateTime;
+    use crate::infrastructure::event_mapper::{
+        CalendarEventDateTime, CalendarEventExtendedProperties,
+    };
     use crate::infrastructure::google_calendar_client::GoogleCalendarSummary;
     use crate::infrastructure::sync_state_repository::InMemorySyncStateRepository;
     use async_trait::async_trait;
@@ -431,6 +451,21 @@ mod tests {
         }
     }
 
+    fn sample_cancelled_managed_event(
+        id: &str,
+        summary: &str,
+        instance: &str,
+    ) -> GoogleCalendarEvent {
+        let mut event = sample_event(id, summary, "cancelled");
+        event.extended_properties = Some(CalendarEventExtendedProperties {
+            private: std::collections::HashMap::from([(
+                "bs_instance".to_string(),
+                instance.to_string(),
+            )]),
+        });
+        event
+    }
+
     fn token_pattern() -> impl Strategy<Value = String> {
         "[A-Za-z0-9_\\-]{1,32}".prop_map(|value| value.to_string())
     }
@@ -445,7 +480,11 @@ mod tests {
                     FakeListResponse::Success(ListEventsResponse {
                         events: vec![
                             sample_event("evt-updated", &summary, "confirmed"),
-                            sample_event("evt-deleted", "obsolete", "cancelled"),
+                            sample_cancelled_managed_event(
+                                "evt-deleted",
+                                "obsolete",
+                                "rtn:auto:2026-02-16:0",
+                            ),
                         ],
                         next_sync_token: Some("next-sync".to_string()),
                     })
@@ -466,6 +505,10 @@ mod tests {
 
                 assert_eq!(result.updated.len(), 1);
                 assert_eq!(result.deleted, vec!["evt-deleted".to_string()]);
+                assert_eq!(
+                    result.suppressed_instances,
+                    vec!["rtn:auto:2026-02-16:0".to_string()]
+                );
 
                 let cached_updated = cache.get_by_id("evt-updated").expect("cache read").expect("updated event exists");
                 assert_eq!(cached_updated.summary.as_deref(), Some(summary.as_str()));

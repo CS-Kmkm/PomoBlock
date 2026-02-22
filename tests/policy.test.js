@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPolicy, createPolicyOverride } from "../src/domain/models.js";
-import { applyPolicyOverride, filterSlots, isWithinWorkHours } from "../src/domain/policy.js";
+import {
+  applyPolicyOverride,
+  filterSlots,
+  isWithinWorkHours,
+  workWindowForDate,
+} from "../src/domain/policy.js";
 
 const BASE_POLICY = createPolicy({
   workHours: {
@@ -20,6 +25,16 @@ test("isWithinWorkHours returns true inside configured range", () => {
 
   assert.equal(isWithinWorkHours(BASE_POLICY, inside), true);
   assert.equal(isWithinWorkHours(BASE_POLICY, outside), false);
+});
+
+test("isWithinWorkHours uses configured timezone", () => {
+  const jstPolicy = createPolicy({
+    ...BASE_POLICY,
+    timezone: "Asia/Tokyo",
+  });
+
+  assert.equal(isWithinWorkHours(jstPolicy, "2026-02-16T00:00:00.000Z"), true);
+  assert.equal(isWithinWorkHours(jstPolicy, "2026-02-15T22:30:00.000Z"), false);
 });
 
 test("Feature: blocksched, Property 29: user override takes precedence", () => {
@@ -65,4 +80,15 @@ test("filterSlots only returns slots inside work hours", () => {
       assert.equal(end > start, true);
     }
   }
+});
+
+test("workWindowForDate converts work hours with timezone offset", () => {
+  const jstPolicy = createPolicy({
+    ...BASE_POLICY,
+    timezone: "Asia/Tokyo",
+  });
+
+  const window = workWindowForDate(jstPolicy, "2026-02-16");
+  assert.equal(window.start.toISOString(), "2026-02-16T00:00:00.000Z");
+  assert.equal(window.end.toISOString(), "2026-02-16T09:00:00.000Z");
 });

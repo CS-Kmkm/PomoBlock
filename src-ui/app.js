@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 
 const appRoot = /** @type {HTMLElement} */ (document.getElementById("app"));
 const navRoot = /** @type {HTMLElement} */ (document.getElementById("route-nav"));
@@ -18,13 +18,17 @@ const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
 
 /** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null}} Block */
+/** @typedef {{account_id:string,id:string,title:string,start_at:string,end_at:string}} SyncedEvent */
 /** @typedef {{id:string,title:string,description:string|null,estimated_pomodoros:number|null,status:string,completed_pomodoros:number}} Task */
-/** @typedef {{current_block_id:string|null,current_task_id:string|null,phase:string,remaining_seconds:number,start_time:string|null}} PomodoroState */
+/** @typedef {{current_block_id:string|null,current_task_id:string|null,phase:string,remaining_seconds:number,start_time:string|null,total_cycles:number,completed_cycles:number,current_cycle:number}} PomodoroState */
 
-/** @type {{auth: any, blocks: Block[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, settings: any}} */
+/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, settings: any}} */
 const uiState = {
   auth: null,
+  accountId: "default",
+  dashboardDate: isoDate(new Date()),
   blocks: [],
+  calendarEvents: [],
   tasks: [],
   pomodoro: null,
   reflection: null,
@@ -41,12 +45,21 @@ const mockState = {
   sequence: 1,
   tasks: [],
   blocks: [],
+  syncedEventsByAccount: {},
+  taskAssignmentsByTask: {},
+  taskAssignmentsByBlock: {},
   pomodoro: {
     current_block_id: null,
     current_task_id: null,
     phase: "idle",
     remaining_seconds: 0,
     start_time: null,
+    total_cycles: 0,
+    completed_cycles: 0,
+    current_cycle: 0,
+    focus_seconds: 1500,
+    break_seconds: 300,
+    paused_phase: null,
   },
   logs: [],
 };
@@ -99,6 +112,280 @@ function toTimerText(seconds) {
   const mm = String(Math.floor(total / 60)).padStart(2, "0");
   const ss = String(total % 60).padStart(2, "0");
   return `${mm}:${ss}`;
+}
+
+function normalizePomodoroState(state) {
+  return {
+    current_block_id: state?.current_block_id ?? null,
+    current_task_id: state?.current_task_id ?? null,
+    phase: state?.phase ?? "idle",
+    remaining_seconds: Number.isFinite(state?.remaining_seconds) ? Math.max(0, state.remaining_seconds) : 0,
+    start_time: state?.start_time ?? null,
+    total_cycles: Number.isFinite(state?.total_cycles) ? Math.max(0, state.total_cycles) : 0,
+    completed_cycles: Number.isFinite(state?.completed_cycles) ? Math.max(0, state.completed_cycles) : 0,
+    current_cycle: Number.isFinite(state?.current_cycle) ? Math.max(0, state.current_cycle) : 0,
+  };
+}
+
+function pomodoroPhaseLabel(phase) {
+  switch (phase) {
+    case "focus":
+      return "集中";
+    case "break":
+      return "休憩";
+    case "paused":
+      return "一時停止";
+    default:
+      return "待機";
+  }
+}
+
+function blockDurationMinutes(block) {
+  const startMs = new Date(block.start_at).getTime();
+  const endMs = new Date(block.end_at).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.max(1, Math.round((endMs - startMs) / 60000));
+}
+
+function blockPomodoroTarget(block) {
+  if (Number.isFinite(block.planned_pomodoros) && block.planned_pomodoros > 0) {
+    return Math.max(1, Math.floor(block.planned_pomodoros));
+  }
+  const duration = blockDurationMinutes(block);
+  return Math.max(1, Math.round(duration / 25));
+}
+
+function pomodoroProgressPercent(state) {
+  const total = Math.max(1, state.total_cycles || 0);
+  return Math.max(0, Math.min(100, Math.round((Math.min(state.completed_cycles, total) / total) * 100)));
+}
+
+function resolveDayBounds(dateValue) {
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  const dayStart = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  return { dayStart, dayEnd };
+}
+
+function toSyncWindowPayload(dateValue) {
+  const { dayStart, dayEnd } = resolveDayBounds(dateValue);
+  return {
+    time_min: dayStart.toISOString(),
+    time_max: dayEnd.toISOString(),
+  };
+}
+
+function normalizeAccountId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || "default";
+}
+
+function withAccount(payload = {}) {
+  return {
+    ...payload,
+    account_id: normalizeAccountId(uiState.accountId),
+  };
+}
+
+function toClockText(milliseconds) {
+  return new Date(milliseconds).toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function minutesBetween(startMs, endMs) {
+  return Math.max(0, Math.round((endMs - startMs) / 60000));
+}
+
+function toDurationLabel(totalMinutes) {
+  if (totalMinutes <= 0) return "0m";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h`;
+  return `${minutes}m`;
+}
+
+function toTimelineIntervals(items, dayStartMs, dayEndMs) {
+  const intervals = items
+    .map((item) => {
+      const startMs = new Date(item.start_at).getTime();
+      const endMs = new Date(item.end_at).getTime();
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return null;
+      }
+      const clippedStart = Math.max(startMs, dayStartMs);
+      const clippedEnd = Math.min(endMs, dayEndMs);
+      if (clippedEnd <= clippedStart) {
+        return null;
+      }
+      return { startMs: clippedStart, endMs: clippedEnd };
+    })
+    .filter((slot) => slot !== null);
+
+  return mergeTimelineIntervals(intervals);
+}
+
+function mergeTimelineIntervals(intervals) {
+  if (!intervals.length) return [];
+  const sorted = [...intervals].sort((left, right) => left.startMs - right.startMs);
+  const merged = [{ ...sorted[0] }];
+
+  for (let index = 1; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    const last = merged[merged.length - 1];
+    if (current.startMs <= last.endMs) {
+      last.endMs = Math.max(last.endMs, current.endMs);
+      continue;
+    }
+    merged.push({ ...current });
+  }
+
+  return merged;
+}
+
+function invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals) {
+  if (dayEndMs <= dayStartMs) return [];
+  if (!busyIntervals.length) {
+    return [{ startMs: dayStartMs, endMs: dayEndMs }];
+  }
+
+  const freeIntervals = [];
+  let cursor = dayStartMs;
+  busyIntervals.forEach((interval) => {
+    if (interval.startMs > cursor) {
+      freeIntervals.push({ startMs: cursor, endMs: interval.startMs });
+    }
+    if (interval.endMs > cursor) {
+      cursor = interval.endMs;
+    }
+  });
+
+  if (cursor < dayEndMs) {
+    freeIntervals.push({ startMs: cursor, endMs: dayEndMs });
+  }
+  return freeIntervals;
+}
+
+function sumIntervalMinutes(intervals) {
+  return intervals.reduce((total, interval) => total + minutesBetween(interval.startMs, interval.endMs), 0);
+}
+
+function intervalRangeLabel(interval) {
+  return `${toClockText(interval.startMs)} - ${toClockText(interval.endMs)}`;
+}
+
+function renderSlotList(intervals, emptyText) {
+  if (!intervals.length) {
+    return `<p class="small">${emptyText}</p>`;
+  }
+  return `
+    <ul class="slot-list">
+      ${intervals
+        .map(
+          (interval) => `
+            <li>
+              <span>${intervalRangeLabel(interval)}</span>
+              <span class="small">${toDurationLabel(minutesBetween(interval.startMs, interval.endMs))}</span>
+            </li>
+          `
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderTimelineScale() {
+  return [0, 6, 12, 18, 24]
+    .map(
+      (hour) => `
+        <span style="left:${(hour / 24) * 100}%">${String(hour).padStart(2, "0")}:00</span>
+      `
+    )
+    .join("");
+}
+
+function renderTimelineLane(label, kind, intervals, dayStartMs, dayEndMs) {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  const segments = intervals
+    .map((interval) => {
+      const left = ((interval.startMs - dayStartMs) / totalRange) * 100;
+      const width = Math.max(0.9, ((interval.endMs - interval.startMs) / totalRange) * 100);
+      const title = `${intervalRangeLabel(interval)} (${toDurationLabel(
+        minutesBetween(interval.startMs, interval.endMs)
+      )})`;
+      return `<span class="timeline-segment ${kind}" style="left:${left}%;width:${width}%" title="${title}"></span>`;
+    })
+    .join("");
+
+  return `
+    <div class="timeline-lane">
+      <span class="lane-label">${label}</span>
+      <div class="timeline-track">${segments || '<span class="timeline-empty">none</span>'}</div>
+    </div>
+  `;
+}
+
+function buildDailyCalendarModel(dateValue, blocks, events) {
+  const { dayStart, dayEnd } = resolveDayBounds(dateValue);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayEnd.getTime();
+  const blockIntervals = toTimelineIntervals(blocks, dayStartMs, dayEndMs);
+  const eventIntervals = toTimelineIntervals(events, dayStartMs, dayEndMs);
+  const busyIntervals = mergeTimelineIntervals([...blockIntervals, ...eventIntervals]);
+  const freeIntervals = invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals);
+
+  return {
+    dayStartMs,
+    dayEndMs,
+    blockIntervals,
+    eventIntervals,
+    freeIntervals,
+    totals: {
+      blockMinutes: sumIntervalMinutes(blockIntervals),
+      eventMinutes: sumIntervalMinutes(eventIntervals),
+      freeMinutes: sumIntervalMinutes(freeIntervals),
+    },
+  };
+}
+
+function renderDailyCalendar(dateValue) {
+  const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents);
+  return `
+    <div class="panel day-calendar">
+      <div class="row spread">
+        <h3>1日の時間カレンダー</h3>
+        <span class="small">${dateValue}</span>
+      </div>
+      <div class="calendar-metrics">
+        <span class="pill calendar-pill block">ブロック ${toDurationLabel(model.totals.blockMinutes)}</span>
+        <span class="pill calendar-pill event">予定 ${toDurationLabel(model.totals.eventMinutes)}</span>
+        <span class="pill calendar-pill free">空き ${toDurationLabel(model.totals.freeMinutes)}</span>
+      </div>
+      <div class="timeline-wrap">
+        <div class="timeline-scale">${renderTimelineScale()}</div>
+        ${renderTimelineLane("ブロック", "block", model.blockIntervals, model.dayStartMs, model.dayEndMs)}
+        ${renderTimelineLane("予定", "event", model.eventIntervals, model.dayStartMs, model.dayEndMs)}
+      </div>
+      <div class="day-slot-grid">
+        <section>
+          <h4>ブロック時間</h4>
+          ${renderSlotList(model.blockIntervals, "ブロックはありません")}
+        </section>
+        <section>
+          <h4>予定時間</h4>
+          ${renderSlotList(model.eventIntervals, "予定はありません")}
+        </section>
+        <section>
+          <h4>空き時間</h4>
+          ${renderSlotList(model.freeIntervals, "空き時間はありません")}
+        </section>
+      </div>
+    </div>
+  `;
 }
 
 function setStatus(message) {
@@ -222,18 +509,116 @@ async function invokeCommandWithProgress(name, payload = {}) {
   }
 }
 
+function emptyMockPomodoroState() {
+  return {
+    current_block_id: null,
+    current_task_id: null,
+    phase: "idle",
+    remaining_seconds: 0,
+    start_time: null,
+    total_cycles: 0,
+    completed_cycles: 0,
+    current_cycle: 0,
+    focus_seconds: 1500,
+    break_seconds: 300,
+    paused_phase: null,
+  };
+}
+
+function mockSessionPlan(block) {
+  const totalCycles = blockPomodoroTarget(block);
+  const breakSeconds = Math.max(60, Math.floor((uiState.settings.breakDuration || 5) * 60));
+  const blockSeconds = Math.max(blockDurationMinutes(block) * 60, totalCycles * 300);
+  const breakSlots = Math.max(0, totalCycles - 1);
+  const maxBreakSeconds = breakSlots > 0 ? Math.floor((blockSeconds - totalCycles * 300) / breakSlots) : 0;
+  const effectiveBreakSeconds = breakSlots > 0 ? Math.max(0, Math.min(breakSeconds, maxBreakSeconds)) : 0;
+  const focusSeconds = Math.max(300, Math.floor((blockSeconds - effectiveBreakSeconds * breakSlots) / totalCycles));
+  return {
+    totalCycles,
+    focusSeconds,
+    breakSeconds: effectiveBreakSeconds,
+  };
+}
+
+function appendMockPomodoroLog(phase, interruptionReason = null) {
+  mockState.logs.push({
+    id: nextMockId("pom"),
+    block_id: mockState.pomodoro.current_block_id,
+    task_id: mockState.pomodoro.current_task_id,
+    phase,
+    start_time: mockState.pomodoro.start_time ?? nowIso(),
+    end_time: nowIso(),
+    interruption_reason: interruptionReason,
+  });
+}
+
+function unassignMockTask(taskId) {
+  const previousBlockId = mockState.taskAssignmentsByTask[taskId];
+  if (previousBlockId) {
+    delete mockState.taskAssignmentsByTask[taskId];
+    delete mockState.taskAssignmentsByBlock[previousBlockId];
+  }
+}
+
+function assignMockTask(taskId, blockId) {
+  const previousTaskId = mockState.taskAssignmentsByBlock[blockId];
+  if (previousTaskId) {
+    delete mockState.taskAssignmentsByTask[previousTaskId];
+  }
+  unassignMockTask(taskId);
+  mockState.taskAssignmentsByTask[taskId] = blockId;
+  mockState.taskAssignmentsByBlock[blockId] = taskId;
+}
+
 async function mockInvoke(name, payload) {
   switch (name) {
     case "bootstrap":
       return { workspace_root: "mock", database_path: "mock.sqlite" };
-    case "authenticate_google":
+    case "authenticate_google": {
+      const accountId = normalizeAccountId(payload.account_id);
       return {
+        account_id: accountId,
         status: payload.authorization_code ? "authenticated" : "reauthentication_required",
         authorization_url: "https://accounts.google.com/o/oauth2/v2/auth",
         expires_at: new Date(Date.now() + 3600000).toISOString(),
       };
-    case "sync_calendar":
-      return { added: 0, updated: 0, deleted: 0, next_sync_token: "mock-token", calendar_id: "primary" };
+    }
+    case "sync_calendar": {
+      const accountId = normalizeAccountId(payload.account_id);
+      const seed = typeof payload.time_min === "string" ? payload.time_min : nowIso();
+      const parsed = new Date(seed);
+      const dayStart = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+      dayStart.setHours(0, 0, 0, 0);
+
+      const morningStart = new Date(dayStart.getTime() + 10 * 60 * 60 * 1000);
+      const morningEnd = new Date(morningStart.getTime() + 30 * 60 * 1000);
+      const afternoonStart = new Date(dayStart.getTime() + 14 * 60 * 60 * 1000);
+      const afternoonEnd = new Date(afternoonStart.getTime() + 60 * 60 * 1000);
+
+      mockState.syncedEventsByAccount[accountId] = [
+        {
+          id: nextMockId("evt"),
+          title: "Mock Event A",
+          start_at: morningStart.toISOString(),
+          end_at: morningEnd.toISOString(),
+        },
+        {
+          id: nextMockId("evt"),
+          title: "Mock Event B",
+          start_at: afternoonStart.toISOString(),
+          end_at: afternoonEnd.toISOString(),
+        },
+      ];
+
+      return {
+        account_id: accountId,
+        added: mockState.syncedEventsByAccount[accountId].length,
+        updated: 0,
+        deleted: 0,
+        next_sync_token: "mock-token",
+        calendar_id: "primary",
+      };
+    }
     case "list_tasks":
       return [...mockState.tasks];
     case "create_task": {
@@ -259,14 +644,103 @@ async function mockInvoke(name, payload) {
       return { ...task };
     }
     case "delete_task":
+      unassignMockTask(payload.task_id);
       mockState.tasks = mockState.tasks.filter((item) => item.id !== payload.task_id);
       return true;
+    case "split_task": {
+      const parts = Number(payload.parts ?? 0);
+      if (!Number.isInteger(parts) || parts < 2) {
+        throw new Error("parts must be >= 2");
+      }
+      const parent = mockState.tasks.find((item) => item.id === payload.task_id);
+      if (!parent) throw new Error("task not found");
+      const estimated = parent.estimated_pomodoros;
+      const childEstimate =
+        typeof estimated === "number" ? Math.max(1, Math.ceil(estimated / parts)) : null;
+      parent.status = "deferred";
+      unassignMockTask(parent.id);
+      if (mockState.pomodoro.current_task_id === parent.id) {
+        mockState.pomodoro.current_task_id = null;
+      }
+
+      const children = [];
+      for (let index = 1; index <= parts; index += 1) {
+        const child = {
+          id: nextMockId("tsk"),
+          title: `${parent.title} (${index}/${parts})`,
+          description: parent.description ?? null,
+          estimated_pomodoros: childEstimate,
+          completed_pomodoros: 0,
+          status: "pending",
+          created_at: nowIso(),
+        };
+        mockState.tasks.push(child);
+        children.push(child);
+      }
+      return children;
+    }
+    case "carry_over_task": {
+      const taskId = String(payload.task_id ?? "").trim();
+      const fromBlockId = String(payload.from_block_id ?? "").trim();
+      if (!taskId || !fromBlockId) {
+        throw new Error("task_id and from_block_id are required");
+      }
+      const task = mockState.tasks.find((item) => item.id === taskId);
+      if (!task) throw new Error("task not found");
+      const fromBlock = mockState.blocks.find((item) => item.id === fromBlockId);
+      if (!fromBlock) throw new Error("block not found");
+
+      const requested = Array.isArray(payload.candidate_block_ids)
+        ? payload.candidate_block_ids.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      const candidates = [...mockState.blocks]
+        .filter((block) => block.id !== fromBlock.id)
+        .filter((block) => block.date === fromBlock.date)
+        .filter((block) => new Date(block.start_at).getTime() >= new Date(fromBlock.end_at).getTime())
+        .filter((block) => requested.length === 0 || requested.includes(block.id))
+        .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+      const next = candidates.find((block) => !mockState.taskAssignmentsByBlock[block.id]);
+      if (!next) {
+        throw new Error("no available block for carry-over");
+      }
+
+      assignMockTask(taskId, next.id);
+      task.status = "in_progress";
+      return {
+        task_id: taskId,
+        from_block_id: fromBlockId,
+        to_block_id: next.id,
+        status: task.status,
+      };
+    }
     case "list_blocks": {
       const date = payload.date || null;
       const blocks = date
         ? mockState.blocks.filter((block) => block.date === date)
         : mockState.blocks;
       return [...blocks];
+    }
+    case "list_synced_events": {
+      const accountId = normalizeAccountId(payload.account_id);
+      const timeMin = new Date(payload.time_min || "1970-01-01T00:00:00.000Z").getTime();
+      const timeMax = new Date(payload.time_max || "2999-12-31T23:59:59.000Z").getTime();
+      const entries =
+        payload.account_id == null
+          ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]) =>
+              events.map((event) => ({ ...event, account_id: entryAccountId }))
+            )
+          : (mockState.syncedEventsByAccount[accountId] || []).map((event) => ({
+              ...event,
+              account_id: accountId,
+            }));
+      return entries
+        .filter((event) => {
+          const startMs = new Date(event.start_at).getTime();
+          const endMs = new Date(event.end_at).getTime();
+          if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return false;
+          return endMs > timeMin && startMs < timeMax;
+        })
+        .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
     }
     case "generate_blocks": {
       const date = payload.date || isoDate(new Date());
@@ -293,6 +767,11 @@ async function mockInvoke(name, payload) {
       );
       return mockState.blocks.filter((block) => payload.block_ids.includes(block.id));
     case "delete_block":
+      if (mockState.taskAssignmentsByBlock[payload.block_id]) {
+        const taskId = mockState.taskAssignmentsByBlock[payload.block_id];
+        delete mockState.taskAssignmentsByBlock[payload.block_id];
+        delete mockState.taskAssignmentsByTask[taskId];
+      }
       mockState.blocks = mockState.blocks.filter((block) => block.id !== payload.block_id);
       return true;
     case "adjust_block_time":
@@ -303,6 +782,13 @@ async function mockInvoke(name, payload) {
       );
       return mockState.blocks.find((block) => block.id === payload.block_id);
     case "start_pomodoro":
+      if (payload.task_id) {
+        assignMockTask(payload.task_id, payload.block_id);
+        const task = mockState.tasks.find((item) => item.id === payload.task_id);
+        if (task && task.status !== "completed") {
+          task.status = "in_progress";
+        }
+      }
       mockState.pomodoro = {
         current_block_id: payload.block_id,
         current_task_id: payload.task_id ?? null,
@@ -337,6 +823,31 @@ async function mockInvoke(name, payload) {
       return { ...mockState.pomodoro };
     case "get_pomodoro_state":
       return { ...mockState.pomodoro };
+    case "relocate_if_needed": {
+      const accountId = normalizeAccountId(payload.account_id);
+      const block = mockState.blocks.find((item) => item.id === payload.block_id);
+      if (!block) throw new Error("block not found");
+      const currentStartMs = new Date(block.start_at).getTime();
+      const currentEndMs = new Date(block.end_at).getTime();
+      if (!Number.isFinite(currentStartMs) || !Number.isFinite(currentEndMs) || currentEndMs <= currentStartMs) {
+        return null;
+      }
+      const collisions = (mockState.syncedEventsByAccount[accountId] || []).filter((event) => {
+        const startMs = new Date(event.start_at).getTime();
+        const endMs = new Date(event.end_at).getTime();
+        return Number.isFinite(startMs) && Number.isFinite(endMs) && currentStartMs < endMs && startMs < currentEndMs;
+      });
+      if (collisions.length === 0) {
+        return null;
+      }
+      const latestCollisionEnd = collisions
+        .map((event) => new Date(event.end_at).getTime())
+        .reduce((max, value) => Math.max(max, value), currentStartMs);
+      const durationMs = currentEndMs - currentStartMs;
+      block.start_at = new Date(latestCollisionEnd).toISOString();
+      block.end_at = new Date(latestCollisionEnd + durationMs).toISOString();
+      return { ...block };
+    }
     case "get_reflection_summary":
       return {
         start: payload.start ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
@@ -352,8 +863,12 @@ async function mockInvoke(name, payload) {
 }
 
 async function refreshCoreData(date = isoDate(new Date())) {
+  const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
+  const syncWindow = toSyncWindowPayload(normalizedDate);
+  uiState.dashboardDate = normalizedDate;
   uiState.tasks = await safeInvoke("list_tasks");
-  uiState.blocks = await safeInvoke("list_blocks", { date });
+  uiState.blocks = await safeInvoke("list_blocks", { date: normalizedDate });
+  uiState.calendarEvents = await safeInvoke("list_synced_events", withAccount(syncWindow));
   uiState.pomodoro = await safeInvoke("get_pomodoro_state");
 }
 
@@ -398,6 +913,9 @@ function renderAuth() {
     </section>
     <div class="grid two">
       <div class="panel grid">
+        <label>Account ID
+          <input id="auth-account-id" value="${normalizeAccountId(uiState.accountId)}" placeholder="default or email label" />
+        </label>
         <label>Authorization Code
           <input id="auth-code" placeholder="paste authorization code" />
         </label>
@@ -414,13 +932,19 @@ function renderAuth() {
   `;
 
   document.getElementById("auth-check")?.addEventListener("click", async () => {
-    uiState.auth = await safeInvoke("authenticate_google", {});
+    uiState.accountId = normalizeAccountId(
+      /** @type {HTMLInputElement} */ (document.getElementById("auth-account-id")).value
+    );
+    uiState.auth = await safeInvoke("authenticate_google", withAccount({}));
     renderAuth();
   });
 
   document.getElementById("auth-exchange")?.addEventListener("click", async () => {
+    uiState.accountId = normalizeAccountId(
+      /** @type {HTMLInputElement} */ (document.getElementById("auth-account-id")).value
+    );
     const code = /** @type {HTMLInputElement} */ (document.getElementById("auth-code")).value.trim();
-    uiState.auth = await safeInvoke("authenticate_google", { authorization_code: code });
+    uiState.auth = await safeInvoke("authenticate_google", withAccount({ authorization_code: code }));
     renderAuth();
   });
 }
@@ -450,14 +974,16 @@ function blockRows(blocks) {
 }
 
 function renderDashboard() {
-  const today = isoDate(new Date());
+  const fallbackDate = isoDate(new Date());
+  const selectedDate = uiState.dashboardDate || fallbackDate;
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
         <h2>ダッシュボード</h2>
-        <p>同期・日次ブロック生成・本日の状態確認。</p>
+        <p>同期状況・日次ブロック生成・本日の状況を確認します。</p>
       </div>
-      <label>日付 <input id="dashboard-date" type="date" value="${today}" /></label>
+      <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
+      <label>Account <input id="dashboard-account-id" value="${normalizeAccountId(uiState.accountId)}" /></label>
     </section>
     <div class="grid three">${dashboardMetrics()}</div>
     <div class="panel row">
@@ -465,6 +991,7 @@ function renderDashboard() {
       <button id="dashboard-generate" class="btn-secondary">ブロック生成</button>
       <button id="dashboard-refresh" class="btn-secondary">再読込</button>
     </div>
+    ${renderDailyCalendar(selectedDate)}
     <div class="panel">
       <h3>今日のブロック</h3>
       <table>
@@ -474,19 +1001,43 @@ function renderDashboard() {
     </div>
   `;
 
+  const getSelectedDate = () => {
+    const raw = /** @type {HTMLInputElement | null} */ (document.getElementById("dashboard-date"))?.value;
+    return raw && raw.trim() ? raw.trim() : fallbackDate;
+  };
+  const getSelectedAccount = () =>
+    normalizeAccountId(
+      /** @type {HTMLInputElement | null} */ (document.getElementById("dashboard-account-id"))?.value
+    );
+
+  document.getElementById("dashboard-date")?.addEventListener("change", async () => {
+    const date = getSelectedDate();
+    await refreshCoreData(date);
+    renderDashboard();
+  });
+  document.getElementById("dashboard-account-id")?.addEventListener("change", async () => {
+    uiState.accountId = getSelectedAccount();
+    const date = getSelectedDate();
+    await refreshCoreData(date);
+    renderDashboard();
+  });
+
   document.getElementById("dashboard-sync")?.addEventListener("click", async () => {
-    await invokeCommandWithProgress("sync_calendar", {});
-    await refreshCoreData(today);
+    uiState.accountId = getSelectedAccount();
+    const date = getSelectedDate();
+    await invokeCommandWithProgress("sync_calendar", withAccount(toSyncWindowPayload(date)));
+    await refreshCoreData(date);
     renderDashboard();
   });
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
-    const date = /** @type {HTMLInputElement} */ (document.getElementById("dashboard-date")).value || today;
-    await invokeCommandWithProgress("generate_blocks", { date });
+    uiState.accountId = getSelectedAccount();
+    const date = getSelectedDate();
+    await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
     await refreshCoreData(date);
     renderDashboard();
   });
   document.getElementById("dashboard-refresh")?.addEventListener("click", async () => {
-    const date = /** @type {HTMLInputElement} */ (document.getElementById("dashboard-date")).value || today;
+    const date = getSelectedDate();
     await refreshCoreData(date);
     renderDashboard();
   });
@@ -501,6 +1052,7 @@ function renderBlocks() {
         <p>生成ブロックを承認・削除・時刻調整します。</p>
       </div>
       <label>日付 <input id="block-date" type="date" value="${today}" /></label>
+      <label>Account <input id="block-account-id" value="${normalizeAccountId(uiState.accountId)}" /></label>
     </section>
     <div class="panel row">
       <button id="block-load" class="btn-secondary">読込</button>
@@ -523,6 +1075,7 @@ function renderBlocks() {
             <div class="row" style="margin-top:10px">
               <button class="btn-primary" data-approve="${block.id}">承認</button>
               <button class="btn-secondary" data-adjust="${block.id}">時刻調整</button>
+              <button class="btn-warn" data-relocate="${block.id}">再配置</button>
               <button class="btn-danger" data-delete="${block.id}">削除</button>
             </div>
           </article>`
@@ -539,8 +1092,11 @@ function renderBlocks() {
 
   document.getElementById("block-load")?.addEventListener("click", reload);
   document.getElementById("block-generate")?.addEventListener("click", async () => {
+    uiState.accountId = normalizeAccountId(
+      /** @type {HTMLInputElement} */ (document.getElementById("block-account-id")).value
+    );
     const date = /** @type {HTMLInputElement} */ (document.getElementById("block-date")).value || today;
-    await invokeCommandWithProgress("generate_blocks", { date });
+    await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
     await reload();
   });
 
@@ -568,6 +1124,13 @@ function renderBlocks() {
         start_at: fromLocalInputValue(start),
         end_at: fromLocalInputValue(end),
       });
+      await reload();
+    });
+  });
+  appRoot.querySelectorAll("[data-relocate]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const id = /** @type {HTMLElement} */ (node).dataset.relocate;
+      await safeInvoke("relocate_if_needed", withAccount({ block_id: id }));
       await reload();
     });
   });
@@ -663,6 +1226,8 @@ function renderTasks() {
                 <td><input id="estimate-${task.id}" type="number" min="0" value="${task.estimated_pomodoros ?? 0}" /></td>
                 <td>
                   <button class="btn-secondary" data-save-task="${task.id}">保存</button>
+                  <input id="split-parts-${task.id}" type="number" min="2" value="2" style="width:68px" />
+                  <button class="btn-warn" data-split-task="${task.id}">分割</button>
                   <button class="btn-danger" data-delete-task="${task.id}">削除</button>
                 </td>
               </tr>`
@@ -670,6 +1235,39 @@ function renderTasks() {
             .join("")}
         </tbody>
       </table>
+    </div>
+    <div class="panel" style="margin-top:14px">
+      <h3>繰り越し</h3>
+      <div class="grid three">
+        <label>Task
+          <select id="carry-task-id">
+            <option value="">(task)</option>
+            ${uiState.tasks
+              .filter((task) => task.status !== "completed")
+              .map((task) => `<option value="${task.id}">${task.title}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <label>From Block
+          <select id="carry-from-block-id">
+            <option value="">(from)</option>
+            ${uiState.blocks
+              .map((block) => `<option value="${block.id}">${block.id} ${formatTime(block.start_at)}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <label>To Block
+          <select id="carry-to-block-id">
+            <option value="">(to)</option>
+            ${uiState.blocks
+              .map((block) => `<option value="${block.id}">${block.id} ${formatTime(block.start_at)}</option>`)
+              .join("")}
+          </select>
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="task-carry-over" class="btn-warn">選択ブロックへ繰り越し</button>
+      </div>
     </div>
   `;
 
@@ -710,6 +1308,35 @@ function renderTasks() {
       uiState.tasks = await safeInvoke("list_tasks");
       renderTasks();
     });
+  });
+
+  appRoot.querySelectorAll("[data-split-task]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const id = /** @type {HTMLElement} */ (node).dataset.splitTask;
+      const partsRaw = /** @type {HTMLInputElement} */ (document.getElementById(`split-parts-${id}`)).value;
+      const parts = Number(partsRaw || "0");
+      await safeInvoke("split_task", { task_id: id, parts: Number.isFinite(parts) ? parts : 0 });
+      uiState.tasks = await safeInvoke("list_tasks");
+      renderTasks();
+    });
+  });
+
+  document.getElementById("task-carry-over")?.addEventListener("click", async () => {
+    const taskId = /** @type {HTMLSelectElement} */ (document.getElementById("carry-task-id")).value;
+    const fromBlockId = /** @type {HTMLSelectElement} */ (document.getElementById("carry-from-block-id")).value;
+    const toBlockId = /** @type {HTMLSelectElement} */ (document.getElementById("carry-to-block-id")).value;
+    if (!taskId || !fromBlockId || !toBlockId) {
+      setStatus("task / from / to を選択してください");
+      return;
+    }
+    const result = await safeInvoke("carry_over_task", {
+      task_id: taskId,
+      from_block_id: fromBlockId,
+      candidate_block_ids: [toBlockId],
+    });
+    setStatus(`task carry-over: ${result.task_id} -> ${result.to_block_id}`);
+    uiState.tasks = await safeInvoke("list_tasks");
+    renderTasks();
   });
 }
 
@@ -839,3 +1466,4 @@ setInterval(async () => {
   }
   render();
 })();
+

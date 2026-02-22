@@ -11,6 +11,9 @@ const KEY_FIRMNESS: &str = "bs_firmness";
 const KEY_SOURCE: &str = "bs_source";
 const KEY_SOURCE_ID: &str = "bs_source_id";
 const KEY_PLANNED_POMODOROS: &str = "bs_planned_pomodoros";
+const KEY_VERSION: &str = "bs_v";
+const KEY_APP: &str = "bs_app";
+const KEY_KIND: &str = "bs_kind";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct CalendarEventDateTime {
@@ -64,6 +67,9 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
         KEY_PLANNED_POMODOROS.to_string(),
         block.planned_pomodoros.to_string(),
     );
+    private.insert(KEY_VERSION.to_string(), "1".to_string());
+    private.insert(KEY_APP.to_string(), "blocksched".to_string());
+    private.insert(KEY_KIND.to_string(), "block".to_string());
     if let Some(source_id) = block.source_id.as_deref().map(str::trim).filter(|id| !id.is_empty())
     {
         private.insert(KEY_SOURCE_ID.to_string(), source_id.to_string());
@@ -315,5 +321,18 @@ mod tests {
 
         let result = decode_block_event(&event);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn encode_includes_managed_metadata_keys() {
+        let encoded = encode_block_event(&sample_block());
+        let private = encoded
+            .extended_properties
+            .expect("extended properties")
+            .private;
+
+        assert_eq!(private.get(KEY_VERSION).map(String::as_str), Some("1"));
+        assert_eq!(private.get(KEY_APP).map(String::as_str), Some("blocksched"));
+        assert_eq!(private.get(KEY_KIND).map(String::as_str), Some("block"));
     }
 }
