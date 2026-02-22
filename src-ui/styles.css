@@ -91,6 +91,13 @@ p {
   gap: 12px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .brand-kicker {
   color: var(--muted);
   font-size: 0.84rem;
@@ -115,6 +122,42 @@ p {
   display: grid;
   gap: 8px;
   min-width: min(380px, 100%);
+}
+
+.settings-gear {
+  width: 42px;
+  height: 42px;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 42px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  font-size: 1.3rem;
+  line-height: 1;
+  transition: transform 140ms ease, filter 140ms ease;
+}
+
+.settings-gear:hover {
+  transform: translateY(-1px);
+  filter: brightness(0.98);
+}
+
+.settings-gear:focus-visible {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+.settings-gear[aria-current="page"] {
+  background: var(--accent);
+  color: #f6fffb;
+  border-color: transparent;
 }
 
 .progress-chip {
@@ -169,6 +212,29 @@ p {
 .route-nav a[aria-current="page"] {
   background: var(--accent);
   color: #f6fffb;
+}
+
+.settings-page-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.settings-page-nav a {
+  text-decoration: none;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #ecf3f0;
+  font-weight: 500;
+}
+
+.settings-page-nav a[aria-current="page"] {
+  background: var(--accent);
+  color: #f6fffb;
+  border-color: transparent;
 }
 
 .view-root {
@@ -534,9 +600,15 @@ th {
     flex-direction: column;
   }
 
+  .topbar-actions {
+    width: 100%;
+    align-items: flex-start;
+  }
+
   .status-stack {
     min-width: 0;
-    width: 100%;
+    width: auto;
+    flex: 1;
   }
 
   .app-shell {

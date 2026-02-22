@@ -26,26 +26,35 @@
           <p class="brand-kicker">Workflow Console</p>
           <h1>PomBlock</h1>
         </div>
-        <div class="status-stack">
-          <div id="global-status" class="status-chip" aria-live="polite">Ready</div>
-          <div id="global-progress" class="progress-chip" aria-live="polite" hidden>
-            <span id="global-progress-label">処理中</span>
-            <div class="progress-track">
-              <span id="global-progress-fill" class="progress-fill"></span>
+        <div class="topbar-actions">
+          <div class="status-stack">
+            <div id="global-status" class="status-chip" aria-live="polite">Ready</div>
+            <div id="global-progress" class="progress-chip" aria-live="polite" hidden>
+              <span id="global-progress-label">処理中</span>
+              <div class="progress-track">
+                <span id="global-progress-fill" class="progress-fill"></span>
+              </div>
+              <span id="global-progress-value">0%</span>
             </div>
-            <span id="global-progress-value">0%</span>
           </div>
+          <a
+            href="#/settings/blocks"
+            id="settings-link"
+            data-route="settings"
+            class="settings-gear"
+            aria-label="設定を開く"
+            title="設定"
+            >⚙</a
+          >
         </div>
       </header>
 
       <nav class="route-nav" id="route-nav" aria-label="Main navigation">
-        <a href="#/auth" data-route="auth">認証</a>
         <a href="#/dashboard" data-route="dashboard">ダッシュボード</a>
         <a href="#/blocks" data-route="blocks">ブロック</a>
         <a href="#/pomodoro" data-route="pomodoro">ポモドーロ</a>
         <a href="#/tasks" data-route="tasks">タスク</a>
         <a href="#/reflection" data-route="reflection">振り返り</a>
-        <a href="#/settings" data-route="settings">設定</a>
       </nav>
 
       <main id="app" class="view-root" aria-live="polite"></main>
