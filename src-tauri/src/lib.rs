@@ -5,6 +5,7 @@ mod infrastructure;
 use application::bootstrap::bootstrap_workspace;
 use application::commands::{
     adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
+    authenticate_google_sso_impl,
     carry_over_task_impl, complete_pomodoro_impl, create_task_impl, delete_block_impl,
     delete_task_impl, generate_blocks_impl, get_pomodoro_state_impl,
     get_reflection_summary_impl, list_blocks_impl, list_synced_events_impl, list_tasks_impl,
@@ -51,6 +52,17 @@ async fn authenticate_google(
     authenticate_google_impl(state.inner(), account_id, authorization_code)
         .await
         .map_err(|error| state.command_error("authenticate_google", &error))
+}
+
+#[tauri::command]
+async fn authenticate_google_sso(
+    state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
+    force_reauth: Option<bool>,
+) -> Result<AuthenticateGoogleResponse, String> {
+    authenticate_google_sso_impl(state.inner(), account_id, force_reauth.unwrap_or(false))
+        .await
+        .map_err(|error| state.command_error("authenticate_google_sso", &error))
 }
 
 #[tauri::command]
@@ -255,6 +267,7 @@ pub fn run() {
             ping,
             bootstrap,
             authenticate_google,
+            authenticate_google_sso,
             sync_calendar,
             generate_blocks,
             approve_blocks,

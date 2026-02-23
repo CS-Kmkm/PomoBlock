@@ -14,10 +14,11 @@ const settingsPageLabels = {
   git: "Git同期",
   auth: "Google Auth",
 };
-const longRunningCommands = new Set(["sync_calendar", "generate_blocks"]);
+const longRunningCommands = new Set(["sync_calendar", "generate_blocks", "authenticate_google_sso"]);
 const longRunningLabels = {
   sync_calendar: "カレンダー同期",
   generate_blocks: "ブロック生成",
+  authenticate_google_sso: "Google SSO認証",
 };
 const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
@@ -495,11 +496,22 @@ function markActiveRoute(route) {
 }
 
 async function invokeCommand(name, payload = {}) {
-  const tauriInvoke = window.__TAURI__?.core?.invoke ?? window.__TAURI__?.invoke;
+  const tauriInvoke =
+    window.__TAURI__?.core?.invoke ??
+    window.__TAURI__?.invoke ??
+    window.__TAURI_INTERNALS__?.invoke;
   if (tauriInvoke) {
     return tauriInvoke(name, payload);
   }
   return mockInvoke(name, payload);
+}
+
+function isTauriRuntimeAvailable() {
+  return Boolean(
+    window.__TAURI__?.core?.invoke ??
+      window.__TAURI__?.invoke ??
+      window.__TAURI_INTERNALS__?.invoke
+  );
 }
 
 async function safeInvoke(name, payload = {}) {
@@ -511,6 +523,16 @@ async function safeInvoke(name, payload = {}) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`${name} failed: ${message}`);
     throw error;
+  }
+}
+
+async function runUiAction(action) {
+  try {
+    await action();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setStatus(`operation failed: ${message}`);
+    console.error(error);
   }
 }
 
@@ -604,6 +626,11 @@ async function mockInvoke(name, payload) {
         authorization_url: "https://accounts.google.com/o/oauth2/v2/auth",
         expires_at: new Date(Date.now() + 3600000).toISOString(),
       };
+    }
+    case "authenticate_google_sso": {
+      throw new Error(
+        "Google SSO is unavailable in mock mode. Run the desktop app with `cargo tauri dev`."
+      );
     }
     case "sync_calendar": {
       const accountId = normalizeAccountId(payload.account_id);
@@ -894,6 +921,33 @@ async function refreshCoreData(date = isoDate(new Date())) {
   uiState.pomodoro = await safeInvoke("get_pomodoro_state");
 }
 
+async function authenticateAndSyncCalendar(
+  date = uiState.dashboardDate || isoDate(new Date()),
+  options = {}
+) {
+  if (options.forceReauth && !isTauriRuntimeAvailable()) {
+    throw new Error(
+      "SSO login requires the Tauri desktop runtime. Start it with `cd src-tauri && cargo tauri dev`."
+    );
+  }
+  const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
+  uiState.dashboardDate = normalizedDate;
+  uiState.auth = await invokeCommandWithProgress(
+    "authenticate_google_sso",
+    withAccount({ force_reauth: Boolean(options.forceReauth) })
+  );
+  const syncResult = await invokeCommandWithProgress(
+    "sync_calendar",
+    withAccount(toSyncWindowPayload(normalizedDate))
+  );
+  uiState.auth = {
+    ...uiState.auth,
+    synced_at: nowIso(),
+    sync_result: syncResult,
+  };
+  return { normalizedDate, syncResult };
+}
+
 function render() {
   const route = getRoute();
   markActiveRoute(route);
@@ -996,11 +1050,13 @@ function renderDashboard() {
   });
 
   document.getElementById("dashboard-sync")?.addEventListener("click", async () => {
-    uiState.accountId = getSelectedAccount();
-    const date = getSelectedDate();
-    await invokeCommandWithProgress("sync_calendar", withAccount(toSyncWindowPayload(date)));
-    await refreshCoreData(date);
-    renderDashboard();
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      await authenticateAndSyncCalendar(date);
+      await refreshCoreData(date);
+      renderDashboard();
+    });
   });
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
     uiState.accountId = getSelectedAccount();
@@ -1414,7 +1470,7 @@ function renderSettings() {
         <div class="grid two">
           <div class="panel grid">
             <h3>Google OAuth 認証</h3>
-            <p class="small">認証状態を確認し、認可コードを交換します。</p>
+            <p class="small">推奨: 1クリックでSSO認証してカレンダー同期します。必要時のみ認可コードを手動交換します。</p>
             <label>Account ID
               <input id="auth-account-id" value="${normalizeAccountId(uiState.accountId)}" placeholder="default or email label" />
             </label>
@@ -1422,8 +1478,9 @@ function renderSettings() {
               <input id="auth-code" placeholder="paste authorization code" />
             </label>
             <div class="row">
+              <button id="auth-sso" class="btn-primary">SSOログインして同期</button>
               <button id="auth-check" class="btn-secondary">セッション確認</button>
-              <button id="auth-exchange" class="btn-primary">コード交換</button>
+              <button id="auth-exchange" class="btn-secondary">コード交換</button>
             </div>
           </div>
           <div class="panel">
@@ -1475,6 +1532,18 @@ function renderSettings() {
       renderSettings();
     });
   } else {
+    document.getElementById("auth-sso")?.addEventListener("click", async () => {
+      await runUiAction(async () => {
+        uiState.accountId = normalizeAccountId(
+          /** @type {HTMLInputElement} */ (document.getElementById("auth-account-id")).value
+        );
+        const targetDate = uiState.dashboardDate || isoDate(new Date());
+        await authenticateAndSyncCalendar(targetDate, { forceReauth: true });
+        await refreshCoreData(targetDate);
+        renderSettings();
+      });
+    });
+
     document.getElementById("auth-check")?.addEventListener("click", async () => {
       uiState.accountId = normalizeAccountId(
         /** @type {HTMLInputElement} */ (document.getElementById("auth-account-id")).value
@@ -1507,6 +1576,10 @@ setInterval(async () => {
 }, 5000);
 
 (async () => {
+  if (!isTauriRuntimeAvailable()) {
+    setStatus("mock mode: SSO requires `cd src-tauri && cargo tauri dev`");
+  }
+
   try {
     await safeInvoke("bootstrap", {});
     await refreshCoreData();

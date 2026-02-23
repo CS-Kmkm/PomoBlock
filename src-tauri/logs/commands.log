@@ -1,0 +1,3 @@
+{"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:12:27.591657+00:00"}
+{"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:12:44.819395700+00:00"}
+{"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:37:00.847489200+00:00"}
