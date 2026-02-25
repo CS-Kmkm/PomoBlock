@@ -61,12 +61,14 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
                     "catchUpOnAppStart": true,
                     "placementStrategy": "keep",
                     "maxShiftMinutes": 120,
+                    "maxAutoBlocksPerDay": 24,
+                    "maxRelocationsPerSync": 50,
                     "createIfNoSlot": false,
                     "respectSuppression": true
                 },
-                "blockDurationMinutes": 50,
-                "breakDurationMinutes": 10,
-                "minBlockGapMinutes": 5
+                "blockDurationMinutes": 60,
+                "breakDurationMinutes": 5,
+                "minBlockGapMinutes": 0
             }),
         ),
         (

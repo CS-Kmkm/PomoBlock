@@ -160,7 +160,10 @@ export class BlockGenerator {
               sourceId,
               plannedPomodoros: Math.max(
                 1,
-                Math.round(this.policy.blockDurationMinutes / 25)
+                Math.floor(
+                  this.policy.blockDurationMinutes /
+                    (25 + this.policy.breakDurationMinutes)
+                )
               ),
             });
             blocks.push(block);

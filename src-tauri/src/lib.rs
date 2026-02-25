@@ -7,7 +7,7 @@ use application::commands::{
     adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
     authenticate_google_sso_impl,
     carry_over_task_impl, complete_pomodoro_impl, create_task_impl, delete_block_impl,
-    delete_task_impl, generate_blocks_impl, get_pomodoro_state_impl,
+    delete_task_impl, generate_blocks_impl, generate_one_block_impl, get_pomodoro_state_impl,
     get_reflection_summary_impl, list_blocks_impl, list_synced_events_impl, list_tasks_impl,
     pause_pomodoro_impl, relocate_if_needed_impl, resume_pomodoro_impl, split_task_impl,
     start_pomodoro_impl, sync_calendar_impl, update_task_impl, AppState,
@@ -16,7 +16,7 @@ use application::commands::{
 };
 use domain::models::{Block, Task};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 struct BootstrapResponse {
@@ -24,11 +24,30 @@ struct BootstrapResponse {
     database_path: String,
 }
 
+fn is_src_tauri_dir(path: &Path) -> bool {
+    let is_src_tauri = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case("src-tauri"))
+        .unwrap_or(false);
+    is_src_tauri && path.join("tauri.conf.json").is_file()
+}
+
+fn default_workspace_root() -> Result<PathBuf, String> {
+    let current_dir = std::env::current_dir().map_err(|error| error.to_string())?;
+    if is_src_tauri_dir(&current_dir) {
+        if let Some(parent) = current_dir.parent() {
+            return Ok(parent.to_path_buf());
+        }
+    }
+    Ok(current_dir)
+}
+
 #[tauri::command]
 fn bootstrap(root: Option<String>) -> Result<BootstrapResponse, String> {
     let workspace_root = match root {
         Some(path) => PathBuf::from(path),
-        None => std::env::current_dir().map_err(|error| error.to_string())?,
+        None => default_workspace_root()?,
     };
 
     let result = bootstrap_workspace(&workspace_root).map_err(|error| error.to_string())?;
@@ -86,6 +105,17 @@ async fn generate_blocks(
     generate_blocks_impl(state.inner(), date, account_id)
         .await
         .map_err(|error| state.command_error("generate_blocks", &error))
+}
+
+#[tauri::command]
+async fn generate_one_block(
+    state: tauri::State<'_, AppState>,
+    date: String,
+    account_id: Option<String>,
+) -> Result<Vec<Block>, String> {
+    generate_one_block_impl(state.inner(), date, account_id)
+        .await
+        .map_err(|error| state.command_error("generate_one_block", &error))
 }
 
 #[tauri::command]
@@ -258,7 +288,7 @@ fn get_reflection_summary(
 }
 
 pub fn run() {
-    let workspace_root = std::env::current_dir().expect("failed to resolve current directory");
+    let workspace_root = default_workspace_root().expect("failed to resolve workspace root");
     let app_state = AppState::new(workspace_root).expect("failed to initialize app state");
 
     tauri::Builder::default()
@@ -270,6 +300,7 @@ pub fn run() {
             authenticate_google_sso,
             sync_calendar,
             generate_blocks,
+            generate_one_block,
             approve_blocks,
             delete_block,
             adjust_block_time,

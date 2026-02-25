@@ -1,16 +1,18 @@
 {
-  "blockDurationMinutes": 50,
-  "breakDurationMinutes": 10,
+  "blockDurationMinutes": 60,
+  "breakDurationMinutes": 5,
   "generation": {
     "autoEnabled": true,
     "autoTime": "05:30",
     "catchUpOnAppStart": true,
+    "maxAutoBlocksPerDay": 24,
+    "maxRelocationsPerSync": 50,
     "createIfNoSlot": false,
     "maxShiftMinutes": 120,
     "placementStrategy": "keep",
     "respectSuppression": true
   },
-  "minBlockGapMinutes": 5,
+  "minBlockGapMinutes": 0,
   "schema": 1,
   "workHours": {
     "days": [

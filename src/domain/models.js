@@ -78,9 +78,9 @@ export function createPolicy(input = {}) {
   const policy = {
     workHours: createWorkHours(input.workHours),
     timezone: input.timezone ?? "UTC",
-    blockDurationMinutes: input.blockDurationMinutes ?? 50,
-    breakDurationMinutes: input.breakDurationMinutes ?? 10,
-    minBlockGapMinutes: input.minBlockGapMinutes ?? 5,
+    blockDurationMinutes: input.blockDurationMinutes ?? 60,
+    breakDurationMinutes: input.breakDurationMinutes ?? 5,
+    minBlockGapMinutes: input.minBlockGapMinutes ?? 0,
   };
 
   validateTimeZone(policy.timezone, "timezone");

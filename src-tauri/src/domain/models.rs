@@ -487,9 +487,9 @@ mod tests {
                 create_if_no_slot: false,
                 respect_suppression: true,
             },
-            block_duration_minutes: 50,
-            break_duration_minutes: 10,
-            min_block_gap_minutes: 5,
+            block_duration_minutes: 60,
+            break_duration_minutes: 5,
+            min_block_gap_minutes: 0,
         }
     }
 

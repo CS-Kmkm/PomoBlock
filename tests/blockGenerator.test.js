@@ -9,9 +9,9 @@ const POLICY = createPolicy({
     end: "18:00",
     days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
   },
-  blockDurationMinutes: 50,
-  breakDurationMinutes: 10,
-  minBlockGapMinutes: 5,
+  blockDurationMinutes: 60,
+  breakDurationMinutes: 5,
+  minBlockGapMinutes: 0,
 });
 
 function overlaps(a, b) {
@@ -105,7 +105,7 @@ test("Feature: blocksched, Property 11: generation is prevented for overlapping 
         instance: `rtn:rtn_focus:${date}:0`,
         date,
         startAt: "2026-02-16T09:00:00.000Z",
-        endAt: "2026-02-16T09:50:00.000Z",
+        endAt: "2026-02-16T10:00:00.000Z",
         type: "deep",
         firmness: "soft",
         status: "planned",
@@ -131,6 +131,27 @@ test("Feature: blocksched, Property 11: generation is prevented for overlapping 
       for (const event of existingEvents) {
         assert.equal(overlaps(block, event), false);
       }
+    }
+  }
+});
+
+test("Feature: blocksched, auto generation fills work window with 60-minute blocks", () => {
+  const generator = new BlockGenerator(POLICY);
+  const date = "2026-02-16";
+  const blocks = generator.generateBlocks(date, [], {
+    source: "routine",
+    sourceId: "auto",
+  });
+
+  assert.equal(blocks.length, 9);
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const start = new Date(block.startAt);
+    const end = new Date(block.endAt);
+    assert.equal((end.getTime() - start.getTime()) / 60000, 60);
+    assert.equal(block.plannedPomodoros, 2);
+    if (index > 0) {
+      assert.equal(new Date(blocks[index - 1].endAt).getTime(), start.getTime());
     }
   }
 });

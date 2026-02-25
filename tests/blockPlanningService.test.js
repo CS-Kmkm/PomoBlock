@@ -9,9 +9,9 @@ const POLICY = createPolicy({
     end: "18:00",
     days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
   },
-  blockDurationMinutes: 50,
-  breakDurationMinutes: 10,
-  minBlockGapMinutes: 5,
+  blockDurationMinutes: 60,
+  breakDurationMinutes: 5,
+  minBlockGapMinutes: 0,
 });
 
 function minuteToIso(date, minute) {
@@ -102,7 +102,7 @@ test("Feature: blocksched, Property 23: overlapping blocks are relocated and cal
     });
 
     const freeStart = 660 + Math.floor(Math.random() * 240);
-    const freeEnd = freeStart + 50;
+    const freeEnd = freeStart + 60;
     const existingEvents = [
       {
         startAt: minuteToIso(date, 540),
@@ -119,7 +119,7 @@ test("Feature: blocksched, Property 23: overlapping blocks are relocated and cal
       instance: `rtn:rtn_focus:${date}:0`,
       date,
       startAt: minuteToIso(date, 600),
-      endAt: minuteToIso(date, 650),
+      endAt: minuteToIso(date, 660),
       type: "deep",
       firmness: "draft",
       source: "routine",
@@ -167,7 +167,7 @@ test("Feature: blocksched, Property 23: manual adjustment is notified when reloc
     instance: `rtn:rtn_focus:${date}:0`,
     date,
     startAt: minuteToIso(date, 600),
-    endAt: minuteToIso(date, 650),
+    endAt: minuteToIso(date, 660),
     type: "deep",
     firmness: "draft",
     source: "routine",

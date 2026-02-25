@@ -14,9 +14,9 @@ const BASE_POLICY = createPolicy({
     end: "18:00",
     days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
   },
-  blockDurationMinutes: 50,
-  breakDurationMinutes: 10,
-  minBlockGapMinutes: 5,
+  blockDurationMinutes: 60,
+  breakDurationMinutes: 5,
+  minBlockGapMinutes: 0,
 });
 
 test("isWithinWorkHours returns true inside configured range", () => {

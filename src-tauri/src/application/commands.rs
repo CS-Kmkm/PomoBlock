@@ -35,8 +35,9 @@ const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 const DEFAULT_ACCOUNT_ID: &str = "default";
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
-const MIN_POMODORO_FOCUS_SECONDS: u32 = 5 * 60;
 const MIN_POMODORO_BREAK_SECONDS: u32 = 60;
+const DEFAULT_MAX_AUTO_BLOCKS_PER_DAY: u32 = 24;
+const DEFAULT_MAX_RELOCATIONS_PER_SYNC: u32 = 50;
 const BLOCK_CREATION_CONCURRENCY: usize = 4;
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
 
@@ -279,6 +280,8 @@ struct RuntimePolicy {
     block_duration_minutes: u32,
     break_duration_minutes: u32,
     min_block_gap_minutes: u32,
+    max_auto_blocks_per_day: u32,
+    max_relocations_per_sync: u32,
     respect_suppression: bool,
 }
 
@@ -297,9 +300,11 @@ impl Default for RuntimePolicy {
             timezone: Tz::UTC,
             auto_enabled: true,
             catch_up_on_app_start: true,
-            block_duration_minutes: 50,
-            break_duration_minutes: 10,
-            min_block_gap_minutes: 5,
+            block_duration_minutes: 60,
+            break_duration_minutes: 5,
+            min_block_gap_minutes: 0,
+            max_auto_blocks_per_day: DEFAULT_MAX_AUTO_BLOCKS_PER_DAY,
+            max_relocations_per_sync: DEFAULT_MAX_RELOCATIONS_PER_SYNC,
             respect_suppression: true,
         }
     }
@@ -738,7 +743,9 @@ pub async fn sync_calendar_impl(
     time_min: Option<String>,
     time_max: Option<String>,
 ) -> Result<SyncCalendarResponse, InfraError> {
+    let started_at = Instant::now();
     let account_id = normalize_account_id(account_id);
+    let policy = load_runtime_policy(state.config_dir());
     let access_token = required_access_token(Some(account_id.clone())).await?;
     let (window_start, window_end) = resolve_sync_window(time_min, time_max)?;
     let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
@@ -770,17 +777,62 @@ pub async fn sync_calendar_impl(
         .fetch_events(&access_token, &calendar_id, window_start, window_end)
         .await?;
 
-    {
+    let previous_account_events = {
         let mut runtime = lock_runtime(state)?;
+        let previous = runtime
+            .synced_events_by_account
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_default();
         runtime
             .synced_events_by_account
             .insert(account_id.clone(), latest_events);
         runtime
             .blocks_calendar_ids
             .insert(account_id.clone(), calendar_id.clone());
+        previous
+    };
+    let mut changed_intervals = Vec::new();
+    for event in sync_result.added.iter().chain(sync_result.updated.iter()) {
+        if let Some(interval) = event_to_interval(event)
+            .and_then(|interval| clip_interval(interval, window_start, window_end))
+        {
+            changed_intervals.push(interval);
+        }
     }
-    let relocated_count =
-        auto_relocate_after_sync(state, account_id.as_str(), window_start, window_end).await?;
+    if !sync_result.deleted.is_empty() {
+        let deleted_ids = sync_result
+            .deleted
+            .iter()
+            .map(String::as_str)
+            .collect::<HashSet<_>>();
+        for event in &previous_account_events {
+            let Some(event_id) = event
+                .id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            if !deleted_ids.contains(event_id) {
+                continue;
+            }
+            if let Some(interval) = event_to_interval(event)
+                .and_then(|interval| clip_interval(interval, window_start, window_end))
+            {
+                changed_intervals.push(interval);
+            }
+        }
+    }
+    let changed_intervals = merge_intervals(changed_intervals);
+    let relocated_count = auto_relocate_after_sync(
+        state,
+        account_id.as_str(),
+        &changed_intervals,
+        policy.max_relocations_per_sync,
+    )
+    .await?;
     if relocated_count > 0 {
         let refreshed_events = sync_service
             .fetch_events(&access_token, &calendar_id, window_start, window_end)
@@ -794,12 +846,13 @@ pub async fn sync_calendar_impl(
     state.log_info(
         "sync_calendar",
         &format!(
-            "synchronized account_id={account_id} calendar_id={calendar_id} added={} updated={} deleted={} suppressed={} relocated={}",
+            "synchronized account_id={account_id} calendar_id={calendar_id} added={} updated={} deleted={} suppressed={} relocated={} elapsed_ms={}",
             sync_result.added.len(),
             sync_result.updated.len(),
             sync_result.deleted.len(),
             sync_result.suppressed_instances.len(),
-            relocated_count
+            relocated_count,
+            started_at.elapsed().as_millis()
         ),
     );
 
@@ -818,11 +871,33 @@ pub async fn generate_blocks_impl(
     date: String,
     account_id: Option<String>,
 ) -> Result<Vec<Block>, InfraError> {
+    generate_blocks_with_limit_impl(state, date, account_id, None, false).await
+}
+
+pub async fn generate_one_block_impl(
+    state: &AppState,
+    date: String,
+    account_id: Option<String>,
+) -> Result<Vec<Block>, InfraError> {
+    generate_blocks_with_limit_impl(state, date, account_id, Some(1), true).await
+}
+
+async fn generate_blocks_with_limit_impl(
+    state: &AppState,
+    date: String,
+    account_id: Option<String>,
+    generation_limit: Option<usize>,
+    allow_overlap: bool,
+) -> Result<Vec<Block>, InfraError> {
     let started_at = Instant::now();
     let account_id = normalize_account_id(account_id);
     let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
         .map_err(|error| InfraError::InvalidConfig(format!("date must be YYYY-MM-DD: {error}")))?;
     let policy = load_runtime_policy(state.config_dir());
+    let max_generated_blocks = generation_limit.unwrap_or(usize::MAX);
+    if max_generated_blocks == 0 {
+        return Ok(Vec::new());
+    }
     if !policy.work_days.contains(&date.weekday()) {
         return Ok(Vec::new());
     }
@@ -834,11 +909,6 @@ pub async fn generate_blocks_impl(
     let window_end = local_datetime_to_utc(date, policy.work_end, policy.timezone)?;
     let block_duration = Duration::minutes(policy.block_duration_minutes as i64);
     let gap = Duration::minutes(policy.min_block_gap_minutes as i64);
-    let suppressed_instances = if policy.respect_suppression {
-        load_suppressions(state.database_path())?
-    } else {
-        HashSet::new()
-    };
 
     let (existing_blocks, synced_events_by_account, mut blocks_calendar_ids) = {
         let runtime = lock_runtime(state)?;
@@ -852,6 +922,17 @@ pub async fn generate_blocks_impl(
             runtime.synced_events_by_account.clone(),
             runtime.blocks_calendar_ids.clone(),
         )
+    };
+    let cleared_user_deleted_suppressions = if policy.respect_suppression && existing_blocks.is_empty()
+    {
+        clear_user_deleted_suppressions_for_date(state.database_path(), date)?
+    } else {
+        0
+    };
+    let suppressed_instances = if policy.respect_suppression {
+        load_suppressions(state.database_path())?
+    } else {
+        HashSet::new()
     };
 
     let mut busy_intervals = Vec::new();
@@ -871,6 +952,7 @@ pub async fn generate_blocks_impl(
         });
     }
     let busy_intervals = merge_intervals(busy_intervals);
+    let busy_interval_count = busy_intervals.len();
     let mut occupied_intervals = busy_intervals.clone();
 
     let mut existing_instances = existing_blocks
@@ -887,31 +969,13 @@ pub async fn generate_blocks_impl(
         })
         .collect::<HashSet<_>>();
     let mut generated = Vec::new();
-    let mut candidate_plans = load_configured_block_plans(state.config_dir(), date, &policy);
-    if candidate_plans.is_empty() {
-        let mut instance_index: u32 = 0;
-        let free_slots = free_slots(window_start, window_end, &busy_intervals);
-        for slot in free_slots {
-            let mut cursor = slot.start;
-            while cursor + block_duration <= slot.end {
-                let candidate_end = cursor + block_duration;
-                candidate_plans.push(BlockPlan {
-                    instance: format!("rtn:auto:{}:{}", date, instance_index),
-                    start_at: cursor,
-                    end_at: candidate_end,
-                    block_type: BlockType::Deep,
-                    firmness: Firmness::Draft,
-                    planned_pomodoros: planned_pomodoros(policy.block_duration_minutes),
-                    source: "routine".to_string(),
-                    source_id: Some("auto".to_string()),
-                });
-                instance_index = instance_index.saturating_add(1);
-                cursor = candidate_end + gap;
-            }
-        }
-    }
+    let candidate_plans = load_configured_block_plans(state.config_dir(), date, &policy);
+    let candidate_plan_count = candidate_plans.len();
 
     for plan in candidate_plans {
+        if generated.len() >= max_generated_blocks {
+            break;
+        }
         if plan.end_at <= plan.start_at {
             continue;
         }
@@ -922,9 +986,10 @@ pub async fn generate_blocks_impl(
             start: plan.start_at,
             end: plan.end_at,
         };
-        if occupied_intervals
-            .iter()
-            .any(|busy| intervals_overlap(busy, &interval))
+        if !allow_overlap
+            && occupied_intervals
+                .iter()
+                .any(|busy| intervals_overlap(busy, &interval))
         {
             continue;
         }
@@ -933,12 +998,14 @@ pub async fn generate_blocks_impl(
             plan.start_at.timestamp_millis(),
             plan.end_at.timestamp_millis(),
         );
-        let is_suppressed =
-            policy.respect_suppression && suppressed_instances.contains(plan.instance.as_str());
+        let is_suppressed = !allow_overlap
+            && policy.respect_suppression
+            && suppressed_instances.contains(plan.instance.as_str());
 
         if !is_suppressed
-            && existing_instances.insert(plan.instance.clone())
-            && existing_ranges.insert(range_key)
+            && (allow_overlap
+                || (existing_instances.insert(plan.instance.clone())
+                    && existing_ranges.insert(range_key)))
         {
             let block = Block {
                 id: next_id("blk"),
@@ -958,7 +1025,99 @@ pub async fn generate_blocks_impl(
                 calendar_account_id: Some(account_id.clone()),
             });
             occupied_intervals.push(interval);
-            occupied_intervals = merge_intervals(occupied_intervals);
+            if generated.len() >= max_generated_blocks {
+                break;
+            }
+        }
+    }
+
+    let occupied_intervals = merge_intervals(occupied_intervals);
+    let max_auto_blocks_per_day = policy.max_auto_blocks_per_day as usize;
+    let used_capacity = existing_blocks.len().saturating_add(generated.len());
+    let mut remaining_auto_capacity = if allow_overlap {
+        max_generated_blocks.saturating_sub(generated.len())
+    } else {
+        max_auto_blocks_per_day.saturating_sub(used_capacity)
+    };
+    let mut remaining_generation_capacity = max_generated_blocks.saturating_sub(generated.len());
+    let auto_instance_prefix = format!("rtn:auto:{}:", date);
+    let mut instance_index: u32 = existing_instances
+        .iter()
+        .filter_map(|instance| instance.strip_prefix(auto_instance_prefix.as_str()))
+        .filter_map(|suffix| suffix.parse::<u32>().ok())
+        .max()
+        .map(|max_index| max_index.saturating_add(1))
+        .unwrap_or(0);
+    let auto_slots = if allow_overlap {
+        vec![Interval {
+            start: window_start,
+            end: window_end,
+        }]
+    } else {
+        free_slots(window_start, window_end, &occupied_intervals)
+    };
+    let mut auto_generated_count = 0usize;
+    for slot in auto_slots {
+        if remaining_auto_capacity == 0 || remaining_generation_capacity == 0 {
+            break;
+        }
+        let mut cursor = slot.start;
+        while cursor + block_duration <= slot.end
+            && remaining_auto_capacity > 0
+            && remaining_generation_capacity > 0
+        {
+            let candidate_end = cursor + block_duration;
+            let plan = BlockPlan {
+                instance: format!("rtn:auto:{}:{}", date, instance_index),
+                start_at: cursor,
+                end_at: candidate_end,
+                block_type: BlockType::Deep,
+                firmness: Firmness::Draft,
+                planned_pomodoros: planned_pomodoros(
+                    policy.block_duration_minutes,
+                    policy.break_duration_minutes,
+                ),
+                source: "routine".to_string(),
+                source_id: Some("auto".to_string()),
+            };
+            instance_index = instance_index.saturating_add(1);
+
+            let range_key = (
+                plan.start_at.timestamp_millis(),
+                plan.end_at.timestamp_millis(),
+            );
+            let is_suppressed = !allow_overlap
+                && policy.respect_suppression
+                && suppressed_instances.contains(plan.instance.as_str());
+
+            if !is_suppressed
+                && (allow_overlap
+                    || (existing_instances.insert(plan.instance.clone())
+                        && existing_ranges.insert(range_key)))
+            {
+                let block = Block {
+                    id: next_id("blk"),
+                    instance: plan.instance,
+                    date: date.to_string(),
+                    start_at: plan.start_at,
+                    end_at: plan.end_at,
+                    block_type: plan.block_type,
+                    firmness: plan.firmness,
+                    planned_pomodoros: plan.planned_pomodoros,
+                    source: plan.source,
+                    source_id: plan.source_id,
+                };
+                generated.push(StoredBlock {
+                    block,
+                    calendar_event_id: None,
+                    calendar_account_id: Some(account_id.clone()),
+                });
+                auto_generated_count = auto_generated_count.saturating_add(1);
+                remaining_auto_capacity = remaining_auto_capacity.saturating_sub(1);
+                remaining_generation_capacity = remaining_generation_capacity.saturating_sub(1);
+            }
+
+            cursor = candidate_end + gap;
         }
     }
 
@@ -1016,10 +1175,14 @@ pub async fn generate_blocks_impl(
     state.log_info(
         "generate_blocks",
         &format!(
-            "generated {} blocks for {} in {}ms (account_id={})",
+            "generated_count={} auto_generated_count={} candidate_plan_count={} busy_interval_count={} cleared_user_deleted_suppressions={} elapsed_ms={} date={} account_id={}",
             generated.len(),
-            date,
+            auto_generated_count,
+            candidate_plan_count,
+            busy_interval_count,
+            cleared_user_deleted_suppressions,
             elapsed_ms,
+            date,
             account_id
         ),
     );
@@ -1854,17 +2017,22 @@ pub fn advance_pomodoro_impl(state: &AppState) -> Result<PomodoroStateResponse, 
                 .completed_cycles
                 .saturating_add(1)
                 .min(total_cycles);
+            start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Break, now)?;
             if runtime.pomodoro.completed_cycles >= total_cycles {
-                reset_pomodoro_session(&mut runtime.pomodoro);
-                state.log_info("advance_pomodoro", "completed all cycles in block session");
+                state.log_info("advance_pomodoro", "advanced to final break phase");
             } else {
-                start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Break, now)?;
                 state.log_info("advance_pomodoro", "advanced to break phase");
             }
         }
         PomodoroRuntimePhase::Break => {
-            start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Focus, now)?;
-            state.log_info("advance_pomodoro", "advanced to focus phase");
+            let total_cycles = runtime.pomodoro.total_cycles.max(1);
+            if runtime.pomodoro.completed_cycles >= total_cycles {
+                reset_pomodoro_session(&mut runtime.pomodoro);
+                state.log_info("advance_pomodoro", "completed all cycles in block session");
+            } else {
+                start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Focus, now)?;
+                state.log_info("advance_pomodoro", "advanced to focus phase");
+            }
         }
         _ => {}
     }
@@ -2052,36 +2220,21 @@ fn reset_pomodoro_session(runtime: &mut PomodoroRuntimeState) {
 }
 
 fn build_pomodoro_session_plan(block: &Block, break_duration_minutes: u32) -> PomodoroSessionPlan {
-    let total_cycles = u32::try_from(block.planned_pomodoros)
+    let requested_cycles = u32::try_from(block.planned_pomodoros)
         .ok()
         .filter(|value| *value > 0)
         .unwrap_or(1);
+    let focus_seconds = POMODORO_FOCUS_SECONDS;
     let break_seconds = (break_duration_minutes.saturating_mul(60)).max(MIN_POMODORO_BREAK_SECONDS);
-    let block_seconds = (block.end_at - block.start_at)
-        .num_seconds()
-        .max(i64::from(MIN_POMODORO_FOCUS_SECONDS) * i64::from(total_cycles))
-        as u32;
-    let break_slots = total_cycles.saturating_sub(1);
-    let max_break_seconds = if break_slots == 0 {
-        0
-    } else {
-        block_seconds
-            .saturating_sub(MIN_POMODORO_FOCUS_SECONDS.saturating_mul(total_cycles))
-            / break_slots
-    };
-    let effective_break_seconds = if break_slots == 0 {
-        0
-    } else {
-        break_seconds.min(max_break_seconds)
-    };
-    let focus_seconds = block_seconds
-        .saturating_sub(effective_break_seconds.saturating_mul(break_slots))
-        / total_cycles;
+    let cycle_seconds = focus_seconds.saturating_add(break_seconds).max(1);
+    let block_seconds = (block.end_at - block.start_at).num_seconds().max(0) as u32;
+    let max_cycles_by_duration = (block_seconds / cycle_seconds).max(1);
+    let total_cycles = requested_cycles.min(max_cycles_by_duration).max(1);
 
     PomodoroSessionPlan {
         total_cycles,
-        focus_seconds: focus_seconds.max(MIN_POMODORO_FOCUS_SECONDS),
-        break_seconds: effective_break_seconds,
+        focus_seconds,
+        break_seconds,
     }
 }
 
@@ -2385,6 +2538,54 @@ fn save_suppression(
     Ok(())
 }
 
+fn instance_matches_date(instance: &str, date_key: &str) -> bool {
+    if instance.is_empty() || date_key.is_empty() {
+        return false;
+    }
+    instance.ends_with(&format!(":{date_key}")) || instance.contains(&format!(":{date_key}:"))
+}
+
+fn clear_user_deleted_suppressions_for_date(
+    database_path: &Path,
+    date: NaiveDate,
+) -> Result<usize, InfraError> {
+    let date_key = date.to_string();
+    let mut connection = Connection::open(database_path)?;
+    let mut statement = connection.prepare("SELECT instance, reason FROM suppressions")?;
+    let mut rows = statement.query([])?;
+    let mut targets = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        let instance: String = row.get(0)?;
+        let reason: Option<String> = row.get(1)?;
+        let normalized_instance = instance.trim();
+        if normalized_instance.is_empty() {
+            continue;
+        }
+        let normalized_reason = reason.as_deref().map(str::trim).unwrap_or("");
+        if normalized_reason != "user_deleted" {
+            continue;
+        }
+        if !instance_matches_date(normalized_instance, date_key.as_str()) {
+            continue;
+        }
+        targets.push(normalized_instance.to_string());
+    }
+    drop(rows);
+    drop(statement);
+
+    if targets.is_empty() {
+        return Ok(0);
+    }
+
+    let transaction = connection.transaction()?;
+    for instance in &targets {
+        transaction.execute("DELETE FROM suppressions WHERE instance = ?1", params![instance])?;
+    }
+    transaction.commit()?;
+    Ok(targets.len())
+}
+
 fn save_suppressions(
     database_path: &Path,
     instances: &[String],
@@ -2445,36 +2646,39 @@ fn load_suppressions(database_path: &Path) -> Result<HashSet<String>, InfraError
 async fn auto_relocate_after_sync(
     state: &AppState,
     account_id: &str,
-    window_start: DateTime<Utc>,
-    window_end: DateTime<Utc>,
+    changed_intervals: &[Interval],
+    max_relocations_per_sync: u32,
 ) -> Result<usize, InfraError> {
+    let started_at = Instant::now();
     let account_id = account_id.trim();
-    if account_id.is_empty() {
+    if account_id.is_empty() || changed_intervals.is_empty() || max_relocations_per_sync == 0 {
+        state.log_info(
+            "auto_relocate_after_sync",
+            &format!(
+                "candidate_block_count=0 relocated_count=0 elapsed_ms={} limit={} (skipped)",
+                started_at.elapsed().as_millis(),
+                max_relocations_per_sync
+            ),
+        );
         return Ok(0);
     }
 
     let block_ids = {
         let runtime = lock_runtime(state)?;
-        runtime
-            .blocks
-            .values()
-            .filter(|stored| {
-                let block_account = stored
-                    .calendar_account_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or(DEFAULT_ACCOUNT_ID);
-                block_account == account_id
-                    && stored.block.end_at > window_start
-                    && stored.block.start_at < window_end
-            })
-            .map(|stored| stored.block.id.clone())
-            .collect::<Vec<_>>()
+        collect_relocation_target_block_ids(
+            &runtime,
+            account_id,
+            changed_intervals,
+            max_relocations_per_sync,
+        )
     };
 
+    let candidate_block_count = block_ids.len();
     let mut relocated_count = 0usize;
     for block_id in block_ids {
+        if relocated_count >= max_relocations_per_sync as usize {
+            break;
+        }
         if relocate_if_needed_impl(
             state,
             block_id,
@@ -2487,7 +2691,58 @@ async fn auto_relocate_after_sync(
         }
     }
 
+    state.log_info(
+        "auto_relocate_after_sync",
+        &format!(
+            "candidate_block_count={} relocated_count={} elapsed_ms={} limit={}",
+            candidate_block_count,
+            relocated_count,
+            started_at.elapsed().as_millis(),
+            max_relocations_per_sync
+        ),
+    );
+
     Ok(relocated_count)
+}
+
+fn collect_relocation_target_block_ids(
+    runtime: &RuntimeState,
+    account_id: &str,
+    changed_intervals: &[Interval],
+    max_relocations_per_sync: u32,
+) -> Vec<String> {
+    if changed_intervals.is_empty() || max_relocations_per_sync == 0 {
+        return Vec::new();
+    }
+
+    let mut candidates = runtime
+        .blocks
+        .values()
+        .filter(|stored| {
+            let block_account = stored
+                .calendar_account_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(DEFAULT_ACCOUNT_ID);
+            if block_account != account_id {
+                return false;
+            }
+
+            let block_interval = Interval {
+                start: stored.block.start_at,
+                end: stored.block.end_at,
+            };
+            changed_intervals
+                .iter()
+                .any(|interval| intervals_overlap(&block_interval, interval))
+        })
+        .map(|stored| (stored.block.start_at, stored.block.id.clone()))
+        .collect::<Vec<_>>();
+
+    candidates.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    candidates.truncate(max_relocations_per_sync as usize);
+    candidates.into_iter().map(|(_, id)| id).collect()
 }
 
 fn load_runtime_policy(config_dir: &Path) -> RuntimePolicy {
@@ -2566,6 +2821,20 @@ fn load_runtime_policy(config_dir: &Path) -> RuntimePolicy {
         .and_then(serde_json::Value::as_bool)
     {
         policy.catch_up_on_app_start = value;
+    }
+    if let Some(value) = parsed
+        .get("generation")
+        .and_then(|generation| generation.get("maxAutoBlocksPerDay"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        policy.max_auto_blocks_per_day = value.max(1) as u32;
+    }
+    if let Some(value) = parsed
+        .get("generation")
+        .and_then(|generation| generation.get("maxRelocationsPerSync"))
+        .and_then(serde_json::Value::as_u64)
+    {
+        policy.max_relocations_per_sync = value.max(1) as u32;
     }
 
     policy
@@ -2927,9 +3196,9 @@ fn load_configured_block_plans(
             end_at,
             block_type: template.block_type.clone(),
             firmness: template.firmness.clone(),
-            planned_pomodoros: template
-                .planned_pomodoros
-                .unwrap_or_else(|| planned_pomodoros(template.duration_minutes)),
+            planned_pomodoros: template.planned_pomodoros.unwrap_or_else(|| {
+                planned_pomodoros(template.duration_minutes, policy.break_duration_minutes)
+            }),
             source: "template".to_string(),
             source_id: Some(template.id.clone()),
         });
@@ -3012,7 +3281,7 @@ fn load_configured_block_plans(
                 .and_then(parse_positive_i32_value)
             })
             .or_else(|| linked_template.and_then(|template| template.planned_pomodoros))
-            .unwrap_or_else(|| planned_pomodoros(duration_minutes));
+            .unwrap_or_else(|| planned_pomodoros(duration_minutes, policy.break_duration_minutes));
 
         plans.push(BlockPlan {
             instance: format!("rtn:{}:{}", routine_id, date),
@@ -3196,8 +3465,9 @@ fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
     merged
 }
 
-fn planned_pomodoros(block_duration_minutes: u32) -> i32 {
-    ((block_duration_minutes + 12) / 25).max(1) as i32
+fn planned_pomodoros(block_duration_minutes: u32, break_duration_minutes: u32) -> i32 {
+    let cycle_minutes = 25u32.saturating_add(break_duration_minutes.max(1));
+    (block_duration_minutes / cycle_minutes).max(1) as i32
 }
 
 async fn create_calendar_events_for_generated_blocks(
@@ -3413,25 +3683,27 @@ mod tests {
             start_pomodoro_impl(&state, block.id.clone(), None).expect("start pomodoro session");
         assert_eq!(started.total_cycles, expected_plan.total_cycles);
 
-        let mut snapshot = advance_pomodoro_impl(&state).expect("advance to next phase");
-        if expected_plan.total_cycles > 1 {
-            assert_eq!(snapshot.phase, "break");
-            assert_eq!(snapshot.completed_cycles, 1);
-            assert_eq!(snapshot.current_cycle, 1);
+        let mut snapshot = advance_pomodoro_impl(&state).expect("advance to break");
+        assert_eq!(snapshot.phase, "break");
+        assert_eq!(snapshot.completed_cycles, 1);
 
+        if expected_plan.total_cycles > 1 {
             snapshot = advance_pomodoro_impl(&state).expect("advance back to focus");
             assert_eq!(snapshot.phase, "focus");
             assert_eq!(snapshot.current_cycle, 2);
-        } else {
-            assert_eq!(snapshot.phase, "idle");
-            return;
         }
 
         let mut guard = 0;
-        while snapshot.phase != "idle" && guard < 12 {
-            snapshot = advance_pomodoro_impl(&state).expect("advance until idle");
+        while (snapshot.phase != "break" || snapshot.completed_cycles < expected_plan.total_cycles)
+            && guard < 16
+        {
+            snapshot = advance_pomodoro_impl(&state).expect("advance until final break");
             guard += 1;
         }
+        assert_eq!(snapshot.phase, "break");
+        assert_eq!(snapshot.completed_cycles, expected_plan.total_cycles);
+
+        snapshot = advance_pomodoro_impl(&state).expect("advance from final break to idle");
         assert_eq!(snapshot.phase, "idle");
         assert_eq!(snapshot.current_block_id, None);
     }
@@ -3466,6 +3738,181 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generate_blocks_regenerates_after_all_blocks_deleted_for_date() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("initial generation");
+        assert_eq!(generated.len(), 9);
+
+        for block in generated {
+            let deleted = delete_block_impl(&state, block.id.clone())
+                .await
+                .expect("delete generated block");
+            assert!(deleted);
+        }
+
+        let regenerated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("regenerate after deletes");
+        assert_eq!(regenerated.len(), 9);
+        assert!(regenerated
+            .iter()
+            .any(|block| block.instance == "rtn:auto:2026-02-16:0"));
+    }
+
+    #[tokio::test]
+    async fn generate_blocks_refills_gap_after_single_block_deleted() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let mut generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("initial generation");
+        generated.sort_by(|left, right| left.start_at.cmp(&right.start_at));
+        let removed = generated[4].clone();
+        let deleted = delete_block_impl(&state, removed.id.clone())
+            .await
+            .expect("delete one generated block");
+        assert!(deleted);
+
+        let refill = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("refill one gap");
+        assert_eq!(refill.len(), 1);
+        assert_eq!(refill[0].start_at, removed.start_at);
+        assert_eq!(refill[0].end_at, removed.end_at);
+
+        let listed = list_blocks_impl(&state, Some("2026-02-16".to_string())).expect("list blocks");
+        assert_eq!(listed.len(), 9);
+    }
+
+    #[tokio::test]
+    async fn generate_blocks_auto_fills_work_window_with_hour_blocks() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        assert_eq!(generated.len(), 9);
+        let mut sorted = generated.clone();
+        sorted.sort_by(|left, right| left.start_at.cmp(&right.start_at));
+
+        let day = NaiveDate::parse_from_str("2026-02-16", "%Y-%m-%d").expect("valid date");
+        let day_start = Utc.from_utc_datetime(&day.and_hms_opt(0, 0, 0).expect("midnight"));
+        for (index, block) in sorted.iter().enumerate() {
+            let expected_start = day_start + Duration::hours(9 + index as i64);
+            let expected_end = expected_start + Duration::hours(1);
+            assert_eq!(block.start_at, expected_start);
+            assert_eq!(block.end_at, expected_end);
+            assert_eq!(block.planned_pomodoros, 2);
+            assert!(block.instance.starts_with("rtn:auto:"));
+            assert_eq!(block.source, "routine");
+            assert_eq!(block.source_id.as_deref(), Some("auto"));
+            if index > 0 {
+                assert_eq!(sorted[index - 1].end_at, block.start_at);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn generate_one_block_adds_single_block_per_call() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let first = generate_one_block_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate first block");
+        assert_eq!(first.len(), 1);
+
+        let second = generate_one_block_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate second block");
+        assert_eq!(second.len(), 1);
+
+        let listed = list_blocks_impl(&state, Some("2026-02-16".to_string())).expect("list blocks");
+        assert_eq!(listed.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn generate_one_block_allows_overlap_when_day_is_full() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate full day");
+        assert_eq!(generated.len(), 9);
+
+        let one_more = generate_one_block_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate one overlapping block");
+        assert_eq!(one_more.len(), 1);
+        let one_interval = Interval {
+            start: one_more[0].start_at,
+            end: one_more[0].end_at,
+        };
+        assert!(generated.iter().any(|block| {
+            intervals_overlap(
+                &Interval {
+                    start: block.start_at,
+                    end: block.end_at,
+                },
+                &one_interval,
+            )
+        }));
+
+        let listed = list_blocks_impl(&state, Some("2026-02-16".to_string())).expect("list blocks");
+        assert_eq!(listed.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn generate_blocks_respects_max_auto_blocks_per_day() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let policies_path = state.config_dir().join("policies.json");
+        fs::write(
+            &policies_path,
+            r#"{
+  "schema": 1,
+  "workHours": {
+    "start": "00:00",
+    "end": "23:59",
+    "days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  },
+  "generation": {
+    "autoEnabled": true,
+    "autoTime": "05:30",
+    "catchUpOnAppStart": true,
+    "placementStrategy": "keep",
+    "maxShiftMinutes": 120,
+    "maxAutoBlocksPerDay": 24,
+    "maxRelocationsPerSync": 50,
+    "createIfNoSlot": false,
+    "respectSuppression": true
+  },
+  "blockDurationMinutes": 1,
+  "breakDurationMinutes": 5,
+  "minBlockGapMinutes": 0
+}
+"#,
+        )
+        .expect("write policies config");
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        assert_eq!(generated.len(), 24);
+        assert!(generated
+            .iter()
+            .all(|block| block.instance.starts_with("rtn:auto:")));
+    }
+
+    #[tokio::test]
     async fn generate_blocks_uses_configured_timezone() {
         let workspace = TempWorkspace::new();
         let state = workspace.app_state();
@@ -3489,7 +3936,7 @@ mod tests {
 
         assert!(!generated.is_empty());
         assert_eq!(generated[0].start_at.to_rfc3339(), "2026-02-16T00:00:00+00:00");
-        assert_eq!(generated[0].end_at.to_rfc3339(), "2026-02-16T00:50:00+00:00");
+        assert_eq!(generated[0].end_at.to_rfc3339(), "2026-02-16T01:00:00+00:00");
     }
 
     #[tokio::test]
@@ -3542,7 +3989,7 @@ mod tests {
             .await
             .expect("generate blocks");
 
-        assert_eq!(generated.len(), 2);
+        assert!(generated.len() > 2);
         assert!(generated
             .iter()
             .any(|block| block.instance == "tpl:focus-morning:2026-02-16"));
@@ -3551,7 +3998,84 @@ mod tests {
             .any(|block| block.instance == "rtn:daily-admin:2026-02-16"));
         assert!(generated
             .iter()
-            .all(|block| !block.instance.starts_with("rtn:auto:")));
+            .any(|block| block.instance.starts_with("rtn:auto:")));
+    }
+
+    #[test]
+    fn collect_relocation_target_block_ids_filters_by_changes_and_limit() {
+        let make_block = |id: &str, start_at: &str, end_at: &str| Block {
+            id: id.to_string(),
+            instance: format!("rtn:auto:2026-02-16:{id}"),
+            date: "2026-02-16".to_string(),
+            start_at: DateTime::parse_from_rfc3339(start_at)
+                .expect("start")
+                .with_timezone(&Utc),
+            end_at: DateTime::parse_from_rfc3339(end_at)
+                .expect("end")
+                .with_timezone(&Utc),
+            block_type: BlockType::Deep,
+            firmness: Firmness::Draft,
+            planned_pomodoros: 2,
+            source: "routine".to_string(),
+            source_id: Some("auto".to_string()),
+        };
+
+        let mut runtime = RuntimeState::default();
+        let block_a = make_block("a", "2026-02-16T09:00:00Z", "2026-02-16T09:30:00Z");
+        let block_b = make_block("b", "2026-02-16T10:00:00Z", "2026-02-16T10:30:00Z");
+        let block_c = make_block("c", "2026-02-16T09:10:00Z", "2026-02-16T09:40:00Z");
+        runtime.blocks.insert(
+            block_a.id.clone(),
+            StoredBlock {
+                block: block_a.clone(),
+                calendar_event_id: None,
+                calendar_account_id: Some(DEFAULT_ACCOUNT_ID.to_string()),
+            },
+        );
+        runtime.blocks.insert(
+            block_b.id.clone(),
+            StoredBlock {
+                block: block_b,
+                calendar_event_id: None,
+                calendar_account_id: Some(DEFAULT_ACCOUNT_ID.to_string()),
+            },
+        );
+        runtime.blocks.insert(
+            block_c.id.clone(),
+            StoredBlock {
+                block: block_c.clone(),
+                calendar_event_id: None,
+                calendar_account_id: Some(DEFAULT_ACCOUNT_ID.to_string()),
+            },
+        );
+        let block_other = make_block("other", "2026-02-16T09:05:00Z", "2026-02-16T09:20:00Z");
+        runtime.blocks.insert(
+            block_other.id.clone(),
+            StoredBlock {
+                block: block_other,
+                calendar_event_id: None,
+                calendar_account_id: Some("other-account".to_string()),
+            },
+        );
+
+        let changed = vec![Interval {
+            start: DateTime::parse_from_rfc3339("2026-02-16T09:15:00Z")
+                .expect("interval start")
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2026-02-16T09:25:00Z")
+                .expect("interval end")
+                .with_timezone(&Utc),
+        }];
+
+        let limited = collect_relocation_target_block_ids(&runtime, DEFAULT_ACCOUNT_ID, &changed, 1);
+        assert_eq!(limited.len(), 1);
+        assert_eq!(limited[0], block_a.id);
+
+        let full = collect_relocation_target_block_ids(&runtime, DEFAULT_ACCOUNT_ID, &changed, 10);
+        assert_eq!(full, vec![block_a.id.clone(), block_c.id.clone()]);
+
+        let none = collect_relocation_target_block_ids(&runtime, DEFAULT_ACCOUNT_ID, &[], 10);
+        assert!(none.is_empty());
     }
 
     #[test]

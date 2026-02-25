@@ -1,3 +1,9 @@
 {"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:12:27.591657+00:00"}
 {"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:12:44.819395700+00:00"}
 {"command":"authenticate_google_sso","level":"error","message":"Invalid config: missing google client id (set one of: POMBLOCK_GOOGLE_CLIENT_ID, GOOGLE_CLIENT_ID)","timestamp":"2026-02-22T13:37:00.847489200+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated 9 blocks for 2026-02-23 in 5ms (account_id=default)","timestamp":"2026-02-23T03:56:54.661570800+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated 9 blocks for 2026-02-23 in 35ms (account_id=default)","timestamp":"2026-02-23T05:27:38.607535400+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated_count=9 auto_generated_count=9 candidate_plan_count=0 busy_interval_count=0 elapsed_ms=34 date=2026-02-23 account_id=default","timestamp":"2026-02-23T05:47:50.091208900+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated_count=9 auto_generated_count=9 candidate_plan_count=0 busy_interval_count=0 elapsed_ms=28 date=2026-02-23 account_id=default","timestamp":"2026-02-23T07:03:03.411735900+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated_count=9 auto_generated_count=9 candidate_plan_count=0 busy_interval_count=0 elapsed_ms=31 date=2026-02-23 account_id=default","timestamp":"2026-02-23T07:20:04.080578100+00:00"}
+{"command":"generate_blocks","level":"info","message":"generated_count=9 auto_generated_count=9 candidate_plan_count=0 busy_interval_count=0 elapsed_ms=8 date=2026-02-23 account_id=default","timestamp":"2026-02-23T12:20:21.856704100+00:00"}

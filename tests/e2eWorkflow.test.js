@@ -89,9 +89,9 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
         end: "18:00",
         days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
       },
-      blockDurationMinutes: 50,
-      breakDurationMinutes: 10,
-      minBlockGapMinutes: 5,
+      blockDurationMinutes: 60,
+      breakDurationMinutes: 5,
+      minBlockGapMinutes: 0,
     });
 
     const createdDraftEvents = [];
@@ -159,7 +159,7 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     const pomodoroLogRepository = new PomodoroLogRepository(context.storageRepository);
     const pomodoroTimer = new PomodoroTimer({
       logRepository: pomodoroLogRepository,
-      focusSeconds: 1200,
+      focusSeconds: 1500,
       breakSeconds: 300,
       clock,
     });
@@ -169,8 +169,8 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     assert.equal(started.currentBlockId, assignedBlock.id);
     assert.equal(started.currentTaskId, task.id);
 
-    clock.advance(1200);
-    const afterFocus = pomodoroTimer.tick(1200);
+    clock.advance(1500);
+    const afterFocus = pomodoroTimer.tick(1500);
     assert.equal(afterFocus.phase, "break");
 
     clock.advance(60);
