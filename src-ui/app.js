@@ -7,17 +7,23 @@ const progressLabel = /** @type {HTMLElement | null} */ (document.getElementById
 const progressFill = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-fill"));
 const progressValue = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-value"));
 
-const routes = ["dashboard", "blocks", "pomodoro", "tasks", "reflection", "settings"];
+const routes = ["today", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
   blocks: "ブロック構成",
   git: "Git同期",
   auth: "Google Auth",
 };
-const longRunningCommands = new Set(["sync_calendar", "generate_blocks", "authenticate_google_sso"]);
+const longRunningCommands = new Set([
+  "sync_calendar",
+  "generate_blocks",
+  "generate_today_blocks",
+  "authenticate_google_sso",
+]);
 const longRunningLabels = {
   sync_calendar: "カレンダー同期",
   generate_blocks: "ブロック生成",
+  generate_today_blocks: "本日ブロック生成",
   authenticate_google_sso: "Google SSO認証",
 };
 const commandArgAliases = {
@@ -35,6 +41,7 @@ const commandArgAliases = {
     ["time_max", "timeMax"],
   ],
   generate_blocks: [["account_id", "accountId"]],
+  generate_today_blocks: [["account_id", "accountId"]],
   generate_one_block: [["account_id", "accountId"]],
   approve_blocks: [["block_ids", "blockIds"]],
   delete_block: [["block_id", "blockId"]],
@@ -52,6 +59,14 @@ const commandArgAliases = {
     ["block_id", "blockId"],
     ["task_id", "taskId"],
   ],
+  start_block_timer: [
+    ["block_id", "blockId"],
+    ["task_id", "taskId"],
+  ],
+  pause_timer: [["reason", "reason"]],
+  interrupt_timer: [["reason", "reason"]],
+  update_recipe: [["recipe_id", "recipeId"]],
+  delete_recipe: [["recipe_id", "recipeId"]],
   create_task: [["estimated_pomodoros", "estimatedPomodoros"]],
   update_task: [
     ["task_id", "taskId"],
@@ -75,7 +90,7 @@ const BLOCKS_INITIAL_VISIBLE = 50;
 const DAY_BLOCK_DRAG_SNAP_MINUTES = 5;
 const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 
-/** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null}} Block */
+/** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null,recipe_id?:string,auto_drive_mode?:string,contents?:any}} Block */
 /** @typedef {{account_id:string,id:string,title:string,start_at:string,end_at:string}} SyncedEvent */
 /** @typedef {{id:string,title:string,description:string|null,estimated_pomodoros:number|null,status:string,completed_pomodoros:number}} Task */
 /** @typedef {{current_block_id:string|null,current_task_id:string|null,phase:string,remaining_seconds:number,start_time:string|null,total_cycles:number,completed_cycles:number,current_cycle:number}} PomodoroState */
@@ -83,7 +98,7 @@ const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 /** @typedef {{kind: DayItemKind, id: string} | null} DayItemSelection */
 /** @typedef {"grid" | "simple"} DayCalendarViewMode */
 
-/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, settings: any}} */
+/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, recipes: any[], dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, settings: any}} */
 const uiState = {
   auth: null,
   accountId: "default",
@@ -94,6 +109,7 @@ const uiState = {
   tasks: [],
   pomodoro: null,
   reflection: null,
+  recipes: [],
   dayCalendarSelection: null,
   dayCalendarViewMode: "grid",
   settings: {
@@ -110,6 +126,7 @@ const mockState = {
   sequence: 1,
   tasks: [],
   blocks: [],
+  recipes: [],
   syncedEventsByAccount: {},
   taskAssignmentsByTask: {},
   taskAssignmentsByBlock: {},
@@ -167,6 +184,26 @@ function nextMockId(prefix) {
   const id = `${prefix}-${Date.now()}-${mockState.sequence}`;
   mockState.sequence += 1;
   return id;
+}
+
+function ensureMockRecipesSeeded() {
+  if (mockState.recipes.length > 0) return;
+  mockState.recipes = [
+    {
+      id: "rcp-deep-default",
+      name: "Deep Focus",
+      block_type: "deep",
+      auto_drive_mode: "manual",
+      steps: [{ id: "step-1", type: "pomodoro", title: "Focus", durationSeconds: 1500 }],
+    },
+    {
+      id: "rcp-admin-default",
+      name: "Admin Sprint",
+      block_type: "admin",
+      auto_drive_mode: "auto",
+      steps: [{ id: "step-1", type: "micro", title: "Admin", durationSeconds: 900 }],
+    },
+  ];
 }
 
 function isoDate(value) {
@@ -1036,7 +1073,15 @@ function getRoute() {
     return "settings";
   }
 
-  return routes.includes(root) ? root : "dashboard";
+  const routeAlias = {
+    dashboard: "today",
+    blocks: "today",
+    tasks: "today",
+    pomodoro: "now",
+    reflection: "insights",
+  };
+  const normalized = routeAlias[root] || root;
+  return routes.includes(normalized) ? normalized : "today";
 }
 
 function markActiveRoute(route) {
@@ -1079,6 +1124,27 @@ async function safeInvoke(name, payload = {}) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(`${name} failed: ${message}`);
     throw error;
+  }
+}
+
+function isUnknownCommandError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /unknown|not found|unsupported|invoke|command/i.test(message);
+}
+
+async function safeInvokeWithFallback(
+  primaryName,
+  payload,
+  fallbackName,
+  fallbackPayload = payload
+) {
+  try {
+    return await safeInvoke(primaryName, payload);
+  } catch (error) {
+    if (!isUnknownCommandError(error) || !fallbackName) {
+      throw error;
+    }
+    return safeInvoke(fallbackName, fallbackPayload);
   }
 }
 
@@ -1127,12 +1193,19 @@ function emptyMockPomodoroState() {
 
 function mockSessionPlan(block) {
   const requestedCycles = blockPomodoroTarget(block);
-  const focusSeconds = 25 * 60;
-  const breakSeconds = Math.max(60, Math.floor((uiState.settings.breakDuration || 5) * 60));
+  const recipe = mockState.recipes.find((item) => item.id === block.recipe_id);
+  const step = Array.isArray(recipe?.steps) ? recipe.steps[0] : null;
+  const pomodoro = step?.pomodoro || null;
+  const focusSeconds = Number(pomodoro?.focusSeconds || pomodoro?.focus_seconds || 25 * 60);
+  const breakSeconds = Math.max(
+    60,
+    Number(pomodoro?.breakSeconds || pomodoro?.break_seconds || Math.floor((uiState.settings.breakDuration || 5) * 60))
+  );
+  const cycles = Number(pomodoro?.cycles || requestedCycles);
   const cycleSeconds = Math.max(1, focusSeconds + breakSeconds);
   const blockSeconds = Math.max(0, blockDurationMinutes(block) * 60);
   const maxCyclesByDuration = Math.max(1, Math.floor(blockSeconds / cycleSeconds));
-  const totalCycles = Math.max(1, Math.min(requestedCycles, maxCyclesByDuration));
+  const totalCycles = Math.max(1, Math.min(Number.isFinite(cycles) ? cycles : requestedCycles, maxCyclesByDuration));
   return {
     totalCycles,
     focusSeconds,
@@ -1223,6 +1296,47 @@ async function mockInvoke(name, payload) {
         next_sync_token: "mock-token",
         calendar_id: "primary",
       };
+    }
+    case "list_recipes":
+      ensureMockRecipesSeeded();
+      return [...mockState.recipes];
+    case "create_recipe": {
+      const payloadRecipe = payload.payload || payload;
+      if (!payloadRecipe?.id) {
+        throw new Error("recipe id is required");
+      }
+      if (mockState.recipes.some((recipe) => recipe.id === payloadRecipe.id)) {
+        throw new Error("recipe already exists");
+      }
+      const recipe = {
+        id: String(payloadRecipe.id),
+        name: String(payloadRecipe.name || payloadRecipe.id),
+        block_type: String(payloadRecipe.blockType || payloadRecipe.block_type || "deep"),
+        auto_drive_mode: String(payloadRecipe.autoDriveMode || payloadRecipe.auto_drive_mode || "manual"),
+        steps: Array.isArray(payloadRecipe.steps) ? payloadRecipe.steps : [],
+      };
+      mockState.recipes.push(recipe);
+      return recipe;
+    }
+    case "update_recipe": {
+      const payloadRecipe = payload.payload || payload;
+      const recipeId = String(payload.recipe_id || "").trim();
+      if (!recipeId) throw new Error("recipe_id is required");
+      const index = mockState.recipes.findIndex((recipe) => recipe.id === recipeId);
+      if (index < 0) throw new Error("recipe not found");
+      const updated = {
+        ...mockState.recipes[index],
+        ...payloadRecipe,
+        id: recipeId,
+      };
+      mockState.recipes[index] = updated;
+      return updated;
+    }
+    case "delete_recipe": {
+      const recipeId = String(payload.recipe_id || "").trim();
+      const before = mockState.recipes.length;
+      mockState.recipes = mockState.recipes.filter((recipe) => recipe.id !== recipeId);
+      return before !== mockState.recipes.length;
     }
     case "list_tasks":
       return [...mockState.tasks];
@@ -1347,8 +1461,11 @@ async function mockInvoke(name, payload) {
         })
         .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
     }
+    case "generate_today_blocks":
+      return mockInvoke("generate_blocks", { ...payload, date: payload.date || isoDate(new Date()) });
     case "generate_blocks":
     case "generate_one_block": {
+      ensureMockRecipesSeeded();
       const date = payload.date || isoDate(new Date());
       const existing = mockState.blocks.filter((block) => block.date === date);
       const isOneShot = name === "generate_one_block";
@@ -1379,6 +1496,9 @@ async function mockInvoke(name, payload) {
           planned_pomodoros: 2,
           source: "routine",
           source_id: "mock",
+          recipe_id: "rcp-deep-default",
+          auto_drive_mode: "manual",
+          contents: { task_refs: [], checklist: [], time_splits: [], memo: null },
         };
         mockState.blocks.push(block);
         existing.push(block);
@@ -1406,6 +1526,7 @@ async function mockInvoke(name, payload) {
           : block
       );
       return mockState.blocks.find((block) => block.id === payload.block_id);
+    case "start_block_timer":
     case "start_pomodoro":
       if (payload.task_id) {
         assignMockTask(payload.task_id, payload.block_id);
@@ -1432,6 +1553,33 @@ async function mockInvoke(name, payload) {
         paused_phase: null,
       };
       return { ...mockState.pomodoro };
+    case "next_step":
+    case "advance_pomodoro": {
+      const totalCycles = Math.max(1, Number(mockState.pomodoro.total_cycles || 1));
+      if (mockState.pomodoro.phase === "focus") {
+        mockState.pomodoro = {
+          ...mockState.pomodoro,
+          phase: "break",
+          completed_cycles: Math.min(totalCycles, (mockState.pomodoro.completed_cycles || 0) + 1),
+          remaining_seconds: mockState.pomodoro.break_seconds || 300,
+        };
+      } else if (mockState.pomodoro.phase === "break") {
+        if ((mockState.pomodoro.completed_cycles || 0) >= totalCycles) {
+          mockState.pomodoro = {
+            ...emptyMockPomodoroState(),
+          };
+        } else {
+          mockState.pomodoro = {
+            ...mockState.pomodoro,
+            phase: "focus",
+            current_cycle: (mockState.pomodoro.current_cycle || 1) + 1,
+            remaining_seconds: mockState.pomodoro.focus_seconds || 1500,
+          };
+        }
+      }
+      return { ...mockState.pomodoro };
+    }
+    case "pause_timer":
     case "pause_pomodoro":
       mockState.pomodoro = { ...mockState.pomodoro, phase: "paused" };
       mockState.logs.push({
@@ -1444,8 +1592,15 @@ async function mockInvoke(name, payload) {
         interruption_reason: payload.reason ?? "paused",
       });
       return { ...mockState.pomodoro };
+    case "resume_timer":
     case "resume_pomodoro":
       mockState.pomodoro = { ...mockState.pomodoro, phase: "focus" };
+      return { ...mockState.pomodoro };
+    case "interrupt_timer":
+      appendMockPomodoroLog(mockState.pomodoro.phase || "focus", payload.reason ?? "interrupted");
+      mockState.pomodoro = {
+        ...emptyMockPomodoroState(),
+      };
       return { ...mockState.pomodoro };
     case "complete_pomodoro":
       mockState.pomodoro = {
@@ -1501,11 +1656,13 @@ async function refreshCoreData(date = isoDate(new Date())) {
   const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
   const syncWindow = toSyncWindowPayload(normalizedDate);
   uiState.dashboardDate = normalizedDate;
-  const [tasksResult, blocksResult, calendarEventsResult, pomodoroResult] = await Promise.allSettled([
+  const [tasksResult, blocksResult, calendarEventsResult, pomodoroResult, recipesResult] =
+    await Promise.allSettled([
     safeInvoke("list_tasks"),
     safeInvoke("list_blocks", { date: normalizedDate }),
     safeInvoke("list_synced_events", withAccount(syncWindow)),
     safeInvoke("get_pomodoro_state"),
+    safeInvoke("list_recipes"),
   ]);
   const refreshErrors = [];
   if (tasksResult.status === "fulfilled") {
@@ -1534,6 +1691,12 @@ async function refreshCoreData(date = isoDate(new Date())) {
   } else {
     const message = pomodoroResult.reason instanceof Error ? pomodoroResult.reason.message : String(pomodoroResult.reason);
     refreshErrors.push(`get_pomodoro_state: ${message}`);
+  }
+  if (recipesResult.status === "fulfilled") {
+    uiState.recipes = recipesResult.value;
+  } else {
+    const message = recipesResult.reason instanceof Error ? recipesResult.reason.message : String(recipesResult.reason);
+    refreshErrors.push(`list_recipes: ${message}`);
   }
   uiState.blocksVisibleCount = BLOCKS_INITIAL_VISIBLE;
   if (refreshErrors.length > 0) {
@@ -1573,19 +1736,16 @@ function render() {
   markActiveRoute(route);
 
   switch (route) {
-    case "dashboard":
+    case "today":
       renderDashboard();
       break;
-    case "blocks":
-      renderBlocks();
-      break;
-    case "pomodoro":
+    case "now":
       renderPomodoro();
       break;
-    case "tasks":
-      renderTasks();
+    case "routines":
+      renderRoutines();
       break;
-    case "reflection":
+    case "insights":
       renderReflection();
       break;
     case "settings":
@@ -1778,8 +1938,8 @@ function renderDashboard() {
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>ダッシュボード</h2>
-        <p>同期状況・日次ブロック生成・本日の状況を確認します。</p>
+        <h2>Today</h2>
+        <p>自動生成された当日ブロックを確認し、必要時のみ微調整します。</p>
       </div>
       <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
       <label>Account <input id="dashboard-account-id" value="${normalizeAccountId(uiState.accountId)}" /></label>
@@ -1787,7 +1947,7 @@ function renderDashboard() {
     <div class="grid three">${dashboardMetrics()}</div>
     <div class="panel row">
       <button id="dashboard-sync" class="btn-primary">同期</button>
-      <button id="dashboard-generate" class="btn-secondary">ブロック生成</button>
+      <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
       <button id="dashboard-refresh" class="btn-secondary">再読込</button>
     </div>
     ${renderDailyCalendar(selectedDate)}
@@ -1838,7 +1998,14 @@ function renderDashboard() {
     await runUiAction(async () => {
       uiState.accountId = getSelectedAccount();
       const date = getSelectedDate();
-      await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
+      try {
+        await invokeCommandWithProgress("generate_today_blocks", withAccount({}));
+      } catch (error) {
+        if (!isUnknownCommandError(error)) {
+          throw error;
+        }
+        await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
+      }
       await refreshCoreData(date);
       renderDashboard();
     });
@@ -2013,8 +2180,8 @@ function renderPomodoro() {
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>ポモドーロ実行</h2>
-        <p>開始・中断・再開・完了を操作します。</p>
+        <h2>Now</h2>
+        <p>実行中タイマーを Start / Next / Pause / Interrupt / Resume で操作します。</p>
       </div>
     </section>
     <div class="grid two">
@@ -2028,10 +2195,11 @@ function renderPomodoro() {
             .join("")}</select>
         </label>
         <div class="row">
-          <button id="pom-start" class="btn-primary">開始</button>
-          <button id="pom-pause" class="btn-warn">一時停止</button>
-          <button id="pom-resume" class="btn-secondary">再開</button>
-          <button id="pom-complete" class="btn-danger">完了</button>
+          <button id="now-start" class="btn-primary">Start</button>
+          <button id="now-next" class="btn-secondary">Next</button>
+          <button id="now-pause" class="btn-warn">Pause</button>
+          <button id="now-interrupt" class="btn-danger">Interrupt</button>
+          <button id="now-resume" class="btn-secondary">Resume</button>
         </div>
       </div>
       <div class="panel metric">
@@ -2044,23 +2212,251 @@ function renderPomodoro() {
     </div>
   `;
 
-  document.getElementById("pom-start")?.addEventListener("click", async () => {
+  document.getElementById("now-start")?.addEventListener("click", async () => {
     const blockId = /** @type {HTMLSelectElement} */ (document.getElementById("pom-block")).value;
     const taskId = /** @type {HTMLSelectElement} */ (document.getElementById("pom-task")).value || null;
-    uiState.pomodoro = await safeInvoke("start_pomodoro", { block_id: blockId, task_id: taskId });
+    uiState.pomodoro = await safeInvokeWithFallback(
+      "start_block_timer",
+      { block_id: blockId, task_id: taskId },
+      "start_pomodoro",
+      { block_id: blockId, task_id: taskId }
+    );
     renderPomodoro();
   });
-  document.getElementById("pom-pause")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvoke("pause_pomodoro", { reason: "manual_pause" });
+  document.getElementById("now-next")?.addEventListener("click", async () => {
+    uiState.pomodoro = await safeInvokeWithFallback("next_step", {}, "advance_pomodoro", {});
     renderPomodoro();
   });
-  document.getElementById("pom-resume")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvoke("resume_pomodoro", {});
+  document.getElementById("now-pause")?.addEventListener("click", async () => {
+    uiState.pomodoro = await safeInvokeWithFallback(
+      "pause_timer",
+      { reason: "manual_pause" },
+      "pause_pomodoro",
+      { reason: "manual_pause" }
+    );
     renderPomodoro();
   });
-  document.getElementById("pom-complete")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvoke("complete_pomodoro", {});
+  document.getElementById("now-interrupt")?.addEventListener("click", async () => {
+    uiState.pomodoro = await safeInvokeWithFallback(
+      "interrupt_timer",
+      { reason: "manual_interrupt" },
+      "complete_pomodoro",
+      {}
+    );
     renderPomodoro();
+  });
+  document.getElementById("now-resume")?.addEventListener("click", async () => {
+    uiState.pomodoro = await safeInvokeWithFallback("resume_timer", {}, "resume_pomodoro", {});
+    renderPomodoro();
+  });
+}
+
+function renderRoutines() {
+  const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
+  appRoot.innerHTML = `
+    <section class="view-head">
+      <div>
+        <h2>Routines</h2>
+        <p>Routine / Recipe を編集して、Today 生成時の自動選択を固定します。</p>
+      </div>
+      <div class="row">
+        <button id="routines-load-recipes" class="btn-secondary">Recipe再読込</button>
+        <a href="#/settings/auth" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center">Auth設定</a>
+      </div>
+    </section>
+    <div class="grid two">
+      <div class="panel">
+        <div class="row spread">
+          <h3>Recipe一覧</h3>
+          <button id="routine-new-recipe" class="btn-secondary">新規</button>
+        </div>
+        <div class="log-list" style="margin-top:10px">
+          ${
+            recipes.length === 0
+              ? '<p class="small">recipe がありません。右側フォームで作成してください。</p>'
+              : recipes
+                  .map(
+                    (recipe) => `
+              <div class="panel">
+                <p><b>${recipe.name || recipe.id}</b></p>
+                <p class="small">${recipe.id} / ${recipe.block_type || recipe.blockType || "deep"} / ${
+                      recipe.auto_drive_mode || recipe.autoDriveMode || "manual"
+                    }</p>
+                <div class="row" style="margin-top:8px">
+                  <button class="btn-secondary" data-edit-recipe="${recipe.id}">編集</button>
+                  <button class="btn-danger" data-delete-recipe="${recipe.id}">削除</button>
+                </div>
+              </div>
+            `
+                  )
+                  .join("")
+          }
+        </div>
+      </div>
+      <div class="panel grid">
+        <h3>Recipe Editor</h3>
+        <label>ID <input id="recipe-id" placeholder="rcp-morning-micro" /></label>
+        <label>名前 <input id="recipe-name" placeholder="朝支度" /></label>
+        <div class="grid two">
+          <label>Block Type
+            <select id="recipe-block-type">
+              ${["deep", "shallow", "admin", "learning"]
+                .map((type) => `<option value="${type}">${type}</option>`)
+                .join("")}
+            </select>
+          </label>
+          <label>Auto Drive
+            <select id="recipe-auto-drive">
+              ${["manual", "auto", "auto-silent"]
+                .map((mode) => `<option value="${mode}">${mode}</option>`)
+                .join("")}
+            </select>
+          </label>
+        </div>
+        <div class="grid two">
+          <label>Step Type
+            <select id="recipe-step-type">
+              ${["pomodoro", "micro", "free"]
+                .map((type) => `<option value="${type}">${type}</option>`)
+                .join("")}
+            </select>
+          </label>
+          <label>Step Title <input id="recipe-step-title" value="Focus" /></label>
+        </div>
+        <div class="grid three">
+          <label>Duration(sec) <input id="recipe-step-duration" type="number" min="1" value="1500" /></label>
+          <label>Focus(sec) <input id="recipe-focus" type="number" min="1" value="1500" /></label>
+          <label>Break(sec) <input id="recipe-break" type="number" min="1" value="300" /></label>
+        </div>
+        <label>Cycles <input id="recipe-cycles" type="number" min="1" value="1" /></label>
+        <div class="row">
+          <button id="routine-save-recipe" class="btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const fillRecipeForm = (recipe) => {
+    if (!recipe) return;
+    const step = Array.isArray(recipe.steps) && recipe.steps.length > 0 ? recipe.steps[0] : null;
+    const stepType = step?.type || step?.step_type || "pomodoro";
+    const pomodoro = step?.pomodoro || null;
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value = recipe.id || "";
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value =
+      recipe.name || recipe.id || "";
+    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-block-type")).value =
+      recipe.block_type || recipe.blockType || "deep";
+    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value =
+      recipe.auto_drive_mode || recipe.autoDriveMode || "manual";
+    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value = stepType;
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-title")).value =
+      step?.title || "Focus";
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-duration")).value = String(
+      step?.durationSeconds || step?.duration_seconds || 1500
+    );
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-focus")).value = String(
+      pomodoro?.focusSeconds || pomodoro?.focus_seconds || 1500
+    );
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-break")).value = String(
+      pomodoro?.breakSeconds || pomodoro?.break_seconds || 300
+    );
+    /** @type {HTMLInputElement} */ (document.getElementById("recipe-cycles")).value = String(
+      pomodoro?.cycles || 1
+    );
+  };
+
+  document.getElementById("routines-load-recipes")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      uiState.recipes = await safeInvoke("list_recipes", {});
+      renderRoutines();
+    });
+  });
+
+  document.getElementById("routine-new-recipe")?.addEventListener("click", () => {
+    fillRecipeForm({
+      id: "",
+      name: "",
+      block_type: "deep",
+      auto_drive_mode: "manual",
+      steps: [],
+    });
+  });
+
+  appRoot.querySelectorAll("[data-edit-recipe]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const recipeId = /** @type {HTMLElement} */ (node).dataset.editRecipe;
+      const recipe = recipes.find((item) => item.id === recipeId);
+      fillRecipeForm(recipe);
+    });
+  });
+
+  appRoot.querySelectorAll("[data-delete-recipe]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      await runUiAction(async () => {
+        const recipeId = /** @type {HTMLElement} */ (node).dataset.deleteRecipe;
+        await safeInvoke("delete_recipe", { recipe_id: recipeId });
+        uiState.recipes = await safeInvoke("list_recipes", {});
+        renderRoutines();
+      });
+    });
+  });
+
+  document.getElementById("routine-save-recipe")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const id = /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value.trim();
+      const name = /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value.trim();
+      const blockType = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-block-type")).value;
+      const autoDriveMode = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value;
+      const stepType = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value;
+      const stepTitle = /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-title")).value.trim() || "Step";
+      const durationSeconds = Number(
+        /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-duration")).value || "1500"
+      );
+      const focusSeconds = Number(
+        /** @type {HTMLInputElement} */ (document.getElementById("recipe-focus")).value || "1500"
+      );
+      const breakSeconds = Number(
+        /** @type {HTMLInputElement} */ (document.getElementById("recipe-break")).value || "300"
+      );
+      const cycles = Number(/** @type {HTMLInputElement} */ (document.getElementById("recipe-cycles")).value || "1");
+
+      if (!id || !name) {
+        throw new Error("recipe id と name は必須です");
+      }
+
+      const payload = {
+        id,
+        name,
+        blockType,
+        autoDriveMode,
+        steps: [
+          {
+            id: "step-1",
+            type: stepType,
+            title: stepTitle,
+            durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 60,
+            pomodoro:
+              stepType === "pomodoro"
+                ? {
+                    focusSeconds: Number.isFinite(focusSeconds) && focusSeconds > 0 ? focusSeconds : 1500,
+                    breakSeconds: Number.isFinite(breakSeconds) && breakSeconds > 0 ? breakSeconds : 300,
+                    cycles: Number.isFinite(cycles) && cycles > 0 ? cycles : 1,
+                  }
+                : undefined,
+            overrunPolicy: "wait",
+          },
+        ],
+      };
+
+      const exists = recipes.some((recipe) => recipe.id === id);
+      if (exists) {
+        await safeInvoke("update_recipe", { recipe_id: id, payload });
+      } else {
+        await safeInvoke("create_recipe", { payload });
+      }
+      uiState.recipes = await safeInvoke("list_recipes", {});
+      renderRoutines();
+    });
   });
 }
 
@@ -2217,12 +2613,14 @@ function renderReflection() {
   const start = isoDate(new Date(Date.now() - 6 * 24 * 3600 * 1000));
   const summary = uiState.reflection;
   const focusPercent = summary ? Math.min(100, Math.round((summary.total_focus_minutes / 240) * 100)) : 0;
+  const totalLogs = Array.isArray(summary?.logs) ? summary.logs.length : 0;
+  const completionRate = totalLogs > 0 ? Math.round(((summary?.completed_count ?? 0) / totalLogs) * 100) : 0;
 
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>振り返り</h2>
-        <p>期間集計（完了数・中断数・総作業時間）を確認します。</p>
+        <h2>Insights</h2>
+        <p>日次・週次の実行傾向を確認して、次のルーチン改善に繋げます。</p>
       </div>
     </section>
     <div class="panel row">
@@ -2233,8 +2631,9 @@ function renderReflection() {
     <div class="grid three" style="margin-top:14px">
       <div class="panel metric"><span class="small">完了数</span><b>${summary?.completed_count ?? 0}</b></div>
       <div class="panel metric"><span class="small">中断数</span><b>${summary?.interrupted_count ?? 0}</b></div>
-      <div class="panel metric"><span class="small">集中分</span><b>${summary?.total_focus_minutes ?? 0}m</b></div>
+      <div class="panel metric"><span class="small">完了率</span><b>${completionRate}%</b></div>
     </div>
+    <div class="panel metric" style="margin-top:14px"><span class="small">集中分</span><b>${summary?.total_focus_minutes ?? 0}m</b></div>
     <div class="panel" style="margin-top:14px">
       <p class="small">目標 240m に対する進捗</p>
       <div class="bar-track"><div class="bar-fill" style="width:${focusPercent}%"></div></div>
@@ -2411,7 +2810,7 @@ window.addEventListener("hashchange", () => {
 });
 
 setInterval(async () => {
-  if (getRoute() !== "pomodoro") {
+  if (getRoute() !== "now") {
     return;
   }
   try {
@@ -2429,6 +2828,15 @@ setInterval(async () => {
 
   try {
     await safeInvoke("bootstrap", {});
+    const today = isoDate(new Date());
+    try {
+      await invokeCommandWithProgress("generate_today_blocks", withAccount({}));
+    } catch (error) {
+      if (!isUnknownCommandError(error)) {
+        throw error;
+      }
+      await invokeCommandWithProgress("generate_blocks", withAccount({ date: today }));
+    }
     await refreshCoreData();
     uiState.reflection = await safeInvoke("get_reflection_summary", {});
   } catch {
@@ -2436,7 +2844,7 @@ setInterval(async () => {
   }
 
   if (!window.location.hash) {
-    window.location.hash = "#/dashboard";
+    window.location.hash = "#/today";
   }
   render();
 })();
