@@ -4,16 +4,19 @@ mod infrastructure;
 
 use application::bootstrap::bootstrap_workspace;
 use application::commands::{
-    adjust_block_time_impl, approve_blocks_impl, authenticate_google_impl, complete_pomodoro_impl,
-    create_task_impl, delete_block_impl, delete_task_impl, generate_blocks_impl,
-    get_pomodoro_state_impl, get_reflection_summary_impl, list_blocks_impl, list_tasks_impl,
-    pause_pomodoro_impl, resume_pomodoro_impl, start_pomodoro_impl, sync_calendar_impl,
-    update_task_impl, AppState, AuthenticateGoogleResponse, PomodoroStateResponse,
-    ReflectionSummaryResponse, SyncCalendarResponse,
+    adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
+    authenticate_google_sso_impl,
+    carry_over_task_impl, complete_pomodoro_impl, create_task_impl, delete_block_impl,
+    delete_task_impl, generate_blocks_impl, generate_one_block_impl, get_pomodoro_state_impl,
+    get_reflection_summary_impl, list_blocks_impl, list_synced_events_impl, list_tasks_impl,
+    pause_pomodoro_impl, relocate_if_needed_impl, resume_pomodoro_impl, split_task_impl,
+    start_pomodoro_impl, sync_calendar_impl, update_task_impl, AppState,
+    AuthenticateGoogleResponse, CarryOverTaskResponse, PomodoroStateResponse,
+    ReflectionSummaryResponse, SyncedEventSlotResponse, SyncCalendarResponse,
 };
 use domain::models::{Block, Task};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Serialize)]
 struct BootstrapResponse {
@@ -21,11 +24,30 @@ struct BootstrapResponse {
     database_path: String,
 }
 
+fn is_src_tauri_dir(path: &Path) -> bool {
+    let is_src_tauri = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.eq_ignore_ascii_case("src-tauri"))
+        .unwrap_or(false);
+    is_src_tauri && path.join("tauri.conf.json").is_file()
+}
+
+fn default_workspace_root() -> Result<PathBuf, String> {
+    let current_dir = std::env::current_dir().map_err(|error| error.to_string())?;
+    if is_src_tauri_dir(&current_dir) {
+        if let Some(parent) = current_dir.parent() {
+            return Ok(parent.to_path_buf());
+        }
+    }
+    Ok(current_dir)
+}
+
 #[tauri::command]
 fn bootstrap(root: Option<String>) -> Result<BootstrapResponse, String> {
     let workspace_root = match root {
         Some(path) => PathBuf::from(path),
-        None => std::env::current_dir().map_err(|error| error.to_string())?,
+        None => default_workspace_root()?,
     };
 
     let result = bootstrap_workspace(&workspace_root).map_err(|error| error.to_string())?;
@@ -43,20 +65,33 @@ fn ping() -> &'static str {
 #[tauri::command]
 async fn authenticate_google(
     state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
     authorization_code: Option<String>,
 ) -> Result<AuthenticateGoogleResponse, String> {
-    authenticate_google_impl(state.inner(), authorization_code)
+    authenticate_google_impl(state.inner(), account_id, authorization_code)
         .await
         .map_err(|error| state.command_error("authenticate_google", &error))
 }
 
 #[tauri::command]
+async fn authenticate_google_sso(
+    state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
+    force_reauth: Option<bool>,
+) -> Result<AuthenticateGoogleResponse, String> {
+    authenticate_google_sso_impl(state.inner(), account_id, force_reauth.unwrap_or(false))
+        .await
+        .map_err(|error| state.command_error("authenticate_google_sso", &error))
+}
+
+#[tauri::command]
 async fn sync_calendar(
     state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
     time_min: Option<String>,
     time_max: Option<String>,
 ) -> Result<SyncCalendarResponse, String> {
-    sync_calendar_impl(state.inner(), time_min, time_max)
+    sync_calendar_impl(state.inner(), account_id, time_min, time_max)
         .await
         .map_err(|error| state.command_error("sync_calendar", &error))
 }
@@ -65,10 +100,22 @@ async fn sync_calendar(
 async fn generate_blocks(
     state: tauri::State<'_, AppState>,
     date: String,
+    account_id: Option<String>,
 ) -> Result<Vec<Block>, String> {
-    generate_blocks_impl(state.inner(), date)
+    generate_blocks_impl(state.inner(), date, account_id)
         .await
         .map_err(|error| state.command_error("generate_blocks", &error))
+}
+
+#[tauri::command]
+async fn generate_one_block(
+    state: tauri::State<'_, AppState>,
+    date: String,
+    account_id: Option<String>,
+) -> Result<Vec<Block>, String> {
+    generate_one_block_impl(state.inner(), date, account_id)
+        .await
+        .map_err(|error| state.command_error("generate_one_block", &error))
 }
 
 #[tauri::command]
@@ -106,6 +153,17 @@ fn list_blocks(state: tauri::State<'_, AppState>, date: Option<String>) -> Resul
 }
 
 #[tauri::command]
+fn list_synced_events(
+    state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
+    time_min: Option<String>,
+    time_max: Option<String>,
+) -> Result<Vec<SyncedEventSlotResponse>, String> {
+    list_synced_events_impl(state.inner(), account_id, time_min, time_max)
+        .map_err(|error| state.command_error("list_synced_events", &error))
+}
+
+#[tauri::command]
 fn start_pomodoro(
     state: tauri::State<'_, AppState>,
     block_id: String,
@@ -128,6 +186,11 @@ fn pause_pomodoro(
 fn get_pomodoro_state(state: tauri::State<'_, AppState>) -> Result<PomodoroStateResponse, String> {
     get_pomodoro_state_impl(state.inner())
         .map_err(|error| state.command_error("get_pomodoro_state", &error))
+}
+
+#[tauri::command]
+fn advance_pomodoro(state: tauri::State<'_, AppState>) -> Result<PomodoroStateResponse, String> {
+    advance_pomodoro_impl(state.inner()).map_err(|error| state.command_error("advance_pomodoro", &error))
 }
 
 #[tauri::command]
@@ -183,6 +246,38 @@ fn delete_task(state: tauri::State<'_, AppState>, task_id: String) -> Result<boo
 }
 
 #[tauri::command]
+fn split_task(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    parts: u32,
+) -> Result<Vec<Task>, String> {
+    split_task_impl(state.inner(), task_id, parts)
+        .map_err(|error| state.command_error("split_task", &error))
+}
+
+#[tauri::command]
+fn carry_over_task(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    from_block_id: String,
+    candidate_block_ids: Option<Vec<String>>,
+) -> Result<CarryOverTaskResponse, String> {
+    carry_over_task_impl(state.inner(), task_id, from_block_id, candidate_block_ids)
+        .map_err(|error| state.command_error("carry_over_task", &error))
+}
+
+#[tauri::command]
+async fn relocate_if_needed(
+    state: tauri::State<'_, AppState>,
+    block_id: String,
+    account_id: Option<String>,
+) -> Result<Option<Block>, String> {
+    relocate_if_needed_impl(state.inner(), block_id, account_id)
+        .await
+        .map_err(|error| state.command_error("relocate_if_needed", &error))
+}
+
+#[tauri::command]
 fn get_reflection_summary(
     state: tauri::State<'_, AppState>,
     start: Option<String>,
@@ -193,7 +288,7 @@ fn get_reflection_summary(
 }
 
 pub fn run() {
-    let workspace_root = std::env::current_dir().expect("failed to resolve current directory");
+    let workspace_root = default_workspace_root().expect("failed to resolve workspace root");
     let app_state = AppState::new(workspace_root).expect("failed to initialize app state");
 
     tauri::Builder::default()
@@ -202,21 +297,28 @@ pub fn run() {
             ping,
             bootstrap,
             authenticate_google,
+            authenticate_google_sso,
             sync_calendar,
             generate_blocks,
+            generate_one_block,
             approve_blocks,
             delete_block,
             adjust_block_time,
             list_blocks,
+            list_synced_events,
             start_pomodoro,
             pause_pomodoro,
             get_pomodoro_state,
+            advance_pomodoro,
             resume_pomodoro,
             complete_pomodoro,
             list_tasks,
             create_task,
             update_task,
             delete_task,
+            split_task,
+            carry_over_task,
+            relocate_if_needed,
             get_reflection_summary
         ])
         .run(tauri::generate_context!())

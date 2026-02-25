@@ -19,6 +19,7 @@ where
     C: GoogleCalendarClient,
 {
     config_dir: PathBuf,
+    account_id: String,
     calendar_client: Arc<C>,
 }
 
@@ -26,9 +27,14 @@ impl<C> BlocksCalendarInitializer<C>
 where
     C: GoogleCalendarClient,
 {
-    pub fn new(config_dir: impl AsRef<Path>, calendar_client: Arc<C>) -> Self {
+    pub fn new(
+        config_dir: impl AsRef<Path>,
+        account_id: impl Into<String>,
+        calendar_client: Arc<C>,
+    ) -> Self {
         Self {
             config_dir: config_dir.as_ref().to_path_buf(),
+            account_id: account_id.into(),
             calendar_client,
         }
     }
@@ -39,7 +45,7 @@ where
     ) -> Result<EnsureBlocksCalendarResult, InfraError> {
         ensure_default_configs(&self.config_dir)?;
 
-        if let Some(calendar_id) = read_blocks_calendar_id(&self.config_dir)? {
+        if let Some(calendar_id) = read_blocks_calendar_id(&self.config_dir, &self.account_id)? {
             return Ok(EnsureBlocksCalendarResult::Reused(calendar_id));
         }
 
@@ -51,7 +57,7 @@ where
             .into_iter()
             .find(|calendar| calendar.summary == calendar_name)
         {
-            save_blocks_calendar_id(&self.config_dir, &existing.id)?;
+            save_blocks_calendar_id(&self.config_dir, &self.account_id, &existing.id)?;
             return Ok(EnsureBlocksCalendarResult::LinkedExisting(existing.id));
         }
 
@@ -59,7 +65,7 @@ where
             .calendar_client
             .create_calendar(access_token, &calendar_name, timezone.as_deref())
             .await?;
-        save_blocks_calendar_id(&self.config_dir, &created.id)?;
+        save_blocks_calendar_id(&self.config_dir, &self.account_id, &created.id)?;
         Ok(EnsureBlocksCalendarResult::Created(created.id))
     }
 }
@@ -219,10 +225,10 @@ mod tests {
     #[tokio::test]
     async fn ensure_blocks_calendar_reuses_stored_id() {
         let temp = TempConfigDir::new();
-        save_blocks_calendar_id(temp.path(), "stored-id").expect("save id");
+        save_blocks_calendar_id(temp.path(), "default", "stored-id").expect("save id");
 
         let client = Arc::new(FakeGoogleCalendarClient::default());
-        let initializer = BlocksCalendarInitializer::new(temp.path(), Arc::clone(&client));
+        let initializer = BlocksCalendarInitializer::new(temp.path(), "default", Arc::clone(&client));
         let result = initializer
             .ensure_blocks_calendar("access-token")
             .await
@@ -246,7 +252,7 @@ mod tests {
                 summary: "Blocks".to_string(),
             },
         ]));
-        let initializer = BlocksCalendarInitializer::new(temp.path(), Arc::clone(&client));
+        let initializer = BlocksCalendarInitializer::new(temp.path(), "default", Arc::clone(&client));
         let result = initializer
             .ensure_blocks_calendar("access-token")
             .await
@@ -257,7 +263,7 @@ mod tests {
             EnsureBlocksCalendarResult::LinkedExisting("blocks-existing".to_string())
         );
         assert_eq!(
-            read_blocks_calendar_id(temp.path()).expect("read id"),
+            read_blocks_calendar_id(temp.path(), "default").expect("read id"),
             Some("blocks-existing".to_string())
         );
         assert_eq!(client.list_calls.load(Ordering::SeqCst), 1);
@@ -273,7 +279,7 @@ mod tests {
             summary: "Blocks".to_string(),
         });
 
-        let initializer = BlocksCalendarInitializer::new(temp.path(), Arc::clone(&client));
+        let initializer = BlocksCalendarInitializer::new(temp.path(), "default", Arc::clone(&client));
         let result = initializer
             .ensure_blocks_calendar("access-token")
             .await
@@ -284,7 +290,7 @@ mod tests {
             EnsureBlocksCalendarResult::Created("new-blocks-id".to_string())
         );
         assert_eq!(
-            read_blocks_calendar_id(temp.path()).expect("read id"),
+            read_blocks_calendar_id(temp.path(), "default").expect("read id"),
             Some("new-blocks-id".to_string())
         );
         assert_eq!(client.list_calls.load(Ordering::SeqCst), 1);

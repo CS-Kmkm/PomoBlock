@@ -1,22 +1,89 @@
 import { createPolicy } from "./models.js";
 
-const DAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
+const FORMATTER_CACHE = new Map();
+
+function getFormatter(timeZone) {
+  const cacheKey = `en-US:${timeZone}`;
+  let formatter = FORMATTER_CACHE.get(cacheKey);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "long",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    FORMATTER_CACHE.set(cacheKey, formatter);
+  }
+  return formatter;
+}
+
+function zonedDateTimeParts(date, timeZone) {
+  const formatter = getFormatter(timeZone);
+  const parts = formatter.formatToParts(date);
+  const byType = {};
+  for (const part of parts) {
+    byType[part.type] = part.value;
+  }
+  return {
+    weekday: byType.weekday,
+    year: Number(byType.year),
+    month: Number(byType.month),
+    day: Number(byType.day),
+    hour: Number(byType.hour) % 24,
+    minute: Number(byType.minute),
+  };
+}
 
 function timeToMinutes(timeString) {
   const [hours, minutes] = timeString.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
-function dateToMinuteOfDay(date) {
-  return date.getUTCHours() * 60 + date.getUTCMinutes();
+function dateToMinuteOfDay(date, timeZone) {
+  const parts = zonedDateTimeParts(date, timeZone);
+  return parts.hour * 60 + parts.minute;
+}
+
+function dayNameInTimezone(date, timeZone) {
+  return zonedDateTimeParts(date, timeZone).weekday;
+}
+
+function dateStringInTimezone(date, timeZone) {
+  const parts = zonedDateTimeParts(date, timeZone);
+  return `${parts.year.toString().padStart(4, "0")}-${parts.month
+    .toString()
+    .padStart(2, "0")}-${parts.day.toString().padStart(2, "0")}`;
+}
+
+function zonedDateTimeToUtc(dateString, timeString, timeZone) {
+  const [year, month, day] = dateString.split("-").map(Number);
+  const [hour, minute] = timeString.split(":").map(Number);
+  const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  let candidateUtc = targetAsUtc;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const observed = zonedDateTimeParts(new Date(candidateUtc), timeZone);
+    const observedAsUtc = Date.UTC(
+      observed.year,
+      observed.month - 1,
+      observed.day,
+      observed.hour,
+      observed.minute,
+      0,
+      0
+    );
+    const delta = targetAsUtc - observedAsUtc;
+    candidateUtc += delta;
+    if (delta === 0) {
+      break;
+    }
+  }
+
+  return new Date(candidateUtc);
 }
 
 function clonePolicy(policy) {
@@ -26,6 +93,7 @@ function clonePolicy(policy) {
       end: policy.workHours.end,
       days: [...policy.workHours.days],
     },
+    timezone: policy.timezone,
     blockDurationMinutes: policy.blockDurationMinutes,
     breakDurationMinutes: policy.breakDurationMinutes,
     minBlockGapMinutes: policy.minBlockGapMinutes,
@@ -43,6 +111,9 @@ function mergePolicy(basePolicy, overrideValue) {
         ? [...overrideValue.workHours.days]
         : merged.workHours.days,
     };
+  }
+  if (typeof overrideValue.timezone === "string") {
+    merged.timezone = overrideValue.timezone;
   }
   if (typeof overrideValue.blockDurationMinutes === "number") {
     merged.blockDurationMinutes = overrideValue.blockDurationMinutes;
@@ -83,12 +154,12 @@ export function isWithinWorkHours(policyInput, value) {
     return false;
   }
 
-  const dayName = DAY_NAMES[date.getUTCDay()];
+  const dayName = dayNameInTimezone(date, policy.timezone);
   if (!policy.workHours.days.includes(dayName)) {
     return false;
   }
 
-  const minute = dateToMinuteOfDay(date);
+  const minute = dateToMinuteOfDay(date, policy.timezone);
   const workStart = timeToMinutes(policy.workHours.start);
   const workEnd = timeToMinutes(policy.workHours.end);
 
@@ -106,14 +177,14 @@ export function filterSlots(policyInput, slots) {
       continue;
     }
 
-    const dayName = DAY_NAMES[slotStart.getUTCDay()];
+    const dayName = dayNameInTimezone(slotStart, policy.timezone);
     if (!policy.workHours.days.includes(dayName)) {
       continue;
     }
 
-    const datePart = slot.startAt.slice(0, 10);
-    const workStart = new Date(`${datePart}T${policy.workHours.start}:00.000Z`);
-    const workEnd = new Date(`${datePart}T${policy.workHours.end}:00.000Z`);
+    const datePart = dateStringInTimezone(slotStart, policy.timezone);
+    const workStart = zonedDateTimeToUtc(datePart, policy.workHours.start, policy.timezone);
+    const workEnd = zonedDateTimeToUtc(datePart, policy.workHours.end, policy.timezone);
     if (Number.isNaN(workStart.getTime()) || Number.isNaN(workEnd.getTime()) || workEnd <= workStart) {
       continue;
     }
@@ -170,14 +241,17 @@ export function applyPolicyOverride(basePolicyInput, override, nowInput = new Da
   if (override.value?.workHours) {
     blended.workHours = merged.workHours;
   }
+  if (typeof override.value?.timezone === "string") {
+    blended.timezone = merged.timezone;
+  }
 
   return createPolicy(blended);
 }
 
 export function workWindowForDate(policyInput, dateString) {
   const policy = createPolicy(policyInput);
-  const start = new Date(`${dateString}T${policy.workHours.start}:00.000Z`);
-  const end = new Date(`${dateString}T${policy.workHours.end}:00.000Z`);
+  const start = zonedDateTimeToUtc(dateString, policy.workHours.start, policy.timezone);
+  const end = zonedDateTimeToUtc(dateString, policy.workHours.end, policy.timezone);
 
   return { start, end };
 }

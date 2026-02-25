@@ -48,6 +48,15 @@ function validateInteger(value, fieldName, min = Number.MIN_SAFE_INTEGER) {
   assert(Number.isInteger(value) && value >= min, `${fieldName} must be an integer >= ${min}`);
 }
 
+function validateTimeZone(value, fieldName) {
+  validateNonEmptyString(value, fieldName);
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+  } catch {
+    throw new Error(`${fieldName} must be a valid IANA time zone`);
+  }
+}
+
 export function createWorkHours(input = {}) {
   const workHours = {
     start: input.start ?? "09:00",
@@ -68,11 +77,13 @@ export function createWorkHours(input = {}) {
 export function createPolicy(input = {}) {
   const policy = {
     workHours: createWorkHours(input.workHours),
-    blockDurationMinutes: input.blockDurationMinutes ?? 50,
-    breakDurationMinutes: input.breakDurationMinutes ?? 10,
-    minBlockGapMinutes: input.minBlockGapMinutes ?? 5,
+    timezone: input.timezone ?? "UTC",
+    blockDurationMinutes: input.blockDurationMinutes ?? 60,
+    breakDurationMinutes: input.breakDurationMinutes ?? 5,
+    minBlockGapMinutes: input.minBlockGapMinutes ?? 0,
   };
 
+  validateTimeZone(policy.timezone, "timezone");
   validateInteger(policy.blockDurationMinutes, "blockDurationMinutes", 1);
   validateInteger(policy.breakDurationMinutes, "breakDurationMinutes", 1);
   validateInteger(policy.minBlockGapMinutes, "minBlockGapMinutes", 0);
