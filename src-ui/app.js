@@ -20,30 +20,88 @@ const longRunningLabels = {
   generate_blocks: "ブロック生成",
   authenticate_google_sso: "Google SSO認証",
 };
+const commandArgAliases = {
+  authenticate_google: [
+    ["account_id", "accountId"],
+    ["authorization_code", "authorizationCode"],
+  ],
+  authenticate_google_sso: [
+    ["account_id", "accountId"],
+    ["force_reauth", "forceReauth"],
+  ],
+  sync_calendar: [
+    ["account_id", "accountId"],
+    ["time_min", "timeMin"],
+    ["time_max", "timeMax"],
+  ],
+  generate_blocks: [["account_id", "accountId"]],
+  generate_one_block: [["account_id", "accountId"]],
+  approve_blocks: [["block_ids", "blockIds"]],
+  delete_block: [["block_id", "blockId"]],
+  adjust_block_time: [
+    ["block_id", "blockId"],
+    ["start_at", "startAt"],
+    ["end_at", "endAt"],
+  ],
+  list_synced_events: [
+    ["account_id", "accountId"],
+    ["time_min", "timeMin"],
+    ["time_max", "timeMax"],
+  ],
+  start_pomodoro: [
+    ["block_id", "blockId"],
+    ["task_id", "taskId"],
+  ],
+  create_task: [["estimated_pomodoros", "estimatedPomodoros"]],
+  update_task: [
+    ["task_id", "taskId"],
+    ["estimated_pomodoros", "estimatedPomodoros"],
+  ],
+  delete_task: [["task_id", "taskId"]],
+  split_task: [["task_id", "taskId"]],
+  carry_over_task: [
+    ["task_id", "taskId"],
+    ["from_block_id", "fromBlockId"],
+    ["candidate_block_ids", "candidateBlockIds"],
+  ],
+  relocate_if_needed: [
+    ["block_id", "blockId"],
+    ["account_id", "accountId"],
+  ],
+};
 const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
+const BLOCKS_INITIAL_VISIBLE = 50;
+const DAY_BLOCK_DRAG_SNAP_MINUTES = 5;
+const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 
 /** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null}} Block */
 /** @typedef {{account_id:string,id:string,title:string,start_at:string,end_at:string}} SyncedEvent */
 /** @typedef {{id:string,title:string,description:string|null,estimated_pomodoros:number|null,status:string,completed_pomodoros:number}} Task */
 /** @typedef {{current_block_id:string|null,current_task_id:string|null,phase:string,remaining_seconds:number,start_time:string|null,total_cycles:number,completed_cycles:number,current_cycle:number}} PomodoroState */
+/** @typedef {"block" | "event" | "free"} DayItemKind */
+/** @typedef {{kind: DayItemKind, id: string} | null} DayItemSelection */
+/** @typedef {"grid" | "simple"} DayCalendarViewMode */
 
-/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, settings: any}} */
+/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, settings: any}} */
 const uiState = {
   auth: null,
   accountId: "default",
   dashboardDate: isoDate(new Date()),
   blocks: [],
+  blocksVisibleCount: BLOCKS_INITIAL_VISIBLE,
   calendarEvents: [],
   tasks: [],
   pomodoro: null,
   reflection: null,
+  dayCalendarSelection: null,
+  dayCalendarViewMode: "grid",
   settings: {
     page: "blocks",
     workStart: "09:00",
     workEnd: "18:00",
-    blockDuration: 50,
-    breakDuration: 10,
+    blockDuration: 60,
+    breakDuration: 5,
     gitRemote: "",
   },
 };
@@ -80,6 +138,31 @@ const progressState = {
   hideTimerId: 0,
 };
 
+const dayBlockDragState = {
+  active: false,
+  moved: false,
+  pointerId: null,
+  blockId: "",
+  dayStartMs: 0,
+  dayEndMs: 0,
+  rangeMs: 0,
+  trackHeightPx: 0,
+  originClientY: 0,
+  originStartMs: 0,
+  originEndMs: 0,
+  previewStartMs: 0,
+  previewEndMs: 0,
+  suppressClickUntil: 0,
+  originalTopCss: "",
+  originalTimeLabelText: "",
+  originalTitle: "",
+  hoveredFreeEntry: /** @type {HTMLElement | null} */ (null),
+  entry: /** @type {HTMLButtonElement | null} */ (null),
+  timeLabel: /** @type {HTMLElement | null} */ (null),
+  onMove: /** @type {((event: PointerEvent) => void) | null} */ (null),
+  onUp: /** @type {((event: PointerEvent) => void) | null} */ (null),
+};
+
 function nextMockId(prefix) {
   const id = `${prefix}-${Date.now()}-${mockState.sequence}`;
   mockState.sequence += 1;
@@ -98,6 +181,23 @@ function formatTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ja-JP");
+}
+
+function formatHHmm(value) {
+  if (!value) return "--:--";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "--:--";
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function blockDisplayName(block) {
+  const date =
+    typeof block?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(block.date)
+      ? block.date
+      : isoDate(new Date(block?.start_at || Date.now()));
+  return `${formatHHmm(block?.start_at)}-${formatHHmm(block?.end_at)}_${date}`;
 }
 
 function toLocalInputValue(rfc3339) {
@@ -159,7 +259,8 @@ function blockPomodoroTarget(block) {
     return Math.max(1, Math.floor(block.planned_pomodoros));
   }
   const duration = blockDurationMinutes(block);
-  return Math.max(1, Math.round(duration / 25));
+  const cycleMinutes = 25 + Math.max(1, Math.floor(uiState.settings.breakDuration || 5));
+  return Math.max(1, Math.floor(duration / cycleMinutes));
 }
 
 function pomodoroProgressPercent(state) {
@@ -195,12 +296,35 @@ function withAccount(payload = {}) {
   };
 }
 
-function toClockText(milliseconds) {
+function toClockText(milliseconds, options = {}) {
   return new Date(milliseconds).toLocaleTimeString("ja-JP", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    ...options,
   });
+}
+
+function timezoneOffsetLabel() {
+  const offsetMinutes = -new Date().getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, "0");
+  const minutes = String(absoluteMinutes % 60).padStart(2, "0");
+  return `GMT${sign}${hours}${minutes === "00" ? "" : `:${minutes}`}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function dayItemKey(kind, id) {
+  return `${kind}:${id}`;
 }
 
 function minutesBetween(startMs, endMs) {
@@ -214,6 +338,20 @@ function toDurationLabel(totalMinutes) {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
+}
+
+function toClippedInterval(startAt, endAt, dayStartMs, dayEndMs) {
+  const startMs = new Date(startAt).getTime();
+  const endMs = new Date(endAt).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return null;
+  }
+  const clippedStart = Math.max(startMs, dayStartMs);
+  const clippedEnd = Math.min(endMs, dayEndMs);
+  if (clippedEnd <= clippedStart) {
+    return null;
+  }
+  return { startMs: clippedStart, endMs: clippedEnd };
 }
 
 function toTimelineIntervals(items, dayStartMs, dayEndMs) {
@@ -285,72 +423,224 @@ function intervalRangeLabel(interval) {
   return `${toClockText(interval.startMs)} - ${toClockText(interval.endMs)}`;
 }
 
-function renderSlotList(intervals, emptyText) {
-  if (!intervals.length) {
-    return `<p class="small">${emptyText}</p>`;
+function snapToMinutes(milliseconds, minutes) {
+  const step = Math.max(1, Math.floor(minutes)) * 60000;
+  return Math.round(milliseconds / step) * step;
+}
+
+function clampBlockIntervalToDay(startMs, durationMs, dayStartMs, dayEndMs) {
+  const safeDuration = Math.max(60000, durationMs);
+  const maxStartMs = Math.max(dayStartMs, dayEndMs - safeDuration);
+  const clampedStartMs = Math.min(Math.max(startMs, dayStartMs), maxStartMs);
+  return {
+    startMs: clampedStartMs,
+    endMs: clampedStartMs + safeDuration,
+  };
+}
+
+function clearDayBlockDragDocumentListeners() {
+  if (dayBlockDragState.onMove) {
+    window.removeEventListener("pointermove", dayBlockDragState.onMove);
+    dayBlockDragState.onMove = null;
   }
-  return `
-    <ul class="slot-list">
-      ${intervals
-        .map(
-          (interval) => `
-            <li>
-              <span>${intervalRangeLabel(interval)}</span>
-              <span class="small">${toDurationLabel(minutesBetween(interval.startMs, interval.endMs))}</span>
-            </li>
-          `
-        )
-        .join("")}
-    </ul>
-  `;
+  if (dayBlockDragState.onUp) {
+    window.removeEventListener("pointerup", dayBlockDragState.onUp);
+    window.removeEventListener("pointercancel", dayBlockDragState.onUp);
+    dayBlockDragState.onUp = null;
+  }
 }
 
-function renderTimelineScale() {
-  return [0, 6, 12, 18, 24]
-    .map(
-      (hour) => `
-        <span style="left:${(hour / 24) * 100}%">${String(hour).padStart(2, "0")}:00</span>
-      `
-    )
-    .join("");
+function setHoveredFreeEntry(entry) {
+  if (dayBlockDragState.hoveredFreeEntry === entry) return;
+  if (dayBlockDragState.hoveredFreeEntry) {
+    dayBlockDragState.hoveredFreeEntry.classList.remove("is-drop-target");
+  }
+  dayBlockDragState.hoveredFreeEntry = entry;
+  if (dayBlockDragState.hoveredFreeEntry) {
+    dayBlockDragState.hoveredFreeEntry.classList.add("is-drop-target");
+  }
 }
 
-function renderTimelineLane(label, kind, intervals, dayStartMs, dayEndMs) {
-  const totalRange = Math.max(1, dayEndMs - dayStartMs);
-  const segments = intervals
-    .map((interval) => {
-      const left = ((interval.startMs - dayStartMs) / totalRange) * 100;
-      const width = Math.max(0.9, ((interval.endMs - interval.startMs) / totalRange) * 100);
-      const title = `${intervalRangeLabel(interval)} (${toDurationLabel(
-        minutesBetween(interval.startMs, interval.endMs)
-      )})`;
-      return `<span class="timeline-segment ${kind}" style="left:${left}%;width:${width}%" title="${title}"></span>`;
-    })
-    .join("");
+function resetDayBlockDragVisualState() {
+  setHoveredFreeEntry(null);
+  if (dayBlockDragState.entry) {
+    dayBlockDragState.entry.classList.remove("is-dragging");
+    dayBlockDragState.entry.style.top = dayBlockDragState.originalTopCss;
+    dayBlockDragState.entry.style.removeProperty("z-index");
+    dayBlockDragState.entry.title = dayBlockDragState.originalTitle;
+    if (dayBlockDragState.timeLabel) {
+      dayBlockDragState.timeLabel.textContent = dayBlockDragState.originalTimeLabelText;
+    }
+  }
+}
 
-  return `
-    <div class="timeline-lane">
-      <span class="lane-label">${label}</span>
-      <div class="timeline-track">${segments || '<span class="timeline-empty">none</span>'}</div>
-    </div>
-  `;
+async function commitDayBlockMove(rerender) {
+  const blockId = dayBlockDragState.blockId;
+  if (!blockId) return;
+  const finalStartMs = dayBlockDragState.previewStartMs;
+  const finalEndMs = dayBlockDragState.previewEndMs;
+  const unchanged =
+    Math.abs(finalStartMs - dayBlockDragState.originStartMs) < 1000 &&
+    Math.abs(finalEndMs - dayBlockDragState.originEndMs) < 1000;
+  if (unchanged) return;
+
+  await runUiAction(async () => {
+    await safeInvoke("adjust_block_time", {
+      block_id: blockId,
+      start_at: new Date(finalStartMs).toISOString(),
+      end_at: new Date(finalEndMs).toISOString(),
+    });
+    uiState.dayCalendarSelection = { kind: "block", id: blockId };
+    await refreshCoreData(uiState.dashboardDate);
+    setStatus(`block moved: ${toClockText(finalStartMs)} - ${toClockText(finalEndMs)}`);
+    rerender();
+  });
+}
+
+function finishDayBlockDrag(rerender) {
+  clearDayBlockDragDocumentListeners();
+  if (!dayBlockDragState.active) return;
+
+  resetDayBlockDragVisualState();
+  const moved = dayBlockDragState.moved;
+  const shouldCommit = moved;
+  if (moved) {
+    dayBlockDragState.suppressClickUntil = Date.now() + 220;
+  }
+
+  const releaseEntry = dayBlockDragState.entry;
+  const pointerId = dayBlockDragState.pointerId;
+  if (releaseEntry && Number.isInteger(pointerId)) {
+    try {
+      releaseEntry.releasePointerCapture(/** @type {number} */ (pointerId));
+    } catch {
+      // ignore unsupported or already released capture
+    }
+  }
+
+  dayBlockDragState.active = false;
+  dayBlockDragState.moved = false;
+  dayBlockDragState.pointerId = null;
+  dayBlockDragState.blockId = "";
+  dayBlockDragState.dayStartMs = 0;
+  dayBlockDragState.dayEndMs = 0;
+  dayBlockDragState.rangeMs = 0;
+  dayBlockDragState.trackHeightPx = 0;
+  dayBlockDragState.originClientY = 0;
+  dayBlockDragState.originStartMs = 0;
+  dayBlockDragState.originEndMs = 0;
+  dayBlockDragState.previewStartMs = 0;
+  dayBlockDragState.previewEndMs = 0;
+  dayBlockDragState.originalTopCss = "";
+  dayBlockDragState.originalTimeLabelText = "";
+  dayBlockDragState.originalTitle = "";
+  dayBlockDragState.hoveredFreeEntry = null;
+  dayBlockDragState.entry = null;
+  dayBlockDragState.timeLabel = null;
+
+  if (shouldCommit) {
+    void commitDayBlockMove(rerender);
+  }
+}
+
+function applyDayBlockPreview(entry, interval) {
+  if (!dayBlockDragState.rangeMs || dayBlockDragState.rangeMs <= 0) return;
+  dayBlockDragState.previewStartMs = interval.startMs;
+  dayBlockDragState.previewEndMs = interval.endMs;
+  const topPercent = ((interval.startMs - dayBlockDragState.dayStartMs) / dayBlockDragState.rangeMs) * 100;
+  entry.style.top = `${topPercent}%`;
+  const timeText = intervalRangeLabel(interval);
+  if (dayBlockDragState.timeLabel) {
+    dayBlockDragState.timeLabel.textContent = timeText;
+  }
+  entry.title = `${blockDisplayName({
+    start_at: new Date(interval.startMs).toISOString(),
+    end_at: new Date(interval.endMs).toISOString(),
+    date: uiState.dashboardDate,
+  })} | ${timeText}`;
 }
 
 function buildDailyCalendarModel(dateValue, blocks, events) {
   const { dayStart, dayEnd } = resolveDayBounds(dateValue);
   const dayStartMs = dayStart.getTime();
   const dayEndMs = dayEnd.getTime();
+  const blockItems = blocks
+    .map((block) => {
+      const interval = toClippedInterval(block.start_at, block.end_at, dayStartMs, dayEndMs);
+      if (!interval) return null;
+      return {
+        kind: /** @type {DayItemKind} */ ("block"),
+        id: block.id,
+        key: dayItemKey("block", block.id),
+        title: blockDisplayName(block),
+        subtitle: block.firmness || "draft",
+        startMs: interval.startMs,
+        endMs: interval.endMs,
+        durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+        payload: block,
+      };
+    })
+    .filter((item) => item !== null)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+  const eventItems = events
+    .map((event) => {
+      const interval = toClippedInterval(event.start_at, event.end_at, dayStartMs, dayEndMs);
+      if (!interval) return null;
+      return {
+        kind: /** @type {DayItemKind} */ ("event"),
+        id: event.id,
+        key: dayItemKey("event", event.id),
+        title: event.title || "予定",
+        subtitle: event.account_id || "default",
+        startMs: interval.startMs,
+        endMs: interval.endMs,
+        durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+        payload: event,
+      };
+    })
+    .filter((item) => item !== null)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
   const blockIntervals = toTimelineIntervals(blocks, dayStartMs, dayEndMs);
   const eventIntervals = toTimelineIntervals(events, dayStartMs, dayEndMs);
   const busyIntervals = mergeTimelineIntervals([...blockIntervals, ...eventIntervals]);
   const freeIntervals = invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals);
+  const freeItems = freeIntervals
+    .filter((interval) => minutesBetween(interval.startMs, interval.endMs) >= 10)
+    .map((interval) => ({
+      kind: /** @type {DayItemKind} */ ("free"),
+      id: `${interval.startMs}-${interval.endMs}`,
+      key: dayItemKey("free", `${interval.startMs}-${interval.endMs}`),
+      title: "空き枠",
+      subtitle: "available",
+      startMs: interval.startMs,
+      endMs: interval.endMs,
+      durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+      payload: interval,
+    }));
+  const allItems = [...blockItems, ...eventItems, ...freeItems];
+  const itemMap = new Map(allItems.map((item) => [item.key, item]));
+  const selectedByState = uiState.dayCalendarSelection
+    ? itemMap.get(dayItemKey(uiState.dayCalendarSelection.kind, uiState.dayCalendarSelection.id))
+    : null;
+  const selectedItem = selectedByState || blockItems[0] || eventItems[0] || freeItems[0] || null;
+  uiState.dayCalendarSelection = selectedItem
+    ? {
+        kind: selectedItem.kind,
+        id: selectedItem.id,
+      }
+    : null;
 
   return {
     dayStartMs,
     dayEndMs,
     blockIntervals,
     eventIntervals,
+    busyIntervals,
     freeIntervals,
+    blockItems,
+    eventItems,
+    freeItems,
+    selectedItem,
     totals: {
       blockMinutes: sumIntervalMinutes(blockIntervals),
       eventMinutes: sumIntervalMinutes(eventIntervals),
@@ -359,44 +649,309 @@ function buildDailyCalendarModel(dateValue, blocks, events) {
   };
 }
 
+function renderDayHourGuides() {
+  return Array.from({ length: 25 }, (_, index) => {
+    const top = (index / 24) * 100;
+    return `<span class="day-hour-line" style="top:${top}%"></span>`;
+  }).join("");
+}
+
+function renderDayTimeAxis(dayStartMs, dayEndMs) {
+  const totalHours = Math.max(1, Math.round((dayEndMs - dayStartMs) / (60 * 60 * 1000)));
+  return `
+    <div class="day-time-axis">
+      ${renderDayHourGuides()}
+      ${Array.from({ length: totalHours + 1 }, (_, index) => {
+        const top = (index / totalHours) * 100;
+        const clock = toClockText(dayStartMs + index * 60 * 60 * 1000);
+        return `<span class="day-time-label" style="top:${top}%">${clock}</span>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem) {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  return items
+    .map((item) => {
+      const top = ((item.startMs - dayStartMs) / totalRange) * 100;
+      const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
+      const minHeight = kind === "free" ? 2.2 : 3.2;
+      const height = Math.max(minHeight, baseHeight);
+      const compact = height < 7 ? "is-compact" : "";
+      const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
+      const dragClass = kind === "block" ? "is-draggable" : "";
+      return `
+        <button
+          type="button"
+          class="day-entry day-entry-${kind} ${selectedClass} ${compact} ${dragClass}"
+          style="top:${top}%;height:${height}%"
+          data-day-item-kind="${kind}"
+          data-day-item-id="${escapeHtml(item.id)}"
+          data-day-start-ms="${dayStartMs}"
+          data-day-end-ms="${dayEndMs}"
+          data-day-item-start-ms="${item.startMs}"
+          data-day-item-end-ms="${item.endMs}"
+          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
+        >
+          <span class="day-entry-title">${escapeHtml(item.title)}</span>
+          <span class="day-entry-time">${intervalRangeLabel(item)}</span>
+          <span class="day-entry-duration">${toDurationLabel(item.durationMinutes)}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderDayLane(label, kind, items, dayStartMs, dayEndMs, selectedItem) {
+  const entries = renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem);
+  const hint = kind === "block" ? " / ドラッグで移動（勤務時間外も可）" : "";
+  return `
+    <section class="day-lane">
+      <header class="day-lane-head">
+        <span>${label}</span>
+        <span class="small">${items.length}件${hint}</span>
+      </header>
+      <div class="day-lane-track">
+        ${renderDayHourGuides()}
+        ${entries || '<span class="day-lane-empty">なし</span>'}
+      </div>
+    </section>
+  `;
+}
+
+function renderSimpleTimelineScale() {
+  return [0, 6, 12, 18, 24]
+    .map((hour) => {
+      const left = (hour / 24) * 100;
+      return `<span style="left:${left}%">${String(hour).padStart(2, "0")}:00</span>`;
+    })
+    .join("");
+}
+
+function renderSimpleTimelineSegments(kind, items, dayStartMs, dayEndMs, selectedItem) {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  return items
+    .map((item) => {
+      const left = ((item.startMs - dayStartMs) / totalRange) * 100;
+      const width = Math.max(0.9, ((item.endMs - item.startMs) / totalRange) * 100);
+      const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
+      return `
+        <button
+          type="button"
+          class="day-simple-segment day-simple-segment-${kind} ${selectedClass}"
+          style="left:${left}%;width:${width}%"
+          data-day-item-kind="${kind}"
+          data-day-item-id="${escapeHtml(item.id)}"
+          data-day-item-start-ms="${item.startMs}"
+          data-day-item-end-ms="${item.endMs}"
+          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
+        >
+          <span>${escapeHtml(item.title)}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderSimpleOccupancySegments(intervals, dayStartMs, dayEndMs) {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  return intervals
+    .map((interval) => {
+      const left = ((interval.startMs - dayStartMs) / totalRange) * 100;
+      const width = Math.max(0.7, ((interval.endMs - interval.startMs) / totalRange) * 100);
+      const title = `${intervalRangeLabel(interval)} (${toDurationLabel(
+        minutesBetween(interval.startMs, interval.endMs)
+      )})`;
+      return `<span class="day-simple-occupancy-segment" style="left:${left}%;width:${width}%" title="${title}"></span>`;
+    })
+    .join("");
+}
+
+function renderSimpleTimelineRow(label, kind, items, dayStartMs, dayEndMs, selectedItem) {
+  const segments = renderSimpleTimelineSegments(kind, items, dayStartMs, dayEndMs, selectedItem);
+  return `
+    <div class="day-simple-row">
+      <span class="day-simple-row-label">${label}</span>
+      <div class="day-simple-track">
+        ${segments || '<span class="day-simple-empty">なし</span>'}
+      </div>
+    </div>
+  `;
+}
+
+function renderSimpleDailyCalendar(model) {
+  return `
+    <div class="day-view-simple">
+      <div class="panel day-simple-timeline">
+        <div class="day-simple-scale">${renderSimpleTimelineScale()}</div>
+        <div class="day-simple-row">
+          <span class="day-simple-row-label">埋まり具合</span>
+          <div class="day-simple-track day-simple-track-occupancy">
+            ${renderSimpleOccupancySegments(model.busyIntervals, model.dayStartMs, model.dayEndMs)}
+          </div>
+        </div>
+        ${renderSimpleTimelineRow(
+          "ブロック",
+          "block",
+          model.blockItems,
+          model.dayStartMs,
+          model.dayEndMs,
+          model.selectedItem
+        )}
+        ${renderSimpleTimelineRow(
+          "予定",
+          "event",
+          model.eventItems,
+          model.dayStartMs,
+          model.dayEndMs,
+          model.selectedItem
+        )}
+        ${renderSimpleTimelineRow(
+          "空き枠",
+          "free",
+          model.freeItems,
+          model.dayStartMs,
+          model.dayEndMs,
+          model.selectedItem
+        )}
+      </div>
+      ${renderDailyDetail(model.selectedItem)}
+    </div>
+  `;
+}
+
+function renderGridDailyCalendar(model) {
+  return `
+    <div class="day-view-grid">
+      <div class="day-board">
+        <div class="day-board-head">
+          <span class="day-board-head-time">時刻</span>
+          <span>ブロック</span>
+          <span>予定</span>
+          <span>空き枠</span>
+        </div>
+        <div class="day-board-body">
+          ${renderDayTimeAxis(model.dayStartMs, model.dayEndMs)}
+          ${renderDayLane("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
+          ${renderDayLane("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
+          ${renderDayLane("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
+        </div>
+      </div>
+      ${renderDailyDetail(model.selectedItem)}
+    </div>
+  `;
+}
+
+function renderDailyDetail(selectedItem) {
+  if (!selectedItem) {
+    return `
+      <div class="day-detail panel">
+        <h4>詳細</h4>
+        <p class="small">表示対象がありません。</p>
+      </div>
+    `;
+  }
+
+  if (selectedItem.kind === "block") {
+    const block = selectedItem.payload;
+    return `
+      <div class="day-detail panel">
+        <h4>ブロック詳細</h4>
+        <dl class="day-detail-list">
+          <div><dt>ID</dt><dd>${escapeHtml(block.id)}</dd></div>
+          <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
+          <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
+          <div><dt>Firmness</dt><dd>${escapeHtml(block.firmness || "-")}</dd></div>
+          <div><dt>予定ポモドーロ</dt><dd>${Number.isFinite(block.planned_pomodoros) ? block.planned_pomodoros : "-"}</dd></div>
+          <div><dt>Source</dt><dd>${escapeHtml(block.source || "-")}</dd></div>
+        </dl>
+      </div>
+    `;
+  }
+
+  if (selectedItem.kind === "event") {
+    const event = selectedItem.payload;
+    return `
+      <div class="day-detail panel">
+        <h4>予定詳細</h4>
+        <dl class="day-detail-list">
+          <div><dt>タイトル</dt><dd>${escapeHtml(event.title || "予定")}</dd></div>
+          <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
+          <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
+          <div><dt>Event ID</dt><dd>${escapeHtml(event.id || "-")}</dd></div>
+          <div><dt>Account</dt><dd>${escapeHtml(event.account_id || "-")}</dd></div>
+        </dl>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="day-detail panel">
+      <h4>空き枠詳細</h4>
+      <dl class="day-detail-list">
+        <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
+        <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
+        <div><dt>種別</dt><dd>ブロック作成可能な時間帯</dd></div>
+      </dl>
+    </div>
+  `;
+}
+
 function renderDailyCalendar(dateValue) {
   const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents);
+  const mode = uiState.dayCalendarViewMode === "simple" ? "simple" : "grid";
   return `
     <div class="panel day-calendar">
       <div class="row spread">
-        <h3>1日の時間カレンダー</h3>
-        <span class="small">${dateValue}</span>
+        <h3>1日の時間ビュー</h3>
+        <span class="small">${escapeHtml(dateValue)} / ${timezoneOffsetLabel()}</span>
       </div>
       <div class="calendar-metrics">
         <span class="pill calendar-pill block">ブロック ${toDurationLabel(model.totals.blockMinutes)}</span>
         <span class="pill calendar-pill event">予定 ${toDurationLabel(model.totals.eventMinutes)}</span>
         <span class="pill calendar-pill free">空き ${toDurationLabel(model.totals.freeMinutes)}</span>
       </div>
-      <div class="timeline-wrap">
-        <div class="timeline-scale">${renderTimelineScale()}</div>
-        ${renderTimelineLane("ブロック", "block", model.blockIntervals, model.dayStartMs, model.dayEndMs)}
-        ${renderTimelineLane("予定", "event", model.eventIntervals, model.dayStartMs, model.dayEndMs)}
+      <div class="day-view-toggle" role="group" aria-label="表示モード切替">
+        <button
+          type="button"
+          class="btn-secondary ${mode === "grid" ? "is-active" : ""}"
+          data-day-view="grid"
+          aria-pressed="${mode === "grid"}"
+        >
+          詳細グリッド
+        </button>
+        <button
+          type="button"
+          class="btn-secondary ${mode === "simple" ? "is-active" : ""}"
+          data-day-view="simple"
+          aria-pressed="${mode === "simple"}"
+        >
+          シンプル
+        </button>
       </div>
-      <div class="day-slot-grid">
-        <section>
-          <h4>ブロック時間</h4>
-          ${renderSlotList(model.blockIntervals, "ブロックはありません")}
-        </section>
-        <section>
-          <h4>予定時間</h4>
-          ${renderSlotList(model.eventIntervals, "予定はありません")}
-        </section>
-        <section>
-          <h4>空き時間</h4>
-          ${renderSlotList(model.freeIntervals, "空き時間はありません")}
-        </section>
-      </div>
+      ${mode === "simple" ? renderSimpleDailyCalendar(model) : renderGridDailyCalendar(model)}
     </div>
   `;
 }
 
 function setStatus(message) {
   statusChip.textContent = message;
+}
+
+function normalizeCommandPayload(name, payload = {}) {
+  const normalized = { ...payload };
+  const aliases = commandArgAliases[name] || [];
+  for (const [snakeKey, camelKey] of aliases) {
+    const hasSnake = Object.prototype.hasOwnProperty.call(normalized, snakeKey);
+    const hasCamel = Object.prototype.hasOwnProperty.call(normalized, camelKey);
+    if (hasSnake && !hasCamel) {
+      normalized[camelKey] = normalized[snakeKey];
+    } else if (hasCamel && !hasSnake) {
+      normalized[snakeKey] = normalized[camelKey];
+    }
+  }
+  return normalized;
 }
 
 function clearProgressTimers() {
@@ -496,14 +1051,15 @@ function markActiveRoute(route) {
 }
 
 async function invokeCommand(name, payload = {}) {
+  const normalizedPayload = normalizeCommandPayload(name, payload);
   const tauriInvoke =
     window.__TAURI__?.core?.invoke ??
     window.__TAURI__?.invoke ??
     window.__TAURI_INTERNALS__?.invoke;
   if (tauriInvoke) {
-    return tauriInvoke(name, payload);
+    return tauriInvoke(name, normalizedPayload);
   }
-  return mockInvoke(name, payload);
+  return mockInvoke(name, normalizedPayload);
 }
 
 function isTauriRuntimeAvailable() {
@@ -570,17 +1126,17 @@ function emptyMockPomodoroState() {
 }
 
 function mockSessionPlan(block) {
-  const totalCycles = blockPomodoroTarget(block);
+  const requestedCycles = blockPomodoroTarget(block);
+  const focusSeconds = 25 * 60;
   const breakSeconds = Math.max(60, Math.floor((uiState.settings.breakDuration || 5) * 60));
-  const blockSeconds = Math.max(blockDurationMinutes(block) * 60, totalCycles * 300);
-  const breakSlots = Math.max(0, totalCycles - 1);
-  const maxBreakSeconds = breakSlots > 0 ? Math.floor((blockSeconds - totalCycles * 300) / breakSlots) : 0;
-  const effectiveBreakSeconds = breakSlots > 0 ? Math.max(0, Math.min(breakSeconds, maxBreakSeconds)) : 0;
-  const focusSeconds = Math.max(300, Math.floor((blockSeconds - effectiveBreakSeconds * breakSlots) / totalCycles));
+  const cycleSeconds = Math.max(1, focusSeconds + breakSeconds);
+  const blockSeconds = Math.max(0, blockDurationMinutes(block) * 60);
+  const maxCyclesByDuration = Math.max(1, Math.floor(blockSeconds / cycleSeconds));
+  const totalCycles = Math.max(1, Math.min(requestedCycles, maxCyclesByDuration));
   return {
     totalCycles,
     focusSeconds,
-    breakSeconds: effectiveBreakSeconds,
+    breakSeconds,
   };
 }
 
@@ -791,24 +1347,44 @@ async function mockInvoke(name, payload) {
         })
         .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
     }
-    case "generate_blocks": {
+    case "generate_blocks":
+    case "generate_one_block": {
       const date = payload.date || isoDate(new Date());
-      const startAt = new Date(`${date}T09:00:00.000Z`);
-      const endAt = new Date(startAt.getTime() + 50 * 60000);
-      const block = {
-        id: nextMockId("blk"),
-        instance: `mock:${date}:${mockState.sequence}`,
-        date,
-        start_at: startAt.toISOString(),
-        end_at: endAt.toISOString(),
-        block_type: "deep",
-        firmness: "draft",
-        planned_pomodoros: 2,
-        source: "routine",
-        source_id: "mock",
-      };
-      mockState.blocks.push(block);
-      return [block];
+      const existing = mockState.blocks.filter((block) => block.date === date);
+      const isOneShot = name === "generate_one_block";
+      const generated = [];
+      for (let hour = 9; hour < 18; hour += 1) {
+        if (isOneShot && generated.length >= 1) {
+          break;
+        }
+        const startAt = new Date(`${date}T${String(hour).padStart(2, "0")}:00:00.000Z`);
+        const endAt = new Date(startAt.getTime() + 60 * 60000);
+        const collides = existing.some((block) => {
+          const startMs = new Date(block.start_at).getTime();
+          const endMs = new Date(block.end_at).getTime();
+          return startAt.getTime() < endMs && startMs < endAt.getTime();
+        });
+        if (!isOneShot && collides) {
+          continue;
+        }
+
+        const block = {
+          id: nextMockId("blk"),
+          instance: `mock:${date}:${mockState.sequence}`,
+          date,
+          start_at: startAt.toISOString(),
+          end_at: endAt.toISOString(),
+          block_type: "deep",
+          firmness: "draft",
+          planned_pomodoros: 2,
+          source: "routine",
+          source_id: "mock",
+        };
+        mockState.blocks.push(block);
+        existing.push(block);
+        generated.push(block);
+      }
+      return generated;
     }
     case "approve_blocks":
       mockState.blocks = mockState.blocks.map((block) =>
@@ -838,12 +1414,22 @@ async function mockInvoke(name, payload) {
           task.status = "in_progress";
         }
       }
+      const targetBlock = mockState.blocks.find((block) => block.id === payload.block_id);
+      const plan = targetBlock
+        ? mockSessionPlan(targetBlock)
+        : { totalCycles: 1, focusSeconds: 25 * 60, breakSeconds: 5 * 60 };
       mockState.pomodoro = {
         current_block_id: payload.block_id,
         current_task_id: payload.task_id ?? null,
         phase: "focus",
-        remaining_seconds: 1500,
+        remaining_seconds: plan.focusSeconds,
         start_time: nowIso(),
+        total_cycles: plan.totalCycles,
+        completed_cycles: 0,
+        current_cycle: 1,
+        focus_seconds: plan.focusSeconds,
+        break_seconds: plan.breakSeconds,
+        paused_phase: null,
       };
       return { ...mockState.pomodoro };
     case "pause_pomodoro":
@@ -915,10 +1501,44 @@ async function refreshCoreData(date = isoDate(new Date())) {
   const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
   const syncWindow = toSyncWindowPayload(normalizedDate);
   uiState.dashboardDate = normalizedDate;
-  uiState.tasks = await safeInvoke("list_tasks");
-  uiState.blocks = await safeInvoke("list_blocks", { date: normalizedDate });
-  uiState.calendarEvents = await safeInvoke("list_synced_events", withAccount(syncWindow));
-  uiState.pomodoro = await safeInvoke("get_pomodoro_state");
+  const [tasksResult, blocksResult, calendarEventsResult, pomodoroResult] = await Promise.allSettled([
+    safeInvoke("list_tasks"),
+    safeInvoke("list_blocks", { date: normalizedDate }),
+    safeInvoke("list_synced_events", withAccount(syncWindow)),
+    safeInvoke("get_pomodoro_state"),
+  ]);
+  const refreshErrors = [];
+  if (tasksResult.status === "fulfilled") {
+    uiState.tasks = tasksResult.value;
+  } else {
+    const message = tasksResult.reason instanceof Error ? tasksResult.reason.message : String(tasksResult.reason);
+    refreshErrors.push(`list_tasks: ${message}`);
+  }
+  if (blocksResult.status === "fulfilled") {
+    uiState.blocks = blocksResult.value;
+  } else {
+    const message = blocksResult.reason instanceof Error ? blocksResult.reason.message : String(blocksResult.reason);
+    refreshErrors.push(`list_blocks: ${message}`);
+  }
+  if (calendarEventsResult.status === "fulfilled") {
+    uiState.calendarEvents = calendarEventsResult.value;
+  } else {
+    const message =
+      calendarEventsResult.reason instanceof Error
+        ? calendarEventsResult.reason.message
+        : String(calendarEventsResult.reason);
+    refreshErrors.push(`list_synced_events: ${message}`);
+  }
+  if (pomodoroResult.status === "fulfilled") {
+    uiState.pomodoro = pomodoroResult.value;
+  } else {
+    const message = pomodoroResult.reason instanceof Error ? pomodoroResult.reason.message : String(pomodoroResult.reason);
+    refreshErrors.push(`get_pomodoro_state: ${message}`);
+  }
+  uiState.blocksVisibleCount = BLOCKS_INITIAL_VISIBLE;
+  if (refreshErrors.length > 0) {
+    setStatus(`refresh partially failed: ${refreshErrors.join(" | ")}`);
+  }
 }
 
 async function authenticateAndSyncCalendar(
@@ -991,13 +1611,165 @@ function blockRows(blocks) {
     .map(
       (block) => `
       <tr>
-        <td>${block.id}</td>
+        <td>${blockDisplayName(block)}</td>
         <td>${formatTime(block.start_at)}</td>
         <td>${formatTime(block.end_at)}</td>
         <td><span class="pill">${block.firmness}</span></td>
       </tr>`
     )
     .join("");
+}
+
+function bindDailyCalendarInteractions(rerender) {
+  appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node) => {
+    node.addEventListener("pointerdown", (event) => {
+      const pointerEvent = /** @type {PointerEvent} */ (event);
+      if (pointerEvent.button !== 0) return;
+      const entry = /** @type {HTMLButtonElement} */ (node);
+      const blockId = entry.dataset.dayItemId;
+      const dayStartMs = Number(entry.dataset.dayStartMs || "");
+      const dayEndMs = Number(entry.dataset.dayEndMs || "");
+      const itemStartMs = Number(entry.dataset.dayItemStartMs || "");
+      const itemEndMs = Number(entry.dataset.dayItemEndMs || "");
+      const laneTrack = entry.closest(".day-lane-track");
+      const laneHeight = laneTrack instanceof HTMLElement ? laneTrack.clientHeight : 0;
+      if (
+        !blockId ||
+        !Number.isFinite(dayStartMs) ||
+        !Number.isFinite(dayEndMs) ||
+        !Number.isFinite(itemStartMs) ||
+        !Number.isFinite(itemEndMs) ||
+        dayEndMs <= dayStartMs ||
+        itemEndMs <= itemStartMs ||
+        laneHeight <= 1
+      ) {
+        return;
+      }
+
+      clearDayBlockDragDocumentListeners();
+      dayBlockDragState.active = true;
+      dayBlockDragState.moved = false;
+      dayBlockDragState.pointerId = pointerEvent.pointerId;
+      dayBlockDragState.blockId = blockId;
+      dayBlockDragState.dayStartMs = dayStartMs;
+      dayBlockDragState.dayEndMs = dayEndMs;
+      dayBlockDragState.rangeMs = dayEndMs - dayStartMs;
+      dayBlockDragState.trackHeightPx = laneHeight;
+      dayBlockDragState.originClientY = pointerEvent.clientY;
+      dayBlockDragState.originStartMs = itemStartMs;
+      dayBlockDragState.originEndMs = itemEndMs;
+      dayBlockDragState.previewStartMs = itemStartMs;
+      dayBlockDragState.previewEndMs = itemEndMs;
+      dayBlockDragState.entry = entry;
+      dayBlockDragState.timeLabel = entry.querySelector(".day-entry-time");
+      dayBlockDragState.originalTopCss = entry.style.top || "0%";
+      dayBlockDragState.originalTimeLabelText = dayBlockDragState.timeLabel?.textContent || "";
+      dayBlockDragState.originalTitle = entry.title || "";
+      entry.classList.add("is-dragging");
+      entry.style.zIndex = "4";
+      try {
+        entry.setPointerCapture(pointerEvent.pointerId);
+      } catch {
+        // ignore unsupported pointer capture
+      }
+
+      const onMove = (moveEvent) => {
+        if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId) return;
+        const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
+        const hovered = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+        const hoveredFreeEntry =
+          hovered instanceof Element
+            ? hovered.closest(".day-entry-free[data-day-item-start-ms][data-day-item-end-ms]")
+            : null;
+        const hoveredFree =
+          hoveredFreeEntry instanceof HTMLElement ? hoveredFreeEntry : null;
+        let movedByFreeDrop = false;
+
+        if (hoveredFree) {
+          const freeStartMs = Number(hoveredFree.dataset.dayItemStartMs || "");
+          const freeEndMs = Number(hoveredFree.dataset.dayItemEndMs || "");
+          if (
+            Number.isFinite(freeStartMs) &&
+            Number.isFinite(freeEndMs) &&
+            freeEndMs > freeStartMs &&
+            freeEndMs - freeStartMs >= durationMs
+          ) {
+            setHoveredFreeEntry(hoveredFree);
+            const nextInterval = clampBlockIntervalToDay(
+              freeStartMs,
+              durationMs,
+              dayBlockDragState.dayStartMs,
+              dayBlockDragState.dayEndMs
+            );
+            applyDayBlockPreview(entry, nextInterval);
+            movedByFreeDrop = true;
+          } else {
+            setHoveredFreeEntry(null);
+          }
+        } else {
+          setHoveredFreeEntry(null);
+        }
+
+        const deltaY = moveEvent.clientY - dayBlockDragState.originClientY;
+        if (!movedByFreeDrop) {
+          if (!dayBlockDragState.moved && Math.abs(deltaY) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
+            return;
+          }
+
+          const deltaMsRaw = (deltaY / dayBlockDragState.trackHeightPx) * dayBlockDragState.rangeMs;
+          const snappedDeltaMs = snapToMinutes(deltaMsRaw, DAY_BLOCK_DRAG_SNAP_MINUTES);
+          const nextInterval = clampBlockIntervalToDay(
+            dayBlockDragState.originStartMs + snappedDeltaMs,
+            durationMs,
+            dayBlockDragState.dayStartMs,
+            dayBlockDragState.dayEndMs
+          );
+          applyDayBlockPreview(entry, nextInterval);
+        }
+
+        dayBlockDragState.moved =
+          Math.abs(dayBlockDragState.previewStartMs - dayBlockDragState.originStartMs) >= 1000 ||
+          Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
+        moveEvent.preventDefault();
+      };
+
+      const onUp = (upEvent) => {
+        if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId) return;
+        finishDayBlockDrag(rerender);
+      };
+
+      dayBlockDragState.onMove = onMove;
+      dayBlockDragState.onUp = onUp;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      pointerEvent.preventDefault();
+    });
+  });
+
+  appRoot.querySelectorAll("[data-day-view]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const element = /** @type {HTMLElement} */ (node);
+      const mode = element.dataset.dayView;
+      if (mode !== "grid" && mode !== "simple") return;
+      uiState.dayCalendarViewMode = /** @type {DayCalendarViewMode} */ (mode);
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node) => {
+    node.addEventListener("click", () => {
+      if (Date.now() < dayBlockDragState.suppressClickUntil) {
+        return;
+      }
+      const element = /** @type {HTMLElement} */ (node);
+      const kind = element.dataset.dayItemKind;
+      const id = element.dataset.dayItemId;
+      if (!id) return;
+      if (kind !== "block" && kind !== "event" && kind !== "free") return;
+      uiState.dayCalendarSelection = { kind: /** @type {DayItemKind} */ (kind), id };
+      rerender();
+    });
+  });
 }
 
 function renderDashboard() {
@@ -1038,15 +1810,19 @@ function renderDashboard() {
     );
 
   document.getElementById("dashboard-date")?.addEventListener("change", async () => {
-    const date = getSelectedDate();
-    await refreshCoreData(date);
-    renderDashboard();
+    await runUiAction(async () => {
+      const date = getSelectedDate();
+      await refreshCoreData(date);
+      renderDashboard();
+    });
   });
   document.getElementById("dashboard-account-id")?.addEventListener("change", async () => {
-    uiState.accountId = getSelectedAccount();
-    const date = getSelectedDate();
-    await refreshCoreData(date);
-    renderDashboard();
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      await refreshCoreData(date);
+      renderDashboard();
+    });
   });
 
   document.getElementById("dashboard-sync")?.addEventListener("click", async () => {
@@ -1059,21 +1835,29 @@ function renderDashboard() {
     });
   });
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
-    uiState.accountId = getSelectedAccount();
-    const date = getSelectedDate();
-    await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
-    await refreshCoreData(date);
-    renderDashboard();
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
+      await refreshCoreData(date);
+      renderDashboard();
+    });
   });
   document.getElementById("dashboard-refresh")?.addEventListener("click", async () => {
-    const date = getSelectedDate();
-    await refreshCoreData(date);
-    renderDashboard();
+    await runUiAction(async () => {
+      const date = getSelectedDate();
+      await refreshCoreData(date);
+      renderDashboard();
+    });
   });
+  bindDailyCalendarInteractions(renderDashboard);
 }
 
 function renderBlocks() {
-  const today = isoDate(new Date());
+  const today = uiState.dashboardDate || isoDate(new Date());
+  const visibleCount = Math.max(1, Math.floor(uiState.blocksVisibleCount || BLOCKS_INITIAL_VISIBLE));
+  const visibleBlocks = uiState.blocks.slice(0, visibleCount);
+  const hasMoreBlocks = uiState.blocks.length > visibleBlocks.length;
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
@@ -1085,15 +1869,17 @@ function renderBlocks() {
     </section>
     <div class="panel row">
       <button id="block-load" class="btn-secondary">読込</button>
-      <button id="block-generate" class="btn-primary">生成</button>
+      <button id="block-generate-partial" class="btn-secondary">一部生成</button>
+      <button id="block-generate-bulk" class="btn-primary">一括生成</button>
     </div>
+    ${renderDailyCalendar(today)}
     <div class="grid">
-      ${uiState.blocks
+      ${visibleBlocks
         .map(
           (block) => `
           <article class="panel">
             <div class="row spread">
-              <h3>${block.id}</h3>
+              <h3>${blockDisplayName(block)}</h3>
               <span class="pill">${block.firmness}</span>
             </div>
             <p class="small">Start: ${formatTime(block.start_at)} / End: ${formatTime(block.end_at)}</p>
@@ -1111,58 +1897,115 @@ function renderBlocks() {
         )
         .join("")}
     </div>
+    <div class="panel row spread">
+      <span class="small">表示中 ${visibleBlocks.length} / 全 ${uiState.blocks.length}</span>
+      ${
+        hasMoreBlocks
+          ? '<button id="block-show-more" class="btn-secondary">さらに表示</button>'
+          : ""
+      }
+    </div>
   `;
 
   const reload = async () => {
     const date = /** @type {HTMLInputElement} */ (document.getElementById("block-date")).value || today;
+    const accountInput = /** @type {HTMLInputElement | null} */ (document.getElementById("block-account-id"));
+    if (accountInput) {
+      uiState.accountId = normalizeAccountId(accountInput.value);
+    }
+    uiState.dashboardDate = date;
     uiState.blocks = await safeInvoke("list_blocks", { date });
+    uiState.calendarEvents = await safeInvoke("list_synced_events", withAccount(toSyncWindowPayload(date)));
+    uiState.blocksVisibleCount = BLOCKS_INITIAL_VISIBLE;
     renderBlocks();
   };
 
-  document.getElementById("block-load")?.addEventListener("click", reload);
-  document.getElementById("block-generate")?.addEventListener("click", async () => {
-    uiState.accountId = normalizeAccountId(
+  const getSelectedDate = () =>
+    /** @type {HTMLInputElement} */ (document.getElementById("block-date")).value || today;
+  const getSelectedAccount = () =>
+    normalizeAccountId(
       /** @type {HTMLInputElement} */ (document.getElementById("block-account-id")).value
     );
-    const date = /** @type {HTMLInputElement} */ (document.getElementById("block-date")).value || today;
-    await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
-    await reload();
+
+  document.getElementById("block-load")?.addEventListener("click", async () => {
+    await runUiAction(reload);
+  });
+  document.getElementById("block-generate-partial")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      const generated = await safeInvoke("generate_one_block", withAccount({ date }));
+      if (generated.length === 0) {
+        setStatus("一部生成: 追加可能な枠がありません");
+      } else {
+        setStatus("一部生成を実行しました（1件生成）");
+      }
+      await reload();
+    });
+  });
+  document.getElementById("block-generate-bulk")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      const generated = await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
+      setStatus(`一括生成を実行しました（${generated.length}件生成）`);
+      await reload();
+    });
+  });
+  document.getElementById("block-date")?.addEventListener("change", async () => {
+    await runUiAction(reload);
+  });
+  document.getElementById("block-account-id")?.addEventListener("change", async () => {
+    await runUiAction(reload);
   });
 
   appRoot.querySelectorAll("[data-approve]").forEach((node) => {
     node.addEventListener("click", async () => {
-      const id = /** @type {HTMLElement} */ (node).dataset.approve;
-      await safeInvoke("approve_blocks", { block_ids: [id] });
-      await reload();
+      await runUiAction(async () => {
+        const id = /** @type {HTMLElement} */ (node).dataset.approve;
+        await safeInvoke("approve_blocks", { block_ids: [id] });
+        await reload();
+      });
     });
   });
   appRoot.querySelectorAll("[data-delete]").forEach((node) => {
     node.addEventListener("click", async () => {
-      const id = /** @type {HTMLElement} */ (node).dataset.delete;
-      await safeInvoke("delete_block", { block_id: id });
-      await reload();
+      await runUiAction(async () => {
+        const id = /** @type {HTMLElement} */ (node).dataset.delete;
+        await safeInvoke("delete_block", { block_id: id });
+        await reload();
+      });
     });
   });
   appRoot.querySelectorAll("[data-adjust]").forEach((node) => {
     node.addEventListener("click", async () => {
-      const id = /** @type {HTMLElement} */ (node).dataset.adjust;
-      const start = /** @type {HTMLInputElement} */ (document.getElementById(`start-${id}`)).value;
-      const end = /** @type {HTMLInputElement} */ (document.getElementById(`end-${id}`)).value;
-      await safeInvoke("adjust_block_time", {
-        block_id: id,
-        start_at: fromLocalInputValue(start),
-        end_at: fromLocalInputValue(end),
+      await runUiAction(async () => {
+        const id = /** @type {HTMLElement} */ (node).dataset.adjust;
+        const start = /** @type {HTMLInputElement} */ (document.getElementById(`start-${id}`)).value;
+        const end = /** @type {HTMLInputElement} */ (document.getElementById(`end-${id}`)).value;
+        await safeInvoke("adjust_block_time", {
+          block_id: id,
+          start_at: fromLocalInputValue(start),
+          end_at: fromLocalInputValue(end),
+        });
+        await reload();
       });
-      await reload();
     });
   });
   appRoot.querySelectorAll("[data-relocate]").forEach((node) => {
     node.addEventListener("click", async () => {
-      const id = /** @type {HTMLElement} */ (node).dataset.relocate;
-      await safeInvoke("relocate_if_needed", withAccount({ block_id: id }));
-      await reload();
+      await runUiAction(async () => {
+        const id = /** @type {HTMLElement} */ (node).dataset.relocate;
+        await safeInvoke("relocate_if_needed", withAccount({ block_id: id }));
+        await reload();
+      });
     });
   });
+  document.getElementById("block-show-more")?.addEventListener("click", () => {
+    uiState.blocksVisibleCount = Math.min(uiState.blocks.length, visibleCount + BLOCKS_INITIAL_VISIBLE);
+    renderBlocks();
+  });
+  bindDailyCalendarInteractions(renderBlocks);
 }
 
 function renderPomodoro() {
@@ -1281,7 +2124,7 @@ function renderTasks() {
           <select id="carry-from-block-id">
             <option value="">(from)</option>
             ${uiState.blocks
-              .map((block) => `<option value="${block.id}">${block.id} ${formatTime(block.start_at)}</option>`)
+              .map((block) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
               .join("")}
           </select>
         </label>
@@ -1289,7 +2132,7 @@ function renderTasks() {
           <select id="carry-to-block-id">
             <option value="">(to)</option>
             ${uiState.blocks
-              .map((block) => `<option value="${block.id}">${block.id} ${formatTime(block.start_at)}</option>`)
+              .map((block) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
               .join("")}
           </select>
         </label>
@@ -1571,8 +2414,12 @@ setInterval(async () => {
   if (getRoute() !== "pomodoro") {
     return;
   }
-  uiState.pomodoro = await safeInvoke("get_pomodoro_state");
-  renderPomodoro();
+  try {
+    uiState.pomodoro = await safeInvoke("get_pomodoro_state");
+    renderPomodoro();
+  } catch {
+    // handled in safeInvoke
+  }
 }, 5000);
 
 (async () => {
