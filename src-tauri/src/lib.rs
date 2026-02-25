@@ -5,16 +5,19 @@ mod infrastructure;
 use application::bootstrap::bootstrap_workspace;
 use application::commands::{
     adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
-    authenticate_google_sso_impl,
-    carry_over_task_impl, complete_pomodoro_impl, create_task_impl, delete_block_impl,
-    delete_task_impl, generate_blocks_impl, generate_one_block_impl, get_pomodoro_state_impl,
-    get_reflection_summary_impl, list_blocks_impl, list_synced_events_impl, list_tasks_impl,
-    pause_pomodoro_impl, relocate_if_needed_impl, resume_pomodoro_impl, split_task_impl,
-    start_pomodoro_impl, sync_calendar_impl, update_task_impl, AppState,
+    authenticate_google_sso_impl, carry_over_task_impl, complete_pomodoro_impl, create_recipe_impl,
+    create_task_impl, delete_block_impl, delete_recipe_impl, delete_task_impl, generate_blocks_impl,
+    generate_one_block_impl, generate_today_blocks_impl, get_pomodoro_state_impl,
+    get_reflection_summary_impl, interrupt_timer_impl, list_blocks_impl, list_recipes_impl,
+    list_synced_events_impl, list_tasks_impl, next_step_impl, pause_pomodoro_impl, pause_timer_impl,
+    relocate_if_needed_impl, resume_pomodoro_impl, resume_timer_impl, split_task_impl,
+    start_block_timer_impl, start_pomodoro_impl, sync_calendar_impl, update_recipe_impl,
+    update_task_impl, AppState,
     AuthenticateGoogleResponse, CarryOverTaskResponse, PomodoroStateResponse,
     ReflectionSummaryResponse, SyncedEventSlotResponse, SyncCalendarResponse,
 };
-use domain::models::{Block, Task};
+use domain::models::{Block, Recipe, Task};
+use serde_json::Value;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -105,6 +108,16 @@ async fn generate_blocks(
     generate_blocks_impl(state.inner(), date, account_id)
         .await
         .map_err(|error| state.command_error("generate_blocks", &error))
+}
+
+#[tauri::command]
+async fn generate_today_blocks(
+    state: tauri::State<'_, AppState>,
+    account_id: Option<String>,
+) -> Result<Vec<Block>, String> {
+    generate_today_blocks_impl(state.inner(), account_id)
+        .await
+        .map_err(|error| state.command_error("generate_today_blocks", &error))
 }
 
 #[tauri::command]
@@ -210,6 +223,33 @@ fn list_tasks(state: tauri::State<'_, AppState>) -> Result<Vec<Task>, String> {
 }
 
 #[tauri::command]
+fn list_recipes(state: tauri::State<'_, AppState>) -> Result<Vec<Recipe>, String> {
+    list_recipes_impl(state.inner()).map_err(|error| state.command_error("list_recipes", &error))
+}
+
+#[tauri::command]
+fn create_recipe(state: tauri::State<'_, AppState>, payload: Value) -> Result<Recipe, String> {
+    create_recipe_impl(state.inner(), payload)
+        .map_err(|error| state.command_error("create_recipe", &error))
+}
+
+#[tauri::command]
+fn update_recipe(
+    state: tauri::State<'_, AppState>,
+    recipe_id: String,
+    payload: Value,
+) -> Result<Recipe, String> {
+    update_recipe_impl(state.inner(), recipe_id, payload)
+        .map_err(|error| state.command_error("update_recipe", &error))
+}
+
+#[tauri::command]
+fn delete_recipe(state: tauri::State<'_, AppState>, recipe_id: String) -> Result<bool, String> {
+    delete_recipe_impl(state.inner(), recipe_id)
+        .map_err(|error| state.command_error("delete_recipe", &error))
+}
+
+#[tauri::command]
 fn create_task(
     state: tauri::State<'_, AppState>,
     title: String,
@@ -267,6 +307,43 @@ fn carry_over_task(
 }
 
 #[tauri::command]
+fn start_block_timer(
+    state: tauri::State<'_, AppState>,
+    block_id: String,
+    task_id: Option<String>,
+) -> Result<PomodoroStateResponse, String> {
+    start_block_timer_impl(state.inner(), block_id, task_id)
+        .map_err(|error| state.command_error("start_block_timer", &error))
+}
+
+#[tauri::command]
+fn next_step(state: tauri::State<'_, AppState>) -> Result<PomodoroStateResponse, String> {
+    next_step_impl(state.inner()).map_err(|error| state.command_error("next_step", &error))
+}
+
+#[tauri::command]
+fn pause_timer(
+    state: tauri::State<'_, AppState>,
+    reason: Option<String>,
+) -> Result<PomodoroStateResponse, String> {
+    pause_timer_impl(state.inner(), reason).map_err(|error| state.command_error("pause_timer", &error))
+}
+
+#[tauri::command]
+fn interrupt_timer(
+    state: tauri::State<'_, AppState>,
+    reason: Option<String>,
+) -> Result<PomodoroStateResponse, String> {
+    interrupt_timer_impl(state.inner(), reason)
+        .map_err(|error| state.command_error("interrupt_timer", &error))
+}
+
+#[tauri::command]
+fn resume_timer(state: tauri::State<'_, AppState>) -> Result<PomodoroStateResponse, String> {
+    resume_timer_impl(state.inner()).map_err(|error| state.command_error("resume_timer", &error))
+}
+
+#[tauri::command]
 async fn relocate_if_needed(
     state: tauri::State<'_, AppState>,
     block_id: String,
@@ -300,17 +377,27 @@ pub fn run() {
             authenticate_google_sso,
             sync_calendar,
             generate_blocks,
+            generate_today_blocks,
             generate_one_block,
             approve_blocks,
             delete_block,
             adjust_block_time,
             list_blocks,
             list_synced_events,
+            list_recipes,
+            create_recipe,
+            update_recipe,
+            delete_recipe,
             start_pomodoro,
+            start_block_timer,
             pause_pomodoro,
+            pause_timer,
             get_pomodoro_state,
             advance_pomodoro,
+            next_step,
+            interrupt_timer,
             resume_pomodoro,
+            resume_timer,
             complete_pomodoro,
             list_tasks,
             create_task,

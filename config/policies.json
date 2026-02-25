@@ -20,7 +20,13 @@
     "maxAutoBlocksPerDay": 24,
     "maxRelocationsPerSync": 50,
     "createIfNoSlot": false,
-    "respectSuppression": true
+    "respectSuppression": true,
+    "todayAutoGenerate": true,
+    "generateOnAppStart": true
+  },
+  "timer": {
+    "defaultAutoDriveMode": "manual",
+    "overrunPolicy": "wait"
   },
   "blockDurationMinutes": 60,
   "breakDurationMinutes": 5,

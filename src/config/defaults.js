@@ -27,6 +27,12 @@ export const DEFAULT_CONFIGS = Object.freeze({
       maxRelocationsPerSync: 50,
       createIfNoSlot: false,
       respectSuppression: true,
+      todayAutoGenerate: true,
+      generateOnAppStart: true,
+    },
+    timer: {
+      defaultAutoDriveMode: "manual",
+      overrunPolicy: "wait",
     },
     blockDurationMinutes: 60,
     breakDurationMinutes: 5,
@@ -39,6 +45,10 @@ export const DEFAULT_CONFIGS = Object.freeze({
   "routines.json": {
     schema: 1,
     routines: [],
+  },
+  "recipes.json": {
+    schema: 1,
+    recipes: [],
   },
   "overrides.json": {
     schema: 1,

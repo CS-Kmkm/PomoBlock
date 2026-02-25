@@ -9,6 +9,7 @@ const CALENDARS_JSON: &str = "calendars.json";
 const POLICIES_JSON: &str = "policies.json";
 const TEMPLATES_JSON: &str = "templates.json";
 const ROUTINES_JSON: &str = "routines.json";
+const RECIPES_JSON: &str = "recipes.json";
 const OVERRIDES_JSON: &str = "overrides.json";
 const DEFAULT_ACCOUNT_ID: &str = "default";
 
@@ -24,6 +25,7 @@ pub struct ConfigBundle {
     pub policies: serde_json::Value,
     pub templates: serde_json::Value,
     pub routines: serde_json::Value,
+    pub recipes: serde_json::Value,
     pub overrides: serde_json::Value,
 }
 
@@ -64,7 +66,13 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
                     "maxAutoBlocksPerDay": 24,
                     "maxRelocationsPerSync": 50,
                     "createIfNoSlot": false,
-                    "respectSuppression": true
+                    "respectSuppression": true,
+                    "todayAutoGenerate": true,
+                    "generateOnAppStart": true
+                },
+                "timer": {
+                    "defaultAutoDriveMode": "manual",
+                    "overrunPolicy": "wait"
                 },
                 "blockDurationMinutes": 60,
                 "breakDurationMinutes": 5,
@@ -83,6 +91,13 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
             serde_json::json!({
                 "schema": 1,
                 "routines": []
+            }),
+        ),
+        (
+            RECIPES_JSON,
+            serde_json::json!({
+                "schema": 1,
+                "recipes": []
             }),
         ),
         (
@@ -131,6 +146,7 @@ pub fn load_configs(config_dir: &Path) -> Result<ConfigBundle, InfraError> {
         policies: read_config(&config_dir.join(POLICIES_JSON))?,
         templates: read_config(&config_dir.join(TEMPLATES_JSON))?,
         routines: read_config(&config_dir.join(ROUTINES_JSON))?,
+        recipes: read_config(&config_dir.join(RECIPES_JSON))?,
         overrides: read_config(&config_dir.join(OVERRIDES_JSON))?,
     })
 }

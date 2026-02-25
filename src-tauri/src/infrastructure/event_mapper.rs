@@ -1,4 +1,4 @@
-use crate::domain::models::{Block, BlockType, Firmness};
+use crate::domain::models::{AutoDriveMode, Block, BlockContents, BlockType, Firmness};
 use crate::infrastructure::error::InfraError;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -11,6 +11,8 @@ const KEY_FIRMNESS: &str = "bs_firmness";
 const KEY_SOURCE: &str = "bs_source";
 const KEY_SOURCE_ID: &str = "bs_source_id";
 const KEY_PLANNED_POMODOROS: &str = "bs_planned_pomodoros";
+const KEY_RECIPE_ID: &str = "bs_recipe_id";
+const KEY_AUTO_DRIVE_MODE: &str = "bs_auto_drive_mode";
 const KEY_VERSION: &str = "bs_v";
 const KEY_APP: &str = "bs_app";
 const KEY_KIND: &str = "bs_kind";
@@ -66,6 +68,11 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
     private.insert(
         KEY_PLANNED_POMODOROS.to_string(),
         block.planned_pomodoros.to_string(),
+    );
+    private.insert(KEY_RECIPE_ID.to_string(), block.recipe_id.clone());
+    private.insert(
+        KEY_AUTO_DRIVE_MODE.to_string(),
+        auto_drive_mode_to_string(&block.auto_drive_mode).to_string(),
     );
     private.insert(KEY_VERSION.to_string(), "1".to_string());
     private.insert(KEY_APP.to_string(), "blocksched".to_string());
@@ -171,6 +178,18 @@ pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, 
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let recipe_id = private
+        .get(KEY_RECIPE_ID)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "rcp-default".to_string());
+    let auto_drive_mode = private
+        .get(KEY_AUTO_DRIVE_MODE)
+        .map(String::as_str)
+        .map(parse_auto_drive_mode)
+        .transpose()?
+        .unwrap_or(AutoDriveMode::Manual);
 
     Ok(Some(Block {
         id: block_id,
@@ -183,6 +202,9 @@ pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, 
         planned_pomodoros,
         source,
         source_id,
+        recipe_id,
+        auto_drive_mode,
+        contents: BlockContents::default(),
     }))
 }
 
@@ -247,6 +269,25 @@ fn firmness_to_string(value: &Firmness) -> &'static str {
     }
 }
 
+fn parse_auto_drive_mode(value: &str) -> Result<AutoDriveMode, InfraError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "manual" => Ok(AutoDriveMode::Manual),
+        "auto" => Ok(AutoDriveMode::Auto),
+        "auto-silent" | "auto_silent" => Ok(AutoDriveMode::AutoSilent),
+        other => Err(InfraError::OAuth(format!(
+            "invalid bs_auto_drive_mode value: {other}"
+        ))),
+    }
+}
+
+fn auto_drive_mode_to_string(value: &AutoDriveMode) -> &'static str {
+    match value {
+        AutoDriveMode::Manual => "manual",
+        AutoDriveMode::Auto => "auto",
+        AutoDriveMode::AutoSilent => "auto-silent",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +308,9 @@ mod tests {
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("routine-abc".to_string()),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
         }
     }
 
@@ -288,6 +332,8 @@ mod tests {
         assert_eq!(decoded.planned_pomodoros, block.planned_pomodoros);
         assert_eq!(decoded.source, block.source);
         assert_eq!(decoded.source_id, block.source_id);
+        assert_eq!(decoded.recipe_id, block.recipe_id);
+        assert_eq!(decoded.auto_drive_mode, block.auto_drive_mode);
     }
 
     #[test]

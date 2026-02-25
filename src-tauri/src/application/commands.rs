@@ -3,7 +3,8 @@ use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocks
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::domain::models::{
-    Block, BlockType, Firmness, PomodoroLog, PomodoroPhase, Task, TaskStatus,
+    AutoDriveMode, Block, BlockContents, BlockType, Firmness, OverrunPolicy, PomodoroLog,
+    PomodoroPhase, Recipe, RecipePomodoroConfig, RecipeStep, RecipeStepType, Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::{ensure_default_configs, read_timezone};
@@ -40,6 +41,7 @@ const DEFAULT_MAX_AUTO_BLOCKS_PER_DAY: u32 = 24;
 const DEFAULT_MAX_RELOCATIONS_PER_SYNC: u32 = 50;
 const BLOCK_CREATION_CONCURRENCY: usize = 4;
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
+const RECIPES_FILE_NAME: &str = "recipes.json";
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -333,6 +335,8 @@ struct BlockPlan {
     planned_pomodoros: i32,
     source: String,
     source_id: Option<String>,
+    recipe_id: String,
+    auto_drive_mode: AutoDriveMode,
 }
 
 pub async fn authenticate_google_impl(
@@ -969,7 +973,8 @@ async fn generate_blocks_with_limit_impl(
         })
         .collect::<HashSet<_>>();
     let mut generated = Vec::new();
-    let candidate_plans = load_configured_block_plans(state.config_dir(), date, &policy);
+    let recipes = load_configured_recipes(state.config_dir());
+    let candidate_plans = load_configured_block_plans(state.config_dir(), date, &policy, &recipes);
     let candidate_plan_count = candidate_plans.len();
 
     for plan in candidate_plans {
@@ -1018,6 +1023,9 @@ async fn generate_blocks_with_limit_impl(
                 planned_pomodoros: plan.planned_pomodoros,
                 source: plan.source,
                 source_id: plan.source_id,
+                recipe_id: plan.recipe_id,
+                auto_drive_mode: plan.auto_drive_mode,
+                contents: BlockContents::default(),
             };
             generated.push(StoredBlock {
                 block,
@@ -1067,6 +1075,8 @@ async fn generate_blocks_with_limit_impl(
             && remaining_generation_capacity > 0
         {
             let candidate_end = cursor + block_duration;
+            let (recipe_id, auto_drive_mode) =
+                resolve_recipe_for_plan(None, &BlockType::Deep, None, &recipes);
             let plan = BlockPlan {
                 instance: format!("rtn:auto:{}:{}", date, instance_index),
                 start_at: cursor,
@@ -1079,6 +1089,8 @@ async fn generate_blocks_with_limit_impl(
                 ),
                 source: "routine".to_string(),
                 source_id: Some("auto".to_string()),
+                recipe_id,
+                auto_drive_mode,
             };
             instance_index = instance_index.saturating_add(1);
 
@@ -1106,6 +1118,9 @@ async fn generate_blocks_with_limit_impl(
                     planned_pomodoros: plan.planned_pomodoros,
                     source: plan.source,
                     source_id: plan.source_id,
+                    recipe_id: plan.recipe_id,
+                    auto_drive_mode: plan.auto_drive_mode,
+                    contents: BlockContents::default(),
                 };
                 generated.push(StoredBlock {
                     block,
@@ -1936,6 +1951,158 @@ pub fn carry_over_task_impl(
     Ok(response)
 }
 
+pub fn list_recipes_impl(state: &AppState) -> Result<Vec<Recipe>, InfraError> {
+    let recipes = load_configured_recipes(state.config_dir());
+    Ok(recipes)
+}
+
+pub fn create_recipe_impl(state: &AppState, payload: serde_json::Value) -> Result<Recipe, InfraError> {
+    let recipe = parse_recipe_payload(&payload)?;
+    let existing = load_configured_recipes(state.config_dir());
+    if existing.iter().any(|candidate| candidate.id == recipe.id) {
+        return Err(InfraError::InvalidConfig(format!(
+            "recipe already exists: {}",
+            recipe.id
+        )));
+    }
+
+    let mut document = read_recipes_document(state.config_dir())?;
+    let recipes = recipes_array_mut(&mut document)?;
+    recipes.push(recipe_to_json_value(&recipe));
+    write_recipes_document(state.config_dir(), &document)?;
+    state.log_info("create_recipe", &format!("created recipe_id={}", recipe.id));
+    Ok(recipe)
+}
+
+pub fn update_recipe_impl(
+    state: &AppState,
+    recipe_id: String,
+    payload: serde_json::Value,
+) -> Result<Recipe, InfraError> {
+    let recipe_id = recipe_id.trim();
+    if recipe_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "recipe_id must not be empty".to_string(),
+        ));
+    }
+    let recipe = parse_recipe_payload_with_id(&payload, recipe_id)?;
+
+    let mut document = read_recipes_document(state.config_dir())?;
+    let recipes = recipes_array_mut(&mut document)?;
+    let mut updated = false;
+    for existing in recipes.iter_mut() {
+        let existing_id = existing
+            .as_object()
+            .and_then(|object| object.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if existing_id == recipe_id {
+            *existing = recipe_to_json_value(&recipe);
+            updated = true;
+            break;
+        }
+    }
+    if !updated {
+        recipes.push(recipe_to_json_value(&recipe));
+    }
+
+    write_recipes_document(state.config_dir(), &document)?;
+    state.log_info("update_recipe", &format!("updated recipe_id={}", recipe.id));
+    Ok(recipe)
+}
+
+pub fn delete_recipe_impl(state: &AppState, recipe_id: String) -> Result<bool, InfraError> {
+    let recipe_id = recipe_id.trim();
+    if recipe_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "recipe_id must not be empty".to_string(),
+        ));
+    }
+
+    let mut document = read_recipes_document(state.config_dir())?;
+    let recipes = recipes_array_mut(&mut document)?;
+    let before = recipes.len();
+    recipes.retain(|entry| {
+        let existing_id = entry
+            .as_object()
+            .and_then(|object| object.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        existing_id != recipe_id
+    });
+    let deleted = recipes.len() != before;
+    if deleted {
+        write_recipes_document(state.config_dir(), &document)?;
+        state.log_info("delete_recipe", &format!("deleted recipe_id={}", recipe_id));
+    }
+    Ok(deleted)
+}
+
+pub async fn generate_today_blocks_impl(
+    state: &AppState,
+    account_id: Option<String>,
+) -> Result<Vec<Block>, InfraError> {
+    let policy = load_runtime_policy(state.config_dir());
+    if !policy.auto_enabled {
+        return Ok(Vec::new());
+    }
+    let today = Utc::now().with_timezone(&policy.timezone).date_naive().to_string();
+    generate_blocks_impl(state, today, account_id).await
+}
+
+pub fn start_block_timer_impl(
+    state: &AppState,
+    block_id: String,
+    task_id: Option<String>,
+) -> Result<PomodoroStateResponse, InfraError> {
+    start_pomodoro_impl(state, block_id, task_id)
+}
+
+pub fn next_step_impl(state: &AppState) -> Result<PomodoroStateResponse, InfraError> {
+    advance_pomodoro_impl(state)
+}
+
+pub fn pause_timer_impl(
+    state: &AppState,
+    reason: Option<String>,
+) -> Result<PomodoroStateResponse, InfraError> {
+    pause_pomodoro_impl(state, reason)
+}
+
+pub fn resume_timer_impl(state: &AppState) -> Result<PomodoroStateResponse, InfraError> {
+    resume_pomodoro_impl(state)
+}
+
+pub fn interrupt_timer_impl(
+    state: &AppState,
+    reason: Option<String>,
+) -> Result<PomodoroStateResponse, InfraError> {
+    let mut runtime = lock_runtime(state)?;
+    if runtime.pomodoro.phase == PomodoroRuntimePhase::Idle {
+        return Ok(to_pomodoro_state_response(&runtime.pomodoro));
+    }
+
+    let interruption_reason = reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "interrupted".to_string());
+    finish_active_log(
+        &mut runtime.pomodoro,
+        Utc::now(),
+        Some(interruption_reason.clone()),
+    );
+    reset_pomodoro_session(&mut runtime.pomodoro);
+    state.log_info(
+        "interrupt_timer",
+        &format!("interrupted active timer reason={}", interruption_reason),
+    );
+    Ok(to_pomodoro_state_response(&runtime.pomodoro))
+}
+
 pub fn start_pomodoro_impl(
     state: &AppState,
     block_id: String,
@@ -1975,7 +2142,8 @@ pub fn start_pomodoro_impl(
         ));
     }
 
-    let session_plan = build_pomodoro_session_plan(&block, policy.break_duration_minutes);
+    let recipes = load_configured_recipes(state.config_dir());
+    let session_plan = build_pomodoro_session_plan(&block, policy.break_duration_minutes, &recipes);
     let now = Utc::now();
     runtime.pomodoro.current_block_id = Some(block_id.to_string());
     runtime.pomodoro.current_task_id = normalized_task_id;
@@ -2219,13 +2387,33 @@ fn reset_pomodoro_session(runtime: &mut PomodoroRuntimeState) {
     runtime.active_log = None;
 }
 
-fn build_pomodoro_session_plan(block: &Block, break_duration_minutes: u32) -> PomodoroSessionPlan {
-    let requested_cycles = u32::try_from(block.planned_pomodoros)
+fn build_pomodoro_session_plan(
+    block: &Block,
+    break_duration_minutes: u32,
+    recipes: &[Recipe],
+) -> PomodoroSessionPlan {
+    let fallback_cycles = u32::try_from(block.planned_pomodoros)
         .ok()
         .filter(|value| *value > 0)
         .unwrap_or(1);
-    let focus_seconds = POMODORO_FOCUS_SECONDS;
-    let break_seconds = (break_duration_minutes.saturating_mul(60)).max(MIN_POMODORO_BREAK_SECONDS);
+    let recipe_pomodoro = recipes
+        .iter()
+        .find(|recipe| recipe.id == block.recipe_id)
+        .and_then(|recipe| {
+            recipe.steps.iter().find_map(|step| match step.step_type {
+                RecipeStepType::Pomodoro => step.pomodoro.as_ref(),
+                _ => None,
+            })
+        });
+    let focus_seconds = recipe_pomodoro
+        .map(|pomodoro| pomodoro.focus_seconds.max(1))
+        .unwrap_or(POMODORO_FOCUS_SECONDS);
+    let break_seconds = recipe_pomodoro
+        .map(|pomodoro| pomodoro.break_seconds.max(1))
+        .unwrap_or_else(|| (break_duration_minutes.saturating_mul(60)).max(MIN_POMODORO_BREAK_SECONDS));
+    let requested_cycles = recipe_pomodoro
+        .map(|pomodoro| pomodoro.cycles.max(1))
+        .unwrap_or(fallback_cycles);
     let cycle_seconds = focus_seconds.saturating_add(break_seconds).max(1);
     let block_seconds = (block.end_at - block.start_at).num_seconds().max(0) as u32;
     let max_cycles_by_duration = (block_seconds / cycle_seconds).max(1);
@@ -2817,7 +3005,21 @@ fn load_runtime_policy(config_dir: &Path) -> RuntimePolicy {
     }
     if let Some(value) = parsed
         .get("generation")
+        .and_then(|generation| generation.get("todayAutoGenerate"))
+        .and_then(serde_json::Value::as_bool)
+    {
+        policy.auto_enabled = value;
+    }
+    if let Some(value) = parsed
+        .get("generation")
         .and_then(|generation| generation.get("catchUpOnAppStart"))
+        .and_then(serde_json::Value::as_bool)
+    {
+        policy.catch_up_on_app_start = value;
+    }
+    if let Some(value) = parsed
+        .get("generation")
+        .and_then(|generation| generation.get("generateOnAppStart"))
         .and_then(serde_json::Value::as_bool)
     {
         policy.catch_up_on_app_start = value;
@@ -2929,6 +3131,15 @@ fn parse_firmness_value(value: Option<&serde_json::Value>) -> Option<Firmness> {
     }
 }
 
+fn parse_auto_drive_mode_value(value: Option<&serde_json::Value>) -> Option<AutoDriveMode> {
+    match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
+        "manual" => Some(AutoDriveMode::Manual),
+        "auto" => Some(AutoDriveMode::Auto),
+        "auto-silent" | "auto_silent" => Some(AutoDriveMode::AutoSilent),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TemplateDefinition {
     id: String,
@@ -2938,6 +3149,8 @@ struct TemplateDefinition {
     firmness: Firmness,
     planned_pomodoros: Option<i32>,
     days: Option<HashSet<Weekday>>,
+    recipe_id: Option<String>,
+    auto_drive_mode: Option<AutoDriveMode>,
 }
 
 fn read_config_array(
@@ -2999,6 +3212,13 @@ fn parse_template_definitions(
                     .collect::<HashSet<_>>()
             })
             .filter(|days| !days.is_empty());
+        let recipe_id = value_by_keys(template, &["recipeId", "recipe_id"])
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let auto_drive_mode =
+            parse_auto_drive_mode_value(value_by_keys(template, &["autoDriveMode", "auto_drive_mode"]));
 
         templates.insert(
             template_id.to_string(),
@@ -3010,6 +3230,8 @@ fn parse_template_definitions(
                 firmness,
                 planned_pomodoros,
                 days,
+                recipe_id,
+                auto_drive_mode,
             },
         );
     }
@@ -3169,10 +3391,438 @@ fn routine_matches_date(
     true
 }
 
+fn default_recipe_id_for_block_type(block_type: &BlockType) -> String {
+    match block_type {
+        BlockType::Deep => "rcp-deep-default".to_string(),
+        BlockType::Shallow => "rcp-shallow-default".to_string(),
+        BlockType::Admin => "rcp-admin-default".to_string(),
+        BlockType::Learning => "rcp-learning-default".to_string(),
+    }
+}
+
+fn default_recipe_name_for_block_type(block_type: &BlockType) -> &'static str {
+    match block_type {
+        BlockType::Deep => "Deep Focus",
+        BlockType::Shallow => "Shallow Tasks",
+        BlockType::Admin => "Admin Sprint",
+        BlockType::Learning => "Learning Session",
+    }
+}
+
+fn default_recipe_steps_for_block_type(block_type: &BlockType) -> Vec<RecipeStep> {
+    match block_type {
+        BlockType::Admin => vec![RecipeStep {
+            id: "step-1".to_string(),
+            step_type: RecipeStepType::Micro,
+            title: "Admin checklist".to_string(),
+            duration_seconds: 15 * 60,
+            pomodoro: None,
+            overrun_policy: Some(OverrunPolicy::Wait),
+        }],
+        _ => vec![RecipeStep {
+            id: "step-1".to_string(),
+            step_type: RecipeStepType::Pomodoro,
+            title: "Focus".to_string(),
+            duration_seconds: POMODORO_FOCUS_SECONDS,
+            pomodoro: Some(RecipePomodoroConfig {
+                focus_seconds: POMODORO_FOCUS_SECONDS,
+                break_seconds: POMODORO_BREAK_SECONDS,
+                cycles: 1,
+                long_break_seconds: None,
+                long_break_every: None,
+            }),
+            overrun_policy: Some(OverrunPolicy::Wait),
+        }],
+    }
+}
+
+fn default_recipe_for_block_type(block_type: BlockType) -> Recipe {
+    Recipe {
+        id: default_recipe_id_for_block_type(&block_type),
+        name: default_recipe_name_for_block_type(&block_type).to_string(),
+        block_type: block_type.clone(),
+        auto_drive_mode: AutoDriveMode::Manual,
+        steps: default_recipe_steps_for_block_type(&block_type),
+    }
+}
+
+fn default_recipe_catalog() -> Vec<Recipe> {
+    vec![
+        default_recipe_for_block_type(BlockType::Deep),
+        default_recipe_for_block_type(BlockType::Shallow),
+        default_recipe_for_block_type(BlockType::Admin),
+        default_recipe_for_block_type(BlockType::Learning),
+    ]
+}
+
+fn parse_recipe_step_type_value(value: Option<&serde_json::Value>) -> Option<RecipeStepType> {
+    match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
+        "pomodoro" => Some(RecipeStepType::Pomodoro),
+        "micro" => Some(RecipeStepType::Micro),
+        "free" => Some(RecipeStepType::Free),
+        _ => None,
+    }
+}
+
+fn parse_overrun_policy_value(value: Option<&serde_json::Value>) -> Option<OverrunPolicy> {
+    match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
+        "notify_and_next" | "notify-and-next" => Some(OverrunPolicy::NotifyAndNext),
+        "wait" => Some(OverrunPolicy::Wait),
+        _ => None,
+    }
+}
+
+fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
+    let object = raw.as_object()?;
+    let id = value_by_keys(object, &["id"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let name = value_by_keys(object, &["name"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(id.as_str())
+        .to_string();
+    let block_type =
+        parse_block_type_value(value_by_keys(object, &["blockType", "block_type", "type"]))
+            .unwrap_or(BlockType::Deep);
+    let auto_drive_mode =
+        parse_auto_drive_mode_value(value_by_keys(object, &["autoDriveMode", "auto_drive_mode"]))
+            .unwrap_or(AutoDriveMode::Manual);
+    let mut steps = value_by_keys(object, &["steps"])
+        .and_then(serde_json::Value::as_array)
+        .map(|steps_raw| {
+            steps_raw
+                .iter()
+                .enumerate()
+                .filter_map(|(index, step_raw)| {
+                    let step_object = step_raw.as_object()?;
+                    let step_id = value_by_keys(step_object, &["id"])
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| format!("step-{}", index.saturating_add(1)));
+                    let title = value_by_keys(step_object, &["title", "name"])
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or("Step")
+                        .to_string();
+                    let step_type = parse_recipe_step_type_value(value_by_keys(
+                        step_object,
+                        &["type", "stepType", "step_type"],
+                    ))
+                    .unwrap_or(RecipeStepType::Micro);
+                    let duration_seconds = value_by_keys(
+                        step_object,
+                        &["durationSeconds", "duration_seconds", "seconds"],
+                    )
+                    .and_then(parse_positive_u32_value)
+                    .unwrap_or(60);
+                    let pomodoro = value_by_keys(step_object, &["pomodoro"])
+                        .and_then(serde_json::Value::as_object)
+                        .map(|pomodoro| RecipePomodoroConfig {
+                            focus_seconds: value_by_keys(
+                                pomodoro,
+                                &["focusSeconds", "focus_seconds"],
+                            )
+                            .and_then(parse_positive_u32_value)
+                            .unwrap_or(POMODORO_FOCUS_SECONDS),
+                            break_seconds: value_by_keys(
+                                pomodoro,
+                                &["breakSeconds", "break_seconds"],
+                            )
+                            .and_then(parse_positive_u32_value)
+                            .unwrap_or(POMODORO_BREAK_SECONDS),
+                            cycles: value_by_keys(pomodoro, &["cycles"])
+                                .and_then(parse_positive_u32_value)
+                                .unwrap_or(1),
+                            long_break_seconds: value_by_keys(
+                                pomodoro,
+                                &["longBreakSeconds", "long_break_seconds"],
+                            )
+                            .and_then(parse_positive_u32_value),
+                            long_break_every: value_by_keys(
+                                pomodoro,
+                                &["longBreakEvery", "long_break_every"],
+                            )
+                            .and_then(parse_positive_u32_value),
+                        });
+                    let overrun_policy =
+                        parse_overrun_policy_value(value_by_keys(step_object, &["overrunPolicy", "overrun_policy"]));
+                    Some(RecipeStep {
+                        id: step_id,
+                        step_type,
+                        title,
+                        duration_seconds,
+                        pomodoro,
+                        overrun_policy,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if steps.is_empty() {
+        steps = default_recipe_steps_for_block_type(&block_type);
+    }
+    let recipe = Recipe {
+        id,
+        name,
+        block_type,
+        auto_drive_mode,
+        steps,
+    };
+    if recipe.validate().is_err() {
+        return None;
+    }
+    Some(recipe)
+}
+
+fn load_configured_recipes(config_dir: &Path) -> Vec<Recipe> {
+    let mut recipes = read_config_array(config_dir, RECIPES_FILE_NAME, "recipes")
+        .iter()
+        .filter_map(parse_recipe_from_value)
+        .collect::<Vec<_>>();
+    if recipes.is_empty() {
+        return default_recipe_catalog();
+    }
+    for default_recipe in default_recipe_catalog() {
+        if recipes.iter().all(|recipe| recipe.id != default_recipe.id) {
+            recipes.push(default_recipe);
+        }
+    }
+    recipes
+}
+
+fn resolve_recipe_for_plan(
+    explicit_recipe_id: Option<String>,
+    block_type: &BlockType,
+    auto_drive_override: Option<AutoDriveMode>,
+    recipes: &[Recipe],
+) -> (String, AutoDriveMode) {
+    let normalized_explicit = explicit_recipe_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if let Some(recipe_id) = normalized_explicit.clone() {
+        if let Some(recipe) = recipes.iter().find(|candidate| candidate.id == recipe_id) {
+            return (
+                recipe_id,
+                auto_drive_override.unwrap_or_else(|| recipe.auto_drive_mode.clone()),
+            );
+        }
+        return (recipe_id, auto_drive_override.unwrap_or(AutoDriveMode::Manual));
+    }
+
+    if let Some(recipe) = recipes.iter().find(|candidate| candidate.block_type == *block_type) {
+        return (
+            recipe.id.clone(),
+            auto_drive_override.unwrap_or_else(|| recipe.auto_drive_mode.clone()),
+        );
+    }
+
+    (
+        default_recipe_id_for_block_type(block_type),
+        auto_drive_override.unwrap_or(AutoDriveMode::Manual),
+    )
+}
+
+fn block_type_as_str(value: &BlockType) -> &'static str {
+    match value {
+        BlockType::Deep => "deep",
+        BlockType::Shallow => "shallow",
+        BlockType::Admin => "admin",
+        BlockType::Learning => "learning",
+    }
+}
+
+fn auto_drive_mode_as_str(value: &AutoDriveMode) -> &'static str {
+    match value {
+        AutoDriveMode::Manual => "manual",
+        AutoDriveMode::Auto => "auto",
+        AutoDriveMode::AutoSilent => "auto-silent",
+    }
+}
+
+fn recipe_step_type_as_str(value: &RecipeStepType) -> &'static str {
+    match value {
+        RecipeStepType::Pomodoro => "pomodoro",
+        RecipeStepType::Micro => "micro",
+        RecipeStepType::Free => "free",
+    }
+}
+
+fn overrun_policy_as_str(value: &OverrunPolicy) -> &'static str {
+    match value {
+        OverrunPolicy::NotifyAndNext => "notify_and_next",
+        OverrunPolicy::Wait => "wait",
+    }
+}
+
+fn parse_recipe_payload(payload: &serde_json::Value) -> Result<Recipe, InfraError> {
+    parse_recipe_from_value(payload).ok_or_else(|| {
+        InfraError::InvalidConfig("invalid recipe payload; check id/name/blockType/steps".to_string())
+    })
+}
+
+fn parse_recipe_payload_with_id(
+    payload: &serde_json::Value,
+    recipe_id: &str,
+) -> Result<Recipe, InfraError> {
+    let mut object = payload
+        .as_object()
+        .cloned()
+        .ok_or_else(|| InfraError::InvalidConfig("recipe payload must be object".to_string()))?;
+    object.insert(
+        "id".to_string(),
+        serde_json::Value::String(recipe_id.to_string()),
+    );
+    parse_recipe_payload(&serde_json::Value::Object(object))
+}
+
+fn recipe_to_json_value(recipe: &Recipe) -> serde_json::Value {
+    let steps = recipe
+        .steps
+        .iter()
+        .map(|step| {
+            let mut object = serde_json::Map::new();
+            object.insert(
+                "id".to_string(),
+                serde_json::Value::String(step.id.clone()),
+            );
+            object.insert(
+                "type".to_string(),
+                serde_json::Value::String(recipe_step_type_as_str(&step.step_type).to_string()),
+            );
+            object.insert(
+                "title".to_string(),
+                serde_json::Value::String(step.title.clone()),
+            );
+            object.insert(
+                "durationSeconds".to_string(),
+                serde_json::Value::from(step.duration_seconds),
+            );
+            if let Some(pomodoro) = &step.pomodoro {
+                let mut pomodoro_object = serde_json::Map::new();
+                pomodoro_object.insert(
+                    "focusSeconds".to_string(),
+                    serde_json::Value::from(pomodoro.focus_seconds),
+                );
+                pomodoro_object.insert(
+                    "breakSeconds".to_string(),
+                    serde_json::Value::from(pomodoro.break_seconds),
+                );
+                pomodoro_object.insert(
+                    "cycles".to_string(),
+                    serde_json::Value::from(pomodoro.cycles),
+                );
+                if let Some(long_break_seconds) = pomodoro.long_break_seconds {
+                    pomodoro_object.insert(
+                        "longBreakSeconds".to_string(),
+                        serde_json::Value::from(long_break_seconds),
+                    );
+                }
+                if let Some(long_break_every) = pomodoro.long_break_every {
+                    pomodoro_object.insert(
+                        "longBreakEvery".to_string(),
+                        serde_json::Value::from(long_break_every),
+                    );
+                }
+                object.insert(
+                    "pomodoro".to_string(),
+                    serde_json::Value::Object(pomodoro_object),
+                );
+            }
+            if let Some(overrun_policy) = &step.overrun_policy {
+                object.insert(
+                    "overrunPolicy".to_string(),
+                    serde_json::Value::String(overrun_policy_as_str(overrun_policy).to_string()),
+                );
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::json!({
+        "id": recipe.id,
+        "name": recipe.name,
+        "blockType": block_type_as_str(&recipe.block_type),
+        "autoDriveMode": auto_drive_mode_as_str(&recipe.auto_drive_mode),
+        "steps": steps,
+    })
+}
+
+fn recipes_config_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(RECIPES_FILE_NAME)
+}
+
+fn read_recipes_document(config_dir: &Path) -> Result<serde_json::Value, InfraError> {
+    let path = recipes_config_path(config_dir);
+    if !path.exists() {
+        return Ok(serde_json::json!({
+            "schema": 1,
+            "recipes": [],
+        }));
+    }
+    let raw = fs::read_to_string(&path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    if !parsed.is_object() {
+        return Err(InfraError::InvalidConfig(format!(
+            "{} must be a JSON object",
+            path.display()
+        )));
+    }
+    let schema = parsed
+        .get("schema")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    if schema != 1 {
+        return Err(InfraError::InvalidConfig(format!(
+            "unsupported schema {} in {}",
+            schema,
+            path.display()
+        )));
+    }
+    Ok(parsed)
+}
+
+fn write_recipes_document(
+    config_dir: &Path,
+    document: &serde_json::Value,
+) -> Result<(), InfraError> {
+    let path = recipes_config_path(config_dir);
+    let formatted = serde_json::to_string_pretty(document)?;
+    fs::write(path, format!("{formatted}\n"))?;
+    Ok(())
+}
+
+fn recipes_array_mut(
+    document: &mut serde_json::Value,
+) -> Result<&mut Vec<serde_json::Value>, InfraError> {
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| InfraError::InvalidConfig("recipes document must be object".to_string()))?;
+    object
+        .entry("schema".to_string())
+        .or_insert_with(|| serde_json::Value::from(1_u8));
+    let recipes_entry = object
+        .entry("recipes".to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    recipes_entry.as_array_mut().ok_or_else(|| {
+        InfraError::InvalidConfig("recipes must be an array in recipes.json".to_string())
+    })
+}
+
 fn load_configured_block_plans(
     config_dir: &Path,
     date: NaiveDate,
     policy: &RuntimePolicy,
+    recipes: &[Recipe],
 ) -> Vec<BlockPlan> {
     let templates_raw = read_config_array(config_dir, "templates.json", "templates");
     let routines_raw = read_config_array(config_dir, "routines.json", "routines");
@@ -3190,6 +3840,12 @@ fn load_configured_block_plans(
             continue;
         };
         let end_at = start_at + Duration::minutes(template.duration_minutes as i64);
+        let (recipe_id, auto_drive_mode) = resolve_recipe_for_plan(
+            template.recipe_id.clone(),
+            &template.block_type,
+            template.auto_drive_mode.clone(),
+            recipes,
+        );
         plans.push(BlockPlan {
             instance: format!("tpl:{}:{}", template.id, date),
             start_at,
@@ -3201,6 +3857,8 @@ fn load_configured_block_plans(
             }),
             source: "template".to_string(),
             source_id: Some(template.id.clone()),
+            recipe_id,
+            auto_drive_mode,
         });
     }
 
@@ -3282,6 +3940,28 @@ fn load_configured_block_plans(
             })
             .or_else(|| linked_template.and_then(|template| template.planned_pomodoros))
             .unwrap_or_else(|| planned_pomodoros(duration_minutes, policy.break_duration_minutes));
+        let explicit_recipe_id = default
+            .and_then(|value| value_by_keys(value, &["recipeId", "recipe_id"]))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                value_by_keys(routine, &["recipeId", "recipe_id"])
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            })
+            .or_else(|| linked_template.and_then(|template| template.recipe_id.clone()));
+        let auto_drive_override = parse_auto_drive_mode_value(
+            default
+                .and_then(|value| value_by_keys(value, &["autoDriveMode", "auto_drive_mode"]))
+                .or_else(|| value_by_keys(routine, &["autoDriveMode", "auto_drive_mode"])),
+        )
+        .or_else(|| linked_template.and_then(|template| template.auto_drive_mode.clone()));
+        let (recipe_id, auto_drive_mode) =
+            resolve_recipe_for_plan(explicit_recipe_id, &block_type, auto_drive_override, recipes);
 
         plans.push(BlockPlan {
             instance: format!("rtn:{}:{}", routine_id, date),
@@ -3292,6 +3972,8 @@ fn load_configured_block_plans(
             planned_pomodoros: planned,
             source: "routine".to_string(),
             source_id: Some(routine_id.to_string()),
+            recipe_id,
+            auto_drive_mode,
         });
     }
 
@@ -3649,7 +4331,9 @@ mod tests {
             .expect("generate blocks");
         let block_id = generated[0].id.clone();
         let policy = load_runtime_policy(state.config_dir());
-        let expected_plan = build_pomodoro_session_plan(&generated[0], policy.break_duration_minutes);
+        let recipes = load_configured_recipes(state.config_dir());
+        let expected_plan =
+            build_pomodoro_session_plan(&generated[0], policy.break_duration_minutes, &recipes);
 
         let started = start_pomodoro_impl(&state, block_id.clone(), None).expect("start pomodoro");
         assert_eq!(started.phase, "focus");
@@ -3677,7 +4361,9 @@ mod tests {
             .expect("generate blocks");
         let block = generated[0].clone();
         let policy = load_runtime_policy(state.config_dir());
-        let expected_plan = build_pomodoro_session_plan(&block, policy.break_duration_minutes);
+        let recipes = load_configured_recipes(state.config_dir());
+        let expected_plan =
+            build_pomodoro_session_plan(&block, policy.break_duration_minutes, &recipes);
 
         let started =
             start_pomodoro_impl(&state, block.id.clone(), None).expect("start pomodoro session");
@@ -4018,6 +4704,9 @@ mod tests {
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("auto".to_string()),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
         };
 
         let mut runtime = RuntimeState::default();
@@ -4176,6 +4865,9 @@ mod tests {
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("auto".to_string()),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
         };
         {
             let mut runtime = lock_runtime(&state).expect("runtime lock");
