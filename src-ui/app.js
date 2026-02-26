@@ -1,13 +1,13 @@
 ﻿// @ts-check
 
 const appRoot = /** @type {HTMLElement} */ (document.getElementById("app"));
-const statusChip = /** @type {HTMLElement} */ (document.getElementById("global-status"));
+const statusChip = /** @type {HTMLElement | null} */ (document.getElementById("global-status"));
 const progressChip = /** @type {HTMLElement | null} */ (document.getElementById("global-progress"));
 const progressLabel = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-label"));
 const progressFill = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-fill"));
 const progressValue = /** @type {HTMLElement | null} */ (document.getElementById("global-progress-value"));
 
-const routes = ["today", "now", "routines", "insights", "settings"];
+const routes = ["today", "details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
   blocks: "ブロック構成",
@@ -316,7 +316,35 @@ function resolveDayBounds(dateValue) {
   return { dayStart, dayEnd };
 }
 
-function toSyncWindowPayload(dateValue) {
+function resolveWeekBounds(dateValue) {
+  const { dayStart } = resolveDayBounds(dateValue);
+  const weekday = dayStart.getDay();
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+  const weekStart = new Date(dayStart);
+  weekStart.setDate(dayStart.getDate() + mondayOffset);
+  weekStart.setHours(0, 0, 0, 0);
+  const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+  return { weekStart, weekEnd };
+}
+
+function resolveWeekDateKeys(dateValue) {
+  const { weekStart } = resolveWeekBounds(dateValue);
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(weekStart);
+    day.setDate(weekStart.getDate() + index);
+    day.setHours(0, 0, 0, 0);
+    return isoDate(day);
+  });
+}
+
+function toSyncWindowPayload(dateValue, scope = "day") {
+  if (scope === "week") {
+    const { weekStart, weekEnd } = resolveWeekBounds(dateValue);
+    return {
+      time_min: weekStart.toISOString(),
+      time_max: weekEnd.toISOString(),
+    };
+  }
   const { dayStart, dayEnd } = resolveDayBounds(dateValue);
   return {
     time_min: dayStart.toISOString(),
@@ -689,7 +717,9 @@ function applyDayBlockPreview(entry, interval) {
   })} | ${timeText}`;
 }
 
-function buildDailyCalendarModel(dateValue, blocks, events) {
+function buildDailyCalendarModel(dateValue, blocks, events, options = {}) {
+  const syncSelection = options.syncSelection !== false;
+  const preferredSelection = options.preferredSelection || null;
   const { dayStart, dayEnd } = resolveDayBounds(dateValue);
   const dayStartMs = dayStart.getTime();
   const dayEndMs = dayEnd.getTime();
@@ -748,16 +778,20 @@ function buildDailyCalendarModel(dateValue, blocks, events) {
     }));
   const allItems = [...blockItems, ...eventItems, ...freeItems];
   const itemMap = new Map(allItems.map((item) => [item.key, item]));
-  const selectedByState = uiState.dayCalendarSelection
-    ? itemMap.get(dayItemKey(uiState.dayCalendarSelection.kind, uiState.dayCalendarSelection.id))
-    : null;
+  const selectionSource =
+    preferredSelection && typeof preferredSelection.kind === "string" && typeof preferredSelection.id === "string"
+      ? { kind: preferredSelection.kind, id: preferredSelection.id }
+      : uiState.dayCalendarSelection;
+  const selectedByState = selectionSource ? itemMap.get(dayItemKey(selectionSource.kind, selectionSource.id)) : null;
   const selectedItem = selectedByState || blockItems[0] || eventItems[0] || freeItems[0] || null;
-  uiState.dayCalendarSelection = selectedItem
-    ? {
-        kind: selectedItem.kind,
-        id: selectedItem.id,
-      }
-    : null;
+  if (syncSelection) {
+    uiState.dayCalendarSelection = selectedItem
+      ? {
+          kind: selectedItem.kind,
+          id: selectedItem.id,
+        }
+      : null;
+  }
 
   return {
     dayStartMs,
@@ -775,6 +809,86 @@ function buildDailyCalendarModel(dateValue, blocks, events) {
       eventMinutes: sumIntervalMinutes(eventIntervals),
       freeMinutes: sumIntervalMinutes(freeIntervals),
     },
+  };
+}
+
+function parseLocalDate(dateValue) {
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    const fallback = new Date();
+    fallback.setHours(0, 0, 0, 0);
+    return fallback;
+  }
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function shiftDateByDays(baseDate, offsetDays) {
+  const next = new Date(baseDate);
+  next.setDate(baseDate.getDate() + offsetDays);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function toLocalDateKey(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toMonthDayLabel(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}/${day}`;
+}
+
+function buildWeeklyPlannerModel(dateValue, blocks, events) {
+  const anchor = parseLocalDate(dateValue);
+  const weekday = anchor.getDay();
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+  const weekStart = shiftDateByDays(anchor, mondayOffset);
+  const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const dayDate = shiftDateByDays(weekStart, index);
+    const dayKey = toLocalDateKey(dayDate);
+    const dailyModel = buildDailyCalendarModel(dayKey, blocks, events, { syncSelection: false });
+    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort(
+      (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
+    );
+    return {
+      ...dailyModel,
+      dayKey,
+      dayDate,
+      dayNumber: String(dayDate.getDate()).padStart(2, "0"),
+      weekdayLabel: weekdayLabels[dayDate.getDay()],
+      isCurrent: dayKey === dateValue,
+      combinedItems,
+    };
+  });
+
+  const allItems = days.flatMap((day) => day.combinedItems);
+  const itemMap = new Map(allItems.map((item) => [item.key, item]));
+  const selectedByState = uiState.dayCalendarSelection
+    ? itemMap.get(dayItemKey(uiState.dayCalendarSelection.kind, uiState.dayCalendarSelection.id))
+    : null;
+  const currentDay = days.find((day) => day.isCurrent) || days[0] || null;
+  const firstAvailable = days.find((day) => day.combinedItems.length > 0)?.combinedItems[0] || null;
+  const selectedItem = selectedByState || currentDay?.combinedItems[0] || firstAvailable || null;
+  uiState.dayCalendarSelection = selectedItem
+    ? {
+        kind: selectedItem.kind,
+        id: selectedItem.id,
+      }
+    : null;
+
+  const weekEnd = days[days.length - 1]?.dayDate || weekStart;
+  const weekLabel = `${weekStart.getFullYear()} ${toMonthDayLabel(weekStart)} - ${toMonthDayLabel(weekEnd)}`;
+
+  return {
+    days,
+    selectedItem,
+    weekLabel,
   };
 }
 
@@ -830,6 +944,84 @@ function renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem) {
       `;
     })
     .join("");
+}
+
+function renderCombinedDayLaneItems(items, dayStartMs, dayEndMs, selectedItem) {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  return items
+    .map((item) => {
+      const top = ((item.startMs - dayStartMs) / totalRange) * 100;
+      const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
+      const minHeight = item.kind === "free" ? 2.2 : 3.2;
+      const height = Math.max(minHeight, baseHeight);
+      const compact = height < 7 ? "is-compact" : "";
+      const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
+      const dragClass = item.kind === "block" ? "is-draggable" : "";
+      return `
+        <button
+          type="button"
+          class="day-entry day-entry-${item.kind} ${selectedClass} ${compact} ${dragClass}"
+          style="top:${top}%;height:${height}%"
+          data-day-item-kind="${item.kind}"
+          data-day-item-id="${escapeHtml(item.id)}"
+          data-day-start-ms="${dayStartMs}"
+          data-day-end-ms="${dayEndMs}"
+          data-day-item-start-ms="${item.startMs}"
+          data-day-item-end-ms="${item.endMs}"
+          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
+        >
+          <span class="day-entry-title">${escapeHtml(item.title)}</span>
+          <span class="day-entry-time">${intervalRangeLabel(item)}</span>
+          <span class="day-entry-duration">${toDurationLabel(item.durationMinutes)}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
+function renderWeeklyPlannerCalendar(model) {
+  if (!model.days.length) {
+    return '<div class="panel"><p class="small">週次データがありません。</p></div>';
+  }
+  const gridColumns = `84px repeat(${model.days.length}, minmax(150px, 1fr))`;
+  return `
+    <div class="week-board">
+      <div class="week-board-head" style="grid-template-columns:${gridColumns}">
+        <span class="week-board-head-time">時刻</span>
+        ${model.days
+          .map(
+            (day) => `
+          <span class="week-board-day ${day.isCurrent ? "is-current" : ""}">
+            <small>${day.weekdayLabel}</small>
+            <strong>${day.dayNumber}</strong>
+          </span>
+        `
+          )
+          .join("")}
+      </div>
+      <div class="week-board-body" style="grid-template-columns:${gridColumns}">
+        ${renderDayTimeAxis(model.days[0].dayStartMs, model.days[0].dayEndMs)}
+        ${model.days
+          .map((day) => {
+            const entries = renderCombinedDayLaneItems(
+              day.combinedItems,
+              day.dayStartMs,
+              day.dayEndMs,
+              model.selectedItem
+            );
+            return `
+              <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
+                <div class="day-lane-track week-day-track">
+                  ${renderDayHourGuides()}
+                  ${entries || '<span class="day-lane-empty">なし</span>'}
+                </div>
+              </section>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
 }
 
 function renderDayLane(label, kind, items, dayStartMs, dayEndMs, selectedItem) {
@@ -912,9 +1104,14 @@ function renderSimpleTimelineRow(label, kind, items, dayStartMs, dayEndMs, selec
   `;
 }
 
-function renderSimpleDailyCalendar(model) {
+function renderSimpleDailyCalendar(model, options = {}) {
+  const includeDetail = options.includeDetail !== false;
+  const includeTimeline = options.includeTimeline !== false;
   return `
     <div class="day-view-simple">
+      ${
+        includeTimeline
+          ? `
       <div class="panel day-simple-timeline">
         <div class="day-simple-scale">${renderSimpleTimelineScale()}</div>
         <div class="day-simple-row">
@@ -948,14 +1145,22 @@ function renderSimpleDailyCalendar(model) {
           model.selectedItem
         )}
       </div>
-      ${renderDailyDetail(model.selectedItem)}
+      `
+          : ""
+      }
+      ${includeDetail ? renderDailyDetail(model.selectedItem) : ""}
     </div>
   `;
 }
 
-function renderGridDailyCalendar(model) {
+function renderGridDailyCalendar(model, options = {}) {
+  const includeDetail = options.includeDetail !== false;
+  const includeBoard = options.includeBoard !== false;
   return `
-    <div class="day-view-grid">
+    <div class="day-view-grid ${includeBoard ? "" : "is-detail-only"}">
+      ${
+        includeBoard
+          ? `
       <div class="day-board">
         <div class="day-board-head">
           <span class="day-board-head-time">時刻</span>
@@ -970,7 +1175,10 @@ function renderGridDailyCalendar(model) {
           ${renderDayLane("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
         </div>
       </div>
-      ${renderDailyDetail(model.selectedItem)}
+      `
+          : ""
+      }
+      ${includeDetail ? renderDailyDetail(model.selectedItem) : ""}
     </div>
   `;
 }
@@ -1043,20 +1251,50 @@ function renderDailyDetail(selectedItem) {
   `;
 }
 
-function renderDailyCalendar(dateValue) {
-  const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents);
-  const mode = uiState.dayCalendarViewMode === "simple" ? "simple" : "grid";
+function renderDailyCalendar(dateValue, options = {}) {
+  const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents, {
+    syncSelection: options.syncSelection,
+    preferredSelection: options.preferredSelection,
+  });
+  const mode =
+    options.forceMode === "grid" || options.forceMode === "simple"
+      ? options.forceMode
+      : uiState.dayCalendarViewMode === "simple"
+      ? "simple"
+      : "grid";
+  const panelClass = typeof options.panelClass === "string" && options.panelClass.trim() ? ` ${options.panelClass}` : "";
+  const showHeader = options.showHeader !== false;
+  const showMetrics = options.showMetrics !== false;
+  const showViewToggle = options.showViewToggle !== false;
+  const includeDetail = options.includeDetail !== false;
+  const includeBoard = options.includeBoard !== false;
+  const includeTimeline = options.includeTimeline !== false;
   return `
-    <div class="panel day-calendar">
+    <div class="panel day-calendar${panelClass}">
+      ${
+        showHeader
+          ? `
       <div class="row spread">
         <h3>1日の時間ビュー</h3>
         <span class="small">${escapeHtml(dateValue)} / ${timezoneOffsetLabel()}</span>
       </div>
+      `
+          : ""
+      }
+      ${
+        showMetrics
+          ? `
       <div class="calendar-metrics">
         <span class="pill calendar-pill block">ブロック ${toDurationLabel(model.totals.blockMinutes)}</span>
         <span class="pill calendar-pill event">予定 ${toDurationLabel(model.totals.eventMinutes)}</span>
         <span class="pill calendar-pill free">空き ${toDurationLabel(model.totals.freeMinutes)}</span>
       </div>
+      `
+          : ""
+      }
+      ${
+        showViewToggle
+          ? `
       <div class="day-view-toggle" role="group" aria-label="表示モード切替">
         <button
           type="button"
@@ -1075,13 +1313,22 @@ function renderDailyCalendar(dateValue) {
           シンプル
         </button>
       </div>
-      ${mode === "simple" ? renderSimpleDailyCalendar(model) : renderGridDailyCalendar(model)}
+      `
+          : ""
+      }
+      ${
+        mode === "simple"
+          ? renderSimpleDailyCalendar(model, { includeDetail, includeTimeline })
+          : renderGridDailyCalendar(model, { includeDetail, includeBoard })
+      }
     </div>
   `;
 }
 
 function setStatus(message) {
-  statusChip.textContent = message;
+  if (statusChip) {
+    statusChip.textContent = message;
+  }
 }
 
 function normalizeCommandPayload(name, payload = {}) {
@@ -1183,6 +1430,8 @@ function getRoute() {
 
   const routeAlias = {
     dashboard: "today",
+    manage: "details",
+    detail: "details",
     blocks: "today",
     tasks: "today",
     pomodoro: "now",
@@ -1762,12 +2011,24 @@ async function mockInvoke(name, payload) {
 
 async function refreshCoreData(date = isoDate(new Date())) {
   const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
-  const syncWindow = toSyncWindowPayload(normalizedDate);
+  const syncWindow = toSyncWindowPayload(normalizedDate, "week");
+  const weekDateKeys = resolveWeekDateKeys(normalizedDate);
+  const weeklyBlocksPromise = Promise.all(
+    weekDateKeys.map((dateKey) => safeInvoke("list_blocks", { date: dateKey }))
+  ).then((dailyBlocks) => {
+    const merged = dailyBlocks.flat();
+    const seen = new Set();
+    return merged.filter((block) => {
+      if (!block?.id || seen.has(block.id)) return false;
+      seen.add(block.id);
+      return true;
+    });
+  });
   uiState.dashboardDate = normalizedDate;
   const [tasksResult, blocksResult, calendarEventsResult, pomodoroResult, recipesResult] =
     await Promise.allSettled([
     safeInvoke("list_tasks"),
-    safeInvoke("list_blocks", { date: normalizedDate }),
+    weeklyBlocksPromise,
     safeInvoke("list_synced_events", withAccount(syncWindow)),
     safeInvoke("get_pomodoro_state"),
     safeInvoke("list_recipes"),
@@ -1842,10 +2103,15 @@ async function authenticateAndSyncCalendar(
 function render() {
   const route = getRoute();
   markActiveRoute(route);
+  document.body.classList.toggle("route-today", route === "today");
+  appRoot.classList.toggle("view-root--today", route === "today");
 
   switch (route) {
     case "today":
       renderDashboard();
+      break;
+    case "details":
+      renderTodayDetailsPage();
       break;
     case "now":
       renderPomodoro();
@@ -1864,13 +2130,157 @@ function render() {
   }
 }
 
-function dashboardMetrics() {
-  const draft = uiState.blocks.filter((block) => block.firmness === "draft").length;
-  const soft = uiState.blocks.filter((block) => block.firmness === "soft").length;
+function renderTodaySequenceItems() {
+  const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
+  if (recipes.length === 0) {
+    return '<p class="small">シーケンスがありません。Routinesで追加してください。</p>';
+  }
+  return recipes
+    .slice(0, 8)
+    .map((recipe) => {
+      const name = typeof recipe?.name === "string" && recipe.name.trim() ? recipe.name.trim() : "Untitled";
+      const blockType = typeof recipe?.block_type === "string" && recipe.block_type.trim() ? recipe.block_type.trim() : "misc";
+      const autoDriveMode =
+        typeof recipe?.auto_drive_mode === "string" && recipe.auto_drive_mode.trim()
+          ? recipe.auto_drive_mode.trim()
+          : "manual";
+      const stepCount = Array.isArray(recipe?.steps) ? recipe.steps.length : 0;
+      return `
+        <article class="today-sequence-item">
+          <div class="today-sequence-icon" aria-hidden="true">${escapeHtml(blockType.slice(0, 1).toUpperCase())}</div>
+          <div class="today-sequence-content">
+            <p class="today-sequence-title">${escapeHtml(name)}</p>
+            <p class="today-sequence-meta">${escapeHtml(blockType)} / ${escapeHtml(autoDriveMode)} / ${stepCount} steps</p>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderTodayLibraryLinks() {
   return `
-    <div class="panel metric"><span class="small">Today Blocks</span><b>${uiState.blocks.length}</b></div>
-    <div class="panel metric"><span class="small">Draft</span><b>${draft}</b></div>
-    <div class="panel metric"><span class="small">Approved</span><b>${soft}</b></div>
+    <ul class="today-library-links">
+      <li><a href="#/insights">History</a></li>
+      <li><a href="#/routines">Templates</a></li>
+    </ul>
+  `;
+}
+
+function renderTodayStatusCard() {
+  const state = normalizePomodoroState(uiState.pomodoro || {});
+  const phaseLabel = pomodoroPhaseLabel(state.phase);
+  const currentBlock = state.current_block_id
+    ? uiState.blocks.find((block) => block.id === state.current_block_id) || null
+    : null;
+  const currentTitle = currentBlock ? blockTitle(currentBlock) || currentBlock.id : "-";
+  const progressPercent = pomodoroProgressPercent(state);
+  return `
+    <section class="today-right-section today-right-section--status">
+      <h3>Current Status</h3>
+      <div class="today-status-card">
+        <span class="pill today-status-pill">${phaseLabel}</span>
+        <p class="today-status-title">${escapeHtml(currentTitle)}</p>
+        <p class="today-status-subtitle">Block: ${escapeHtml(state.current_block_id || "-")}</p>
+        <div class="today-status-time">${toTimerText(state.remaining_seconds)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${progressPercent}%"></div></div>
+      </div>
+    </section>
+  `;
+}
+
+function renderTodayTaskPanel() {
+  const activeTasks = uiState.tasks.filter((task) => task.status !== "completed");
+  const visibleTasks = activeTasks.slice(0, 5);
+  const overflowCount = Math.max(0, activeTasks.length - visibleTasks.length);
+  return `
+    <section class="today-right-section today-right-section--tasks">
+      <div class="row spread">
+        <h3>Active Micro-Tasks</h3>
+        <span class="small">${Math.max(0, uiState.tasks.length - activeTasks.length)} 完了</span>
+      </div>
+      <ul class="today-task-list">
+        ${
+          visibleTasks.length === 0
+            ? '<li class="today-task-empty">未完了タスクはありません。</li>'
+            : visibleTasks
+                .map(
+                  (task) => `
+            <li class="today-task-item">
+              <span class="today-task-bullet ${task.status === "in_progress" ? "is-active" : ""}" aria-hidden="true"></span>
+              <span>${escapeHtml(task.title || "(untitled)")}</span>
+            </li>
+          `
+                )
+                .join("")
+        }
+      </ul>
+      ${overflowCount > 0 ? `<p class="small">他 ${overflowCount} 件</p>` : ""}
+    </section>
+  `;
+}
+
+function renderTodayTimelinePanel() {
+  const timelineBlocks = [...uiState.blocks]
+    .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
+    .slice(0, 10);
+  return `
+    <section class="today-timeline-panel">
+      <div class="row spread">
+        <h3>Today's Timeline</h3>
+        <span class="small">${uiState.blocks.length} items</span>
+      </div>
+      <ul class="today-timeline-list">
+        ${
+          timelineBlocks.length === 0
+            ? '<li class="today-timeline-empty">予定はまだありません。</li>'
+            : timelineBlocks
+                .map((block) => {
+                  const title = blockTitle(block) || "Untitled Block";
+                  const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
+                  return `
+                    <li class="today-timeline-item">
+                      <div class="today-timeline-time">${escapeHtml(timeRange)}</div>
+                      <div class="today-timeline-content">
+                        <p class="today-timeline-title">${escapeHtml(title)}</p>
+                        <p class="today-timeline-meta">${escapeHtml(block.firmness || "draft")} / ${escapeHtml(
+                    block.source || "generated"
+                  )}</p>
+                      </div>
+                    </li>
+                  `;
+                })
+                .join("")
+        }
+      </ul>
+    </section>
+  `;
+}
+
+function renderTodayNotesPanel() {
+  const activeTask = uiState.tasks.find((task) => task.status === "in_progress") || null;
+  const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
+  return `
+    <section class="today-right-section today-right-section--notes">
+      <div class="row spread">
+        <h3>Session Notes</h3>
+        <span class="small">${activeTask ? "active task linked" : "free form"}</span>
+      </div>
+      <textarea class="today-notes-input" placeholder="${escapeHtml(defaultNote)}"></textarea>
+    </section>
+  `;
+}
+
+function renderTodayAmbientPanel() {
+  return `
+    <section class="today-right-footer">
+      <div class="today-ambient-cover" aria-hidden="true">A</div>
+      <div class="today-ambient-meta">
+        <p class="today-ambient-title">Deep Focus Ambient</p>
+        <p class="today-ambient-source">Brain.fm</p>
+      </div>
+      <div class="today-ambient-controls" aria-hidden="true">| |</div>
+    </section>
   `;
 }
 
@@ -2151,46 +2561,103 @@ function bindDailyCalendarInteractions(rerender) {
 function renderDashboard() {
   const fallbackDate = isoDate(new Date());
   const selectedDate = uiState.dashboardDate || fallbackDate;
+  const weeklyModel = buildWeeklyPlannerModel(selectedDate, uiState.blocks, uiState.calendarEvents);
+  appRoot.innerHTML = `
+    <section class="today-layout">
+      <aside class="today-left-rail">
+        <section class="today-left-section today-left-section--sequences">
+          <div class="today-rail-head">
+            <h3>Micro Sequences</h3>
+            <p class="small">Drag to calendar to schedule</p>
+          </div>
+          <div class="today-sequence-list">${renderTodaySequenceItems()}</div>
+        </section>
+        <section class="today-left-section today-left-section--library">
+          <h3>Library</h3>
+          ${renderTodayLibraryLinks()}
+        </section>
+        <div class="today-left-spacer" aria-hidden="true"></div>
+        <div class="today-left-footer">
+          <a class="today-create-sequence" href="#/routines">+ Create Sequence</a>
+        </div>
+      </aside>
+
+      <section class="today-main-pane">
+        <header class="today-main-head">
+          <div>
+            <h2>Weekly Planner</h2>
+            <p>${escapeHtml(weeklyModel.weekLabel)}</p>
+          </div>
+          <div class="today-main-head-actions">
+            <span class="pill">${escapeHtml(selectedDate)}</span>
+            <a href="#/details" class="today-manage-btn">Details</a>
+          </div>
+        </header>
+        <section class="panel today-planner-shell">${renderWeeklyPlannerCalendar(weeklyModel)}</section>
+      </section>
+
+      <aside class="today-right-rail">
+        ${renderTodayStatusCard()}
+        ${renderTodayTaskPanel()}
+        ${renderTodayNotesPanel()}
+        ${renderTodayAmbientPanel()}
+      </aside>
+    </section>
+  `;
+  bindDailyCalendarInteractions(renderDashboard);
+}
+
+function renderTodayDetailsPage() {
+  const fallbackDate = isoDate(new Date());
+  const selectedDate = uiState.dashboardDate || fallbackDate;
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>Today</h2>
-        <p>自動生成された当日ブロックを確認し、必要時のみ微調整します。</p>
+        <h2>Details</h2>
+        <p>Today の詳細表示と管理操作をこのページで行います。</p>
       </div>
-      <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
-      <label>Account <input id="dashboard-account-id" value="${normalizeAccountId(uiState.accountId)}" /></label>
+      <a href="#/today" class="today-manage-btn">Back to Today</a>
     </section>
-    <div class="grid three">${dashboardMetrics()}</div>
-    <div class="panel row">
-      <button id="dashboard-sync" class="btn-primary">同期</button>
-      <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
-      <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
-      <button id="dashboard-refresh" class="btn-secondary">再読込</button>
-    </div>
-    ${renderDailyCalendar(selectedDate)}
-    <div class="panel">
+    <section class="panel today-controls-panel">
+      <div class="today-controls-grid">
+        <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
+        <label>Account <input id="dashboard-account-id" value="${normalizeAccountId(uiState.accountId)}" /></label>
+      </div>
+      <div class="today-controls-actions">
+        <button id="dashboard-sync" class="btn-primary">同期</button>
+        <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
+        <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
+        <button id="dashboard-refresh" class="btn-secondary">再読込</button>
+      </div>
+    </section>
+    ${renderDailyCalendar(selectedDate, {
+      panelClass: "today-advanced-calendar",
+      includeDetail: true,
+    })}
+    <section class="panel today-block-table">
       <h3>今日のブロック</h3>
       <table>
         <thead><tr><th>ID</th><th>開始</th><th>終了</th><th>Firmness</th></tr></thead>
         <tbody>${blockRows(uiState.blocks)}</tbody>
       </table>
-    </div>
+    </section>
   `;
 
   const getSelectedDate = () => {
     const raw = /** @type {HTMLInputElement | null} */ (document.getElementById("dashboard-date"))?.value;
-    return raw && raw.trim() ? raw.trim() : fallbackDate;
+    return raw && raw.trim() ? raw.trim() : uiState.dashboardDate || fallbackDate;
   };
   const getSelectedAccount = () =>
     normalizeAccountId(
-      /** @type {HTMLInputElement | null} */ (document.getElementById("dashboard-account-id"))?.value
+      /** @type {HTMLInputElement | null} */ (document.getElementById("dashboard-account-id"))?.value ||
+        normalizeAccountId(uiState.accountId)
     );
 
   document.getElementById("dashboard-date")?.addEventListener("change", async () => {
     await runUiAction(async () => {
       const date = getSelectedDate();
       await refreshCoreData(date);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
   document.getElementById("dashboard-account-id")?.addEventListener("change", async () => {
@@ -2198,7 +2665,7 @@ function renderDashboard() {
       uiState.accountId = getSelectedAccount();
       const date = getSelectedDate();
       await refreshCoreData(date);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
 
@@ -2208,7 +2675,7 @@ function renderDashboard() {
       const date = getSelectedDate();
       await authenticateAndSyncCalendar(date);
       await refreshCoreData(date);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
@@ -2224,7 +2691,7 @@ function renderDashboard() {
         await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
       }
       await refreshCoreData(date);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
   document.getElementById("dashboard-reset-blocks")?.addEventListener("click", async () => {
@@ -2234,17 +2701,17 @@ function renderDashboard() {
       const deletedCount = await resetBlocksForDate(date);
       await refreshCoreData(date);
       setStatus(`ブロックを削除しました: ${deletedCount}件 (${date})`);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
   document.getElementById("dashboard-refresh")?.addEventListener("click", async () => {
     await runUiAction(async () => {
       const date = getSelectedDate();
       await refreshCoreData(date);
-      renderDashboard();
+      renderTodayDetailsPage();
     });
   });
-  bindDailyCalendarInteractions(renderDashboard);
+  bindDailyCalendarInteractions(renderTodayDetailsPage);
 }
 
 function renderBlocks() {

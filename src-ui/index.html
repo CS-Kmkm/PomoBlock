@@ -26,35 +26,29 @@
           <p class="brand-kicker">Workflow Console</p>
           <h1>PomBlock</h1>
         </div>
+        <label class="topbar-search" aria-label="&#12503;&#12521;&#12531;&#26908;&#32034;">
+          <span aria-hidden="true">&#8981;</span>
+          <input type="search" placeholder="Search plans..." autocomplete="off" />
+        </label>
         <div class="topbar-actions">
-          <div class="status-stack">
-            <div id="global-status" class="status-chip" aria-live="polite">Ready</div>
-            <div id="global-progress" class="progress-chip" aria-live="polite" hidden>
-              <span id="global-progress-label">処理中</span>
-              <div class="progress-track">
-                <span id="global-progress-fill" class="progress-fill"></span>
-              </div>
-              <span id="global-progress-value">0%</span>
-            </div>
-          </div>
+          <nav class="route-nav" id="route-nav" aria-label="Main navigation">
+            <a href="#/today" data-route="today">Today</a>
+            <a href="#/now" data-route="now">Now</a>
+            <a href="#/routines" data-route="routines">Routines</a>
+            <a href="#/insights" data-route="insights">Insights</a>
+          </nav>
+          <a href="#/now" class="focus-launch" data-route="now">Start Focus</a>
           <a
             href="#/settings/auth"
             id="settings-link"
             data-route="settings"
             class="settings-gear"
-            aria-label="設定を開く"
-            title="設定"
-            >⚙</a
+            aria-label="&#35373;&#23450;&#12434;&#38283;&#12367;"
+            title="&#35373;&#23450;"
+            >&#9881;</a
           >
         </div>
       </header>
-
-      <nav class="route-nav" id="route-nav" aria-label="Main navigation">
-        <a href="#/today" data-route="today">Today</a>
-        <a href="#/now" data-route="now">Now</a>
-        <a href="#/routines" data-route="routines">Routines</a>
-        <a href="#/insights" data-route="insights">Insights</a>
-      </nav>
 
       <main id="app" class="view-root" aria-live="polite"></main>
     </div>
