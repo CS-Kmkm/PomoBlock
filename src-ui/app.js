@@ -99,7 +99,7 @@ const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
 /** @typedef {{kind: DayItemKind, id: string} | null} DayItemSelection */
 /** @typedef {"grid" | "simple"} DayCalendarViewMode */
 
-/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, recipes: any[], dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, blockTitles: Record<string, string>, settings: any}} */
+/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, recipes: any[], dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, blockTitles: Record<string, string>, nowUi: {taskOrder: string[], phaseTotalSeconds: number, displayRemainingSeconds: number, lastPhase: string, lastSyncEpochMs: number, lastReflectionSyncEpochMs: number, actionInFlight: boolean}, settings: any}} */
 const uiState = {
   auth: null,
   accountId: "default",
@@ -114,6 +114,15 @@ const uiState = {
   dayCalendarSelection: null,
   dayCalendarViewMode: "grid",
   blockTitles: loadBlockTitles(),
+  nowUi: {
+    taskOrder: [],
+    phaseTotalSeconds: 0,
+    displayRemainingSeconds: 0,
+    lastPhase: "idle",
+    lastSyncEpochMs: 0,
+    lastReflectionSyncEpochMs: 0,
+    actionInFlight: false,
+  },
   settings: {
     page: "blocks",
     workStart: "09:00",
@@ -306,6 +315,167 @@ function blockPomodoroTarget(block) {
 function pomodoroProgressPercent(state) {
   const total = Math.max(1, state.total_cycles || 0);
   return Math.max(0, Math.min(100, Math.round((Math.min(state.completed_cycles, total) / total) * 100)));
+}
+
+function syncNowTaskOrder(tasksInput = uiState.tasks) {
+  const tasks = Array.isArray(tasksInput) ? tasksInput : [];
+  const ids = tasks
+    .map((task) => (typeof task?.id === "string" ? task.id : ""))
+    .filter((taskId) => taskId.length > 0);
+  const idSet = new Set(ids);
+  const nextOrder = uiState.nowUi.taskOrder.filter((taskId) => idSet.has(taskId));
+  ids.forEach((taskId) => {
+    if (!nextOrder.includes(taskId)) {
+      nextOrder.push(taskId);
+    }
+  });
+  uiState.nowUi.taskOrder = nextOrder;
+}
+
+function getNowOrderedTasks(includeCompleted = false) {
+  syncNowTaskOrder(uiState.tasks);
+  const byId = new Map(uiState.tasks.map((task) => [task.id, task]));
+  const ordered = uiState.nowUi.taskOrder
+    .map((taskId) => byId.get(taskId))
+    .filter((task) => Boolean(task));
+  return includeCompleted ? ordered : ordered.filter((task) => task.status !== "completed");
+}
+
+function resolveNowDayBounds(reference = new Date()) {
+  const start = new Date(reference);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { dayStartMs: start.getTime(), dayEndMs: end.getTime() };
+}
+
+function resolveNowBlocks(reference = new Date()) {
+  const { dayStartMs, dayEndMs } = resolveNowDayBounds(reference);
+  return [...uiState.blocks]
+    .map((block) => {
+      const startMs = new Date(block.start_at).getTime();
+      const endMs = new Date(block.end_at).getTime();
+      return { block, startMs, endMs };
+    })
+    .filter(
+      ({ startMs, endMs }) =>
+        Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > dayStartMs && startMs < dayEndMs
+    )
+    .sort((left, right) => left.startMs - right.startMs);
+}
+
+function resolveNowAutoStartBlock(state) {
+  const todayBlocks = resolveNowBlocks();
+  if (state.current_block_id) {
+    const current = todayBlocks.find(({ block }) => block.id === state.current_block_id);
+    if (current) return current.block;
+  }
+  const nowMs = Date.now();
+  const active = todayBlocks.find(({ startMs, endMs }) => startMs <= nowMs && nowMs < endMs);
+  if (active) return active.block;
+  const upcoming = todayBlocks.find(({ startMs }) => startMs >= nowMs);
+  if (upcoming) return upcoming.block;
+  return todayBlocks[0]?.block || null;
+}
+
+function resolveNowAutoStartTask(state) {
+  const ordered = getNowOrderedTasks();
+  if (state.current_task_id) {
+    const current = ordered.find((task) => task.id === state.current_task_id);
+    if (current) return current;
+  }
+  return ordered.find((task) => task.status === "in_progress") || ordered.find((task) => task.status === "pending") || null;
+}
+
+function syncNowTimerDisplay(stateInput) {
+  const state = normalizePomodoroState(stateInput || uiState.pomodoro || {});
+  const remainingSeconds = Math.max(0, Math.floor(state.remaining_seconds || 0));
+  const previousPhase = uiState.nowUi.lastPhase;
+  const previousDisplay = Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0));
+  const runningPhase = state.phase === "focus" || state.phase === "break";
+  const previousRunningPhase = previousPhase === "focus" || previousPhase === "break";
+  const runningPhaseSwitched = runningPhase && previousRunningPhase && previousPhase !== state.phase;
+
+  if (uiState.nowUi.lastSyncEpochMs === 0) {
+    uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
+    uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+  } else if (runningPhaseSwitched) {
+    uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
+    uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+  } else if (runningPhase) {
+    if (!previousRunningPhase) {
+      if (previousPhase !== "paused" || uiState.nowUi.phaseTotalSeconds <= 0) {
+        uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
+      }
+      uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+    } else {
+      // Keep local 1-second countdown smooth; only correct downward from backend snapshots.
+      uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
+      if (previousDisplay <= 0 && remainingSeconds > 0) {
+        uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+      }
+      if (remainingSeconds > uiState.nowUi.phaseTotalSeconds) {
+        uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
+      }
+    }
+  } else if (state.phase === "paused") {
+    uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+    if (uiState.nowUi.phaseTotalSeconds <= 0) {
+      uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
+    }
+  } else {
+    uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds || uiState.nowUi.phaseTotalSeconds || 1);
+    uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+  }
+
+  uiState.nowUi.lastPhase = state.phase;
+  uiState.nowUi.lastSyncEpochMs = Date.now();
+}
+
+function nowBufferAvailableMinutes(reference = new Date()) {
+  const nowMs = reference.getTime();
+  const { dayEndMs } = resolveNowDayBounds(reference);
+  const availableWindowMs = Math.max(0, dayEndMs - nowMs);
+  if (availableWindowMs <= 0) return 0;
+
+  const intervals = resolveNowBlocks(reference)
+    .map(({ startMs, endMs }) => ({
+      startMs: Math.max(startMs, nowMs),
+      endMs: Math.min(endMs, dayEndMs),
+    }))
+    .filter((interval) => interval.endMs > interval.startMs)
+    .sort((left, right) => left.startMs - right.startMs);
+
+  let occupiedMs = 0;
+  let cursorStart = -1;
+  let cursorEnd = -1;
+  intervals.forEach((interval) => {
+    if (cursorStart < 0) {
+      cursorStart = interval.startMs;
+      cursorEnd = interval.endMs;
+      return;
+    }
+    if (interval.startMs > cursorEnd) {
+      occupiedMs += cursorEnd - cursorStart;
+      cursorStart = interval.startMs;
+      cursorEnd = interval.endMs;
+      return;
+    }
+    cursorEnd = Math.max(cursorEnd, interval.endMs);
+  });
+  if (cursorStart >= 0 && cursorEnd > cursorStart) {
+    occupiedMs += cursorEnd - cursorStart;
+  }
+  return Math.max(0, Math.floor((availableWindowMs - occupiedMs) / 60000));
+}
+
+function resolveCurrentFocusTask(stateInput = uiState.pomodoro) {
+  const state = normalizePomodoroState(stateInput || {});
+  if (state.current_task_id) {
+    const linked = uiState.tasks.find((task) => task.id === state.current_task_id) || null;
+    if (linked) return linked;
+  }
+  return uiState.tasks.find((task) => task.status === "in_progress") || null;
 }
 
 function resolveDayBounds(dateValue) {
@@ -2036,6 +2206,7 @@ async function refreshCoreData(date = isoDate(new Date())) {
   const refreshErrors = [];
   if (tasksResult.status === "fulfilled") {
     uiState.tasks = tasksResult.value;
+    syncNowTaskOrder(uiState.tasks);
   } else {
     const message = tasksResult.reason instanceof Error ? tasksResult.reason.message : String(tasksResult.reason);
     refreshErrors.push(`list_tasks: ${message}`);
@@ -2057,6 +2228,7 @@ async function refreshCoreData(date = isoDate(new Date())) {
   }
   if (pomodoroResult.status === "fulfilled") {
     uiState.pomodoro = pomodoroResult.value;
+    syncNowTimerDisplay(uiState.pomodoro);
   } else {
     const message = pomodoroResult.reason instanceof Error ? pomodoroResult.reason.message : String(pomodoroResult.reason);
     refreshErrors.push(`get_pomodoro_state: ${message}`);
@@ -2100,11 +2272,33 @@ async function authenticateAndSyncCalendar(
   return { normalizedDate, syncResult };
 }
 
+async function refreshNowPanelState(includeReflection = false) {
+  const operations = [safeInvoke("get_pomodoro_state"), safeInvoke("list_tasks")];
+  if (includeReflection) {
+    operations.push(safeInvoke("get_reflection_summary", {}));
+  }
+  const [pomodoroResult, tasksResult, reflectionResult] = await Promise.allSettled(operations);
+  if (pomodoroResult.status === "fulfilled") {
+    uiState.pomodoro = pomodoroResult.value;
+    syncNowTimerDisplay(uiState.pomodoro);
+  }
+  if (tasksResult.status === "fulfilled") {
+    uiState.tasks = tasksResult.value;
+    syncNowTaskOrder(uiState.tasks);
+  }
+  if (includeReflection && reflectionResult?.status === "fulfilled") {
+    uiState.reflection = reflectionResult.value;
+    uiState.nowUi.lastReflectionSyncEpochMs = Date.now();
+  }
+}
+
 function render() {
   const route = getRoute();
   markActiveRoute(route);
   document.body.classList.toggle("route-today", route === "today");
+  document.body.classList.toggle("route-now", route === "now");
   appRoot.classList.toggle("view-root--today", route === "today");
+  appRoot.classList.toggle("view-root--now", route === "now");
 
   switch (route) {
     case "today":
@@ -2170,6 +2364,7 @@ function renderTodayLibraryLinks() {
 function renderTodayStatusCard() {
   const state = normalizePomodoroState(uiState.pomodoro || {});
   const phaseLabel = pomodoroPhaseLabel(state.phase);
+  const focusTask = resolveCurrentFocusTask(state);
   const currentBlock = state.current_block_id
     ? uiState.blocks.find((block) => block.id === state.current_block_id) || null
     : null;
@@ -2182,6 +2377,7 @@ function renderTodayStatusCard() {
         <span class="pill today-status-pill">${phaseLabel}</span>
         <p class="today-status-title">${escapeHtml(currentTitle)}</p>
         <p class="today-status-subtitle">Block: ${escapeHtml(state.current_block_id || "-")}</p>
+        <p class="today-status-subtitle">Task: ${escapeHtml(focusTask?.title || "-")}</p>
         <div class="today-status-time">${toTimerText(state.remaining_seconds)}</div>
         <div class="bar-track"><div class="bar-fill" style="width:${progressPercent}%"></div></div>
       </div>
@@ -2190,6 +2386,9 @@ function renderTodayStatusCard() {
 }
 
 function renderTodayTaskPanel() {
+  const state = normalizePomodoroState(uiState.pomodoro || {});
+  const focusTask = resolveCurrentFocusTask(state);
+  const focusTaskId = focusTask?.id || "";
   const activeTasks = uiState.tasks.filter((task) => task.status !== "completed");
   const visibleTasks = activeTasks.slice(0, 5);
   const overflowCount = Math.max(0, activeTasks.length - visibleTasks.length);
@@ -2197,7 +2396,7 @@ function renderTodayTaskPanel() {
     <section class="today-right-section today-right-section--tasks">
       <div class="row spread">
         <h3>Active Micro-Tasks</h3>
-        <span class="small">${Math.max(0, uiState.tasks.length - activeTasks.length)} 完了</span>
+        <span class="small">${focusTask ? `Current: ${escapeHtml(focusTask.title || "(untitled)")}` : "Current: -"}</span>
       </div>
       <ul class="today-task-list">
         ${
@@ -2207,7 +2406,7 @@ function renderTodayTaskPanel() {
                 .map(
                   (task) => `
             <li class="today-task-item">
-              <span class="today-task-bullet ${task.status === "in_progress" ? "is-active" : ""}" aria-hidden="true"></span>
+              <span class="today-task-bullet ${task.id === focusTaskId ? "is-active" : ""}" aria-hidden="true"></span>
               <span>${escapeHtml(task.title || "(untitled)")}</span>
             </li>
           `
@@ -2258,7 +2457,7 @@ function renderTodayTimelinePanel() {
 }
 
 function renderTodayNotesPanel() {
-  const activeTask = uiState.tasks.find((task) => task.status === "in_progress") || null;
+  const activeTask = resolveCurrentFocusTask(uiState.pomodoro || {}) || null;
   const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
   return `
     <section class="today-right-section today-right-section--notes">
@@ -2893,78 +3092,290 @@ function renderBlocks() {
 }
 
 function renderPomodoro() {
-  const state = uiState.pomodoro ?? { phase: "idle", remaining_seconds: 0, current_block_id: null, current_task_id: null };
+  const state = normalizePomodoroState(uiState.pomodoro || {});
+  if (uiState.nowUi.lastSyncEpochMs === 0) {
+    syncNowTimerDisplay(state);
+  }
+
+  const nowMs = Date.now();
+  const todayBlocks = resolveNowBlocks();
+  const orderedTasks = getNowOrderedTasks(true);
+  const openTasks = orderedTasks.filter((task) => task.status !== "completed");
+  const runningBlock = state.current_block_id
+    ? todayBlocks.find(({ block }) => block.id === state.current_block_id)?.block || null
+    : null;
+  const runningTask = resolveCurrentFocusTask(state);
+  const autoStartBlock = resolveNowAutoStartBlock(state);
+  const autoStartTask = resolveNowAutoStartTask(state);
+  const displayRemainingSeconds = Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0));
+  const phaseTotalSeconds = Math.max(1, Math.floor(uiState.nowUi.phaseTotalSeconds || displayRemainingSeconds || 1));
+  const phaseProgress =
+    state.phase === "idle"
+      ? 0
+      : Math.max(0, Math.min(100, Math.round((displayRemainingSeconds / phaseTotalSeconds) * 100)));
+  const phaseLabel = pomodoroPhaseLabel(state.phase);
+  const deferredCount = uiState.tasks.filter((task) => task.status === "deferred").length;
+  const bufferMinutes = nowBufferAvailableMinutes();
+  const reflectionLogs = Array.isArray(uiState.reflection?.logs) ? uiState.reflection.logs : null;
+  const focusCompletion =
+    reflectionLogs && reflectionLogs.length > 0
+      ? Math.round(((uiState.reflection?.completed_count ?? 0) / reflectionLogs.length) * 100)
+      : null;
+  const objectiveTitle =
+    runningTask?.title ||
+    (runningBlock ? blockTitle(runningBlock) || runningBlock.id : autoStartTask?.title || (autoStartBlock ? blockTitle(autoStartBlock) || autoStartBlock.id : "Ready"));
+  const objectiveBlockId = runningBlock?.id || autoStartBlock?.id || "-";
+  const currentStep = state.total_cycles > 0 ? Math.max(1, Math.min(state.current_cycle || 1, state.total_cycles)) : 1;
+  const totalSteps = state.total_cycles > 0 ? state.total_cycles : Math.max(1, autoStartBlock?.planned_pomodoros || 1);
+  const canStart = state.phase === "idle" && Boolean(autoStartBlock);
+  const isRunningPhase = state.phase === "focus" || state.phase === "break";
+  const canPause = isRunningPhase;
+  const canNext = isRunningPhase;
+  const canInterrupt = state.phase !== "idle";
+  const canResume = state.phase === "paused";
+  const controlsDisabled = Boolean(uiState.nowUi.actionInFlight);
+  const leftAction = canInterrupt ? "reset" : "";
+  const leftLabel = "Reset";
+  const leftIcon = "⟲";
+  const leftDisabled = controlsDisabled || !leftAction;
+  const rightAction = canNext ? "next" : "";
+  const rightLabel = "Next";
+  const rightIcon = "⏭";
+  const rightDisabled = controlsDisabled || !rightAction;
+  const primaryAction = state.phase === "idle" ? "start" : canPause ? "pause" : canResume ? "resume" : "";
+  const primaryLabel = primaryAction === "start" ? "開始" : primaryAction === "pause" ? "中断" : "再開";
+  const primaryIcon = primaryAction === "pause" ? "⏸" : "▶";
+  const primaryDisabled =
+    controlsDisabled ||
+    !primaryAction ||
+    (primaryAction === "start" && !canStart) ||
+    (primaryAction === "pause" && !canPause) ||
+    (primaryAction === "resume" && !canResume);
+
   appRoot.innerHTML = `
-    <section class="view-head">
-      <div>
-        <h2>Now</h2>
-        <p>実行中タイマーを Start / Next / Pause / Interrupt / Resume で操作します。</p>
-      </div>
-    </section>
-    <div class="grid two">
-      <div class="panel grid">
-        <label>Block
-          <select id="pom-block">${uiState.blocks.map((b) => `<option value="${b.id}">${b.id}</option>`).join("")}</select>
-        </label>
-        <label>Task
-          <select id="pom-task"><option value="">(none)</option>${uiState.tasks
-            .map((task) => `<option value="${task.id}">${task.title}</option>`)
-            .join("")}</select>
-        </label>
-        <div class="row">
-          <button id="now-start" class="btn-primary">Start</button>
-          <button id="now-next" class="btn-secondary">Next</button>
-          <button id="now-pause" class="btn-warn">Pause</button>
-          <button id="now-interrupt" class="btn-danger">Interrupt</button>
-          <button id="now-resume" class="btn-secondary">Resume</button>
+    <section class="now-layout">
+      <aside class="now-left-rail">
+        <header class="now-left-head">
+          <h3>Today's Timeline</h3>
+          <p class="small">${todayBlocks.length} blocks</p>
+        </header>
+        <div class="now-timeline-list">
+          ${
+            todayBlocks.length === 0
+              ? '<p class="small now-empty">今日のブロックがありません。</p>'
+              : todayBlocks
+                  .map(({ block, startMs, endMs }) => {
+                    const isActive = state.current_block_id === block.id || (startMs <= nowMs && nowMs < endMs && state.phase === "idle");
+                    const title = blockTitle(block) || block.id;
+                    return `
+                      <article class="now-timeline-item ${isActive ? "is-active" : ""}">
+                        <div class="row spread">
+                          <p class="now-timeline-title">${escapeHtml(title)}</p>
+                          ${isActive ? '<span class="pill now-pill-active">IN PROGRESS</span>' : ""}
+                        </div>
+                        <p class="small">${escapeHtml(`${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`)}</p>
+                        <p class="small">planned ${Math.max(1, Number(block.planned_pomodoros || 0))} pomodoros</p>
+                      </article>
+                    `;
+                  })
+                  .join("")
+          }
         </div>
-      </div>
-      <div class="panel metric">
-        <span class="small">Phase</span>
-        <b>${state.phase}</b>
-        <span class="small">Remaining</span>
-        <b>${toTimerText(state.remaining_seconds)}</b>
-        <span class="small">Block: ${state.current_block_id ?? "-"}</span>
-      </div>
-    </div>
+      </aside>
+
+      <section class="now-main-pane">
+        <p class="now-mode-label">${escapeHtml(phaseLabel)} MODE</p>
+        <div class="now-ring" style="--now-progress:${phaseProgress}%;">
+          <div class="now-ring-core">
+            <p class="now-ring-time">${toTimerText(displayRemainingSeconds)}</p>
+            <p class="now-ring-caption">${escapeHtml(objectiveTitle)}</p>
+          </div>
+        </div>
+        <div class="now-controls">
+          <button
+            id="now-left-action"
+            class="now-control now-control--secondary"
+            data-now-action="${leftAction}"
+            aria-label="${leftLabel}"
+            title="${leftLabel}"
+            ${leftDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${leftIcon}</span><span class="now-visually-hidden">${leftLabel}</span></button>
+          <button
+            id="now-primary-action"
+            class="now-control now-control--primary"
+            data-now-action="${primaryAction}"
+            aria-label="${primaryLabel}"
+            title="${primaryLabel}"
+            ${primaryDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${primaryIcon}</span><span class="now-visually-hidden">${primaryLabel}</span></button>
+          <button
+            id="now-right-action"
+            class="now-control now-control--secondary"
+            data-now-action="${rightAction}"
+            aria-label="${rightLabel}"
+            title="${rightLabel}"
+            ${rightDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${rightIcon}</span><span class="now-visually-hidden">${rightLabel}</span></button>
+        </div>
+        <section class="now-objective-card">
+          <div class="row spread">
+            <h3>Current Objective</h3>
+            <span class="pill">Step ${currentStep} of ${totalSteps}</span>
+          </div>
+          <p>${escapeHtml(objectiveTitle)}</p>
+          <p class="small">Block: ${escapeHtml(objectiveBlockId)}</p>
+          ${
+            state.phase === "idle" && autoStartBlock
+              ? `<p class="small">Start target: ${escapeHtml(blockTitle(autoStartBlock) || autoStartBlock.id)}${
+                  autoStartTask ? ` / task: ${escapeHtml(autoStartTask.title)}` : ""
+                }</p>`
+              : ""
+          }
+        </section>
+      </section>
+
+      <aside class="now-right-rail">
+        <header class="row spread">
+          <h3>Next Steps</h3>
+          <span class="small">${openTasks.length} open</span>
+        </header>
+        <div class="now-task-list">
+          ${
+            openTasks.length === 0
+              ? '<p class="small now-empty">未完了タスクがありません。</p>'
+              : openTasks
+                  .map((task, index) => {
+                    const upDisabled = index === 0;
+                    const downDisabled = index === openTasks.length - 1;
+                    return `
+                      <article class="now-task-item ${task.status === "in_progress" ? "is-active" : ""}">
+                        <div>
+                          <p class="now-task-title">${escapeHtml(task.title || "(untitled)")}</p>
+                          <p class="small">${escapeHtml(task.status)}${Number.isFinite(task.estimated_pomodoros) ? ` / est ${task.estimated_pomodoros}` : ""}</p>
+                        </div>
+                        <div class="now-task-actions">
+                          <button class="btn-secondary now-order-btn" data-now-task-move="${escapeHtml(task.id)}" data-now-task-dir="up" ${
+                            upDisabled ? "disabled" : ""
+                          }>↑</button>
+                          <button class="btn-secondary now-order-btn" data-now-task-move="${escapeHtml(task.id)}" data-now-task-dir="down" ${
+                            downDisabled ? "disabled" : ""
+                          }>↓</button>
+                          <button class="btn-primary now-complete-btn" data-now-task-complete="${escapeHtml(task.id)}">Done</button>
+                        </div>
+                      </article>
+                    `;
+                  })
+                  .join("")
+          }
+        </div>
+      </aside>
+    </section>
+    <section class="now-bottom-bar">
+      <div class="now-bottom-item"><span>Buffer Available</span><strong>${bufferMinutes}m</strong></div>
+      <div class="now-bottom-item"><span>Deferred Tasks</span><strong>${deferredCount}</strong></div>
+      ${
+        focusCompletion === null
+          ? ""
+          : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`
+      }
+    </section>
   `;
 
-  document.getElementById("now-start")?.addEventListener("click", async () => {
-    const blockId = /** @type {HTMLSelectElement} */ (document.getElementById("pom-block")).value;
-    const taskId = /** @type {HTMLSelectElement} */ (document.getElementById("pom-task")).value || null;
-    uiState.pomodoro = await safeInvokeWithFallback(
-      "start_block_timer",
-      { block_id: blockId, task_id: taskId },
-      "start_pomodoro",
-      { block_id: blockId, task_id: taskId }
-    );
+  const runTimerAction = async (runner) => {
+    if (uiState.nowUi.actionInFlight) {
+      return;
+    }
+    uiState.nowUi.actionInFlight = true;
     renderPomodoro();
+    let shouldRefresh = true;
+    await runUiAction(async () => {
+      const runnerResult = await runner();
+      shouldRefresh = runnerResult !== false;
+      if (shouldRefresh) {
+        await refreshNowPanelState(true);
+      }
+    });
+    uiState.nowUi.actionInFlight = false;
+    renderPomodoro();
+  };
+
+  const executeNowAction = async (action) => {
+    if (!action) return;
+    await runTimerAction(async () => {
+      if (action === "start") {
+        const latestState = normalizePomodoroState(uiState.pomodoro || {});
+        const targetBlock = resolveNowAutoStartBlock(latestState);
+        if (!targetBlock) {
+          setStatus("start_block_timer skipped: no block available for today");
+          return false;
+        }
+        const targetTask = resolveNowAutoStartTask(latestState);
+        const payload = { block_id: targetBlock.id, task_id: targetTask?.id || null };
+        await safeInvokeWithFallback("start_block_timer", payload, "start_pomodoro", payload);
+        return true;
+      }
+      if (action === "pause") {
+        await safeInvokeWithFallback("pause_timer", { reason: "manual_pause" }, "pause_pomodoro", {
+          reason: "manual_pause",
+        });
+        return true;
+      }
+      if (action === "resume") {
+        await safeInvokeWithFallback("resume_timer", {}, "resume_pomodoro", {});
+        return true;
+      }
+      if (action === "next") {
+        await safeInvokeWithFallback("next_step", {}, "advance_pomodoro", {});
+        return true;
+      }
+      if (action === "reset") {
+        await safeInvokeWithFallback("interrupt_timer", { reason: "manual_reset" }, "complete_pomodoro", {});
+        return true;
+      }
+      return false;
+    });
+  };
+
+  ["now-left-action", "now-primary-action", "now-right-action"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("click", async (event) => {
+      const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.nowAction;
+      await executeNowAction(action || "");
+    });
   });
-  document.getElementById("now-next")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvokeWithFallback("next_step", {}, "advance_pomodoro", {});
-    renderPomodoro();
+
+  appRoot.querySelectorAll("[data-now-task-complete]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const taskId = /** @type {HTMLElement} */ (node).dataset.nowTaskComplete;
+      if (!taskId) return;
+      await runUiAction(async () => {
+        await safeInvoke("update_task", { task_id: taskId, status: "completed" });
+        uiState.tasks = await safeInvoke("list_tasks");
+        syncNowTaskOrder(uiState.tasks);
+        renderPomodoro();
+      });
+    });
   });
-  document.getElementById("now-pause")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvokeWithFallback(
-      "pause_timer",
-      { reason: "manual_pause" },
-      "pause_pomodoro",
-      { reason: "manual_pause" }
-    );
-    renderPomodoro();
-  });
-  document.getElementById("now-interrupt")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvokeWithFallback(
-      "interrupt_timer",
-      { reason: "manual_interrupt" },
-      "complete_pomodoro",
-      {}
-    );
-    renderPomodoro();
-  });
-  document.getElementById("now-resume")?.addEventListener("click", async () => {
-    uiState.pomodoro = await safeInvokeWithFallback("resume_timer", {}, "resume_pomodoro", {});
-    renderPomodoro();
+
+  appRoot.querySelectorAll("[data-now-task-move]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const element = /** @type {HTMLElement} */ (node);
+      const taskId = element.dataset.nowTaskMove;
+      const direction = element.dataset.nowTaskDir;
+      if (!taskId || (direction !== "up" && direction !== "down")) return;
+      const visibleIds = getNowOrderedTasks().map((task) => task.id);
+      const visibleIndex = visibleIds.indexOf(taskId);
+      if (visibleIndex < 0) return;
+      const swapVisibleIndex = direction === "up" ? visibleIndex - 1 : visibleIndex + 1;
+      if (swapVisibleIndex < 0 || swapVisibleIndex >= visibleIds.length) return;
+      const swapId = visibleIds[swapVisibleIndex];
+      const nextOrder = [...uiState.nowUi.taskOrder];
+      const sourceIndex = nextOrder.indexOf(taskId);
+      const targetIndex = nextOrder.indexOf(swapId);
+      if (sourceIndex < 0 || targetIndex < 0) return;
+      [nextOrder[sourceIndex], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[sourceIndex]];
+      uiState.nowUi.taskOrder = nextOrder;
+      renderPomodoro();
+    });
   });
 }
 
@@ -3527,16 +3938,47 @@ window.addEventListener("hashchange", () => {
 });
 
 setInterval(async () => {
-  if (getRoute() !== "now") {
+  const route = getRoute();
+  if (route !== "now" && route !== "today") {
     return;
   }
   try {
-    uiState.pomodoro = await safeInvoke("get_pomodoro_state");
-    renderPomodoro();
+    const [pomodoroResult, tasksResult] = await Promise.allSettled([
+      invokeCommand("get_pomodoro_state", {}),
+      invokeCommand("list_tasks", {}),
+    ]);
+    if (pomodoroResult.status === "fulfilled") {
+      uiState.pomodoro = pomodoroResult.value;
+      syncNowTimerDisplay(uiState.pomodoro);
+    }
+    if (tasksResult.status === "fulfilled") {
+      uiState.tasks = tasksResult.value;
+      syncNowTaskOrder(uiState.tasks);
+    }
+    if (route === "now") {
+      renderPomodoro();
+    } else {
+      renderDashboard();
+    }
   } catch {
     // handled in safeInvoke
   }
 }, 5000);
+
+setInterval(() => {
+  if (getRoute() !== "now") {
+    return;
+  }
+  const state = normalizePomodoroState(uiState.pomodoro || {});
+  if (state.phase !== "focus" && state.phase !== "break") {
+    return;
+  }
+  if (uiState.nowUi.displayRemainingSeconds <= 0) {
+    return;
+  }
+  uiState.nowUi.displayRemainingSeconds = Math.max(0, uiState.nowUi.displayRemainingSeconds - 1);
+  renderPomodoro();
+}, 1000);
 
 (async () => {
   if (!isTauriRuntimeAvailable()) {
@@ -3556,6 +3998,7 @@ setInterval(async () => {
     }
     await refreshCoreData();
     uiState.reflection = await safeInvoke("get_reflection_summary", {});
+    uiState.nowUi.lastReflectionSyncEpochMs = Date.now();
   } catch {
     // handled in safeInvoke
   }
