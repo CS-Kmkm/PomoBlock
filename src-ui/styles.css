@@ -720,6 +720,16 @@ th {
   background: linear-gradient(90deg, #1277a8, #1897d2);
 }
 
+.day-simple-segment-block.is-draggable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.day-simple-segment-block.is-draggable.is-dragging {
+  cursor: grabbing;
+  filter: brightness(1.06);
+}
+
 .day-simple-segment-event {
   background: linear-gradient(90deg, #0b7a45, #0e9a56);
 }

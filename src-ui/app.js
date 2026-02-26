@@ -89,6 +89,7 @@ const progressUpdateIntervalMs = 180;
 const BLOCKS_INITIAL_VISIBLE = 50;
 const DAY_BLOCK_DRAG_SNAP_MINUTES = 5;
 const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
+const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
 
 /** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null,recipe_id?:string,auto_drive_mode?:string,contents?:any}} Block */
 /** @typedef {{account_id:string,id:string,title:string,start_at:string,end_at:string}} SyncedEvent */
@@ -98,7 +99,7 @@ const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 /** @typedef {{kind: DayItemKind, id: string} | null} DayItemSelection */
 /** @typedef {"grid" | "simple"} DayCalendarViewMode */
 
-/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, recipes: any[], dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, settings: any}} */
+/** @type {{auth: any, accountId: string, dashboardDate: string, blocks: Block[], blocksVisibleCount: number, calendarEvents: SyncedEvent[], tasks: Task[], pomodoro: PomodoroState|null, reflection: any|null, recipes: any[], dayCalendarSelection: DayItemSelection, dayCalendarViewMode: DayCalendarViewMode, blockTitles: Record<string, string>, settings: any}} */
 const uiState = {
   auth: null,
   accountId: "default",
@@ -112,6 +113,7 @@ const uiState = {
   recipes: [],
   dayCalendarSelection: null,
   dayCalendarViewMode: "grid",
+  blockTitles: loadBlockTitles(),
   settings: {
     page: "blocks",
     workStart: "09:00",
@@ -164,13 +166,16 @@ const dayBlockDragState = {
   dayEndMs: 0,
   rangeMs: 0,
   trackHeightPx: 0,
+  trackWidthPx: 0,
   originClientY: 0,
+  originClientX: 0,
   originStartMs: 0,
   originEndMs: 0,
   previewStartMs: 0,
   previewEndMs: 0,
   suppressClickUntil: 0,
   originalTopCss: "",
+  originalLeftCss: "",
   originalTimeLabelText: "",
   originalTitle: "",
   hoveredFreeEntry: /** @type {HTMLElement | null} */ (null),
@@ -230,11 +235,9 @@ function formatHHmm(value) {
 }
 
 function blockDisplayName(block) {
-  const date =
-    typeof block?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(block.date)
-      ? block.date
-      : isoDate(new Date(block?.start_at || Date.now()));
-  return `${formatHHmm(block?.start_at)}-${formatHHmm(block?.end_at)}_${date}`;
+  const timeRange = `${formatHHmm(block?.start_at)}-${formatHHmm(block?.end_at)}`;
+  const title = blockTitle(block);
+  return title ? `${title} (${timeRange})` : timeRange;
 }
 
 function toLocalInputValue(rfc3339) {
@@ -326,11 +329,71 @@ function normalizeAccountId(value) {
   return normalized || "default";
 }
 
+function loadBlockTitles() {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BLOCK_TITLE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        ([key, value]) => typeof key === "string" && typeof value === "string"
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+function persistBlockTitles() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(BLOCK_TITLE_STORAGE_KEY, JSON.stringify(uiState.blockTitles));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function blockTitle(block) {
+  const blockId = typeof block?.id === "string" ? block.id.trim() : "";
+  if (!blockId) return "";
+  return uiState.blockTitles[blockId] || "";
+}
+
+function setBlockTitle(blockId, title) {
+  const normalizedId = typeof blockId === "string" ? blockId.trim() : "";
+  if (!normalizedId) return false;
+  const normalizedTitle = typeof title === "string" ? title.trim() : "";
+  if (normalizedTitle) {
+    uiState.blockTitles[normalizedId] = normalizedTitle;
+  } else {
+    delete uiState.blockTitles[normalizedId];
+  }
+  persistBlockTitles();
+  return true;
+}
+
 function withAccount(payload = {}) {
   return {
     ...payload,
     account_id: normalizeAccountId(uiState.accountId),
   };
+}
+
+async function resetBlocksForDate(date) {
+  const targetDate = typeof date === "string" && date.trim() ? date.trim() : uiState.dashboardDate;
+  const existingBlocks = await safeInvoke("list_blocks", { date: targetDate });
+  if (existingBlocks.length > 0) {
+    await Promise.all(
+      existingBlocks.map((block) =>
+        safeInvoke("delete_block", {
+          block_id: block.id,
+        })
+      )
+    );
+  }
+  return existingBlocks.length;
 }
 
 function toClockText(milliseconds, options = {}) {
@@ -475,6 +538,11 @@ function clampBlockIntervalToDay(startMs, durationMs, dayStartMs, dayEndMs) {
   };
 }
 
+function snapAndClampBlockInterval(startMs, durationMs, dayStartMs, dayEndMs) {
+  const snappedStartMs = snapToMinutes(startMs, DAY_BLOCK_DRAG_SNAP_MINUTES);
+  return clampBlockIntervalToDay(snappedStartMs, durationMs, dayStartMs, dayEndMs);
+}
+
 function clearDayBlockDragDocumentListeners() {
   if (dayBlockDragState.onMove) {
     window.removeEventListener("pointermove", dayBlockDragState.onMove);
@@ -503,6 +571,7 @@ function resetDayBlockDragVisualState() {
   if (dayBlockDragState.entry) {
     dayBlockDragState.entry.classList.remove("is-dragging");
     dayBlockDragState.entry.style.top = dayBlockDragState.originalTopCss;
+    dayBlockDragState.entry.style.left = dayBlockDragState.originalLeftCss;
     dayBlockDragState.entry.style.removeProperty("z-index");
     dayBlockDragState.entry.title = dayBlockDragState.originalTitle;
     if (dayBlockDragState.timeLabel) {
@@ -511,14 +580,21 @@ function resetDayBlockDragVisualState() {
   }
 }
 
-async function commitDayBlockMove(rerender) {
-  const blockId = dayBlockDragState.blockId;
+async function commitDayBlockMove(rerender, snapshot) {
+  const blockId = snapshot.blockId;
   if (!blockId) return;
-  const finalStartMs = dayBlockDragState.previewStartMs;
-  const finalEndMs = dayBlockDragState.previewEndMs;
+  const durationMs = snapshot.previewEndMs - snapshot.previewStartMs;
+  const finalInterval = snapAndClampBlockInterval(
+    snapshot.previewStartMs,
+    durationMs,
+    snapshot.dayStartMs,
+    snapshot.dayEndMs
+  );
+  const finalStartMs = finalInterval.startMs;
+  const finalEndMs = finalInterval.endMs;
   const unchanged =
-    Math.abs(finalStartMs - dayBlockDragState.originStartMs) < 1000 &&
-    Math.abs(finalEndMs - dayBlockDragState.originEndMs) < 1000;
+    Math.abs(finalStartMs - snapshot.originStartMs) < 1000 &&
+    Math.abs(finalEndMs - snapshot.originEndMs) < 1000;
   if (unchanged) return;
 
   await runUiAction(async () => {
@@ -539,6 +615,15 @@ function finishDayBlockDrag(rerender) {
   if (!dayBlockDragState.active) return;
 
   resetDayBlockDragVisualState();
+  const commitSnapshot = {
+    blockId: dayBlockDragState.blockId,
+    dayStartMs: dayBlockDragState.dayStartMs,
+    dayEndMs: dayBlockDragState.dayEndMs,
+    originStartMs: dayBlockDragState.originStartMs,
+    originEndMs: dayBlockDragState.originEndMs,
+    previewStartMs: dayBlockDragState.previewStartMs,
+    previewEndMs: dayBlockDragState.previewEndMs,
+  };
   const moved = dayBlockDragState.moved;
   const shouldCommit = moved;
   if (moved) {
@@ -563,12 +648,15 @@ function finishDayBlockDrag(rerender) {
   dayBlockDragState.dayEndMs = 0;
   dayBlockDragState.rangeMs = 0;
   dayBlockDragState.trackHeightPx = 0;
+  dayBlockDragState.trackWidthPx = 0;
   dayBlockDragState.originClientY = 0;
+  dayBlockDragState.originClientX = 0;
   dayBlockDragState.originStartMs = 0;
   dayBlockDragState.originEndMs = 0;
   dayBlockDragState.previewStartMs = 0;
   dayBlockDragState.previewEndMs = 0;
   dayBlockDragState.originalTopCss = "";
+  dayBlockDragState.originalLeftCss = "";
   dayBlockDragState.originalTimeLabelText = "";
   dayBlockDragState.originalTitle = "";
   dayBlockDragState.hoveredFreeEntry = null;
@@ -576,7 +664,7 @@ function finishDayBlockDrag(rerender) {
   dayBlockDragState.timeLabel = null;
 
   if (shouldCommit) {
-    void commitDayBlockMove(rerender);
+    void commitDayBlockMove(rerender, commitSnapshot);
   }
 }
 
@@ -584,8 +672,12 @@ function applyDayBlockPreview(entry, interval) {
   if (!dayBlockDragState.rangeMs || dayBlockDragState.rangeMs <= 0) return;
   dayBlockDragState.previewStartMs = interval.startMs;
   dayBlockDragState.previewEndMs = interval.endMs;
-  const topPercent = ((interval.startMs - dayBlockDragState.dayStartMs) / dayBlockDragState.rangeMs) * 100;
-  entry.style.top = `${topPercent}%`;
+  const startPercent = ((interval.startMs - dayBlockDragState.dayStartMs) / dayBlockDragState.rangeMs) * 100;
+  if (entry.classList.contains("day-simple-segment")) {
+    entry.style.left = `${startPercent}%`;
+  } else {
+    entry.style.top = `${startPercent}%`;
+  }
   const timeText = intervalRangeLabel(interval);
   if (dayBlockDragState.timeLabel) {
     dayBlockDragState.timeLabel.textContent = timeText;
@@ -742,7 +834,7 @@ function renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem) {
 
 function renderDayLane(label, kind, items, dayStartMs, dayEndMs, selectedItem) {
   const entries = renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem);
-  const hint = kind === "block" ? " / ドラッグで移動（勤務時間外も可）" : "";
+  const hint = "";
   return `
     <section class="day-lane">
       <header class="day-lane-head">
@@ -773,13 +865,16 @@ function renderSimpleTimelineSegments(kind, items, dayStartMs, dayEndMs, selecte
       const left = ((item.startMs - dayStartMs) / totalRange) * 100;
       const width = Math.max(0.9, ((item.endMs - item.startMs) / totalRange) * 100);
       const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
+      const dragClass = kind === "block" ? "is-draggable" : "";
       return `
         <button
           type="button"
-          class="day-simple-segment day-simple-segment-${kind} ${selectedClass}"
+          class="day-simple-segment day-simple-segment-${kind} ${selectedClass} ${dragClass}"
           style="left:${left}%;width:${width}%"
           data-day-item-kind="${kind}"
           data-day-item-id="${escapeHtml(item.id)}"
+          data-day-start-ms="${dayStartMs}"
+          data-day-end-ms="${dayEndMs}"
           data-day-item-start-ms="${item.startMs}"
           data-day-item-end-ms="${item.endMs}"
           title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
@@ -892,9 +987,22 @@ function renderDailyDetail(selectedItem) {
 
   if (selectedItem.kind === "block") {
     const block = selectedItem.payload;
+    const titleValue = blockTitle(block);
     return `
       <div class="day-detail panel">
         <h4>ブロック詳細</h4>
+        <div class="row">
+          <label style="flex:1">
+            タイトル
+            <input
+              type="text"
+              value="${escapeHtml(titleValue)}"
+              data-block-title-input="${escapeHtml(block.id)}"
+              placeholder="タイトルなし"
+            />
+          </label>
+          <button type="button" class="btn-secondary" data-block-title-save="${escapeHtml(block.id)}">タイトル保存</button>
+        </div>
         <dl class="day-detail-list">
           <div><dt>ID</dt><dd>${escapeHtml(block.id)}</dd></div>
           <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
@@ -1815,14 +1923,17 @@ function bindDailyCalendarInteractions(rerender) {
       dayBlockDragState.dayEndMs = dayEndMs;
       dayBlockDragState.rangeMs = dayEndMs - dayStartMs;
       dayBlockDragState.trackHeightPx = laneHeight;
+      dayBlockDragState.trackWidthPx = 0;
       dayBlockDragState.originClientY = pointerEvent.clientY;
+      dayBlockDragState.originClientX = pointerEvent.clientX;
       dayBlockDragState.originStartMs = itemStartMs;
       dayBlockDragState.originEndMs = itemEndMs;
       dayBlockDragState.previewStartMs = itemStartMs;
       dayBlockDragState.previewEndMs = itemEndMs;
       dayBlockDragState.entry = entry;
       dayBlockDragState.timeLabel = entry.querySelector(".day-entry-time");
-      dayBlockDragState.originalTopCss = entry.style.top || "0%";
+      dayBlockDragState.originalTopCss = entry.style.top || "";
+      dayBlockDragState.originalLeftCss = entry.style.left || "";
       dayBlockDragState.originalTimeLabelText = dayBlockDragState.timeLabel?.textContent || "";
       dayBlockDragState.originalTitle = entry.title || "";
       entry.classList.add("is-dragging");
@@ -1855,7 +1966,7 @@ function bindDailyCalendarInteractions(rerender) {
             freeEndMs - freeStartMs >= durationMs
           ) {
             setHoveredFreeEntry(hoveredFree);
-            const nextInterval = clampBlockIntervalToDay(
+            const nextInterval = snapAndClampBlockInterval(
               freeStartMs,
               durationMs,
               dayBlockDragState.dayStartMs,
@@ -1877,9 +1988,8 @@ function bindDailyCalendarInteractions(rerender) {
           }
 
           const deltaMsRaw = (deltaY / dayBlockDragState.trackHeightPx) * dayBlockDragState.rangeMs;
-          const snappedDeltaMs = snapToMinutes(deltaMsRaw, DAY_BLOCK_DRAG_SNAP_MINUTES);
-          const nextInterval = clampBlockIntervalToDay(
-            dayBlockDragState.originStartMs + snappedDeltaMs,
+          const nextInterval = snapAndClampBlockInterval(
+            dayBlockDragState.originStartMs + deltaMsRaw,
             durationMs,
             dayBlockDragState.dayStartMs,
             dayBlockDragState.dayEndMs
@@ -1887,6 +1997,95 @@ function bindDailyCalendarInteractions(rerender) {
           applyDayBlockPreview(entry, nextInterval);
         }
 
+        dayBlockDragState.moved =
+          Math.abs(dayBlockDragState.previewStartMs - dayBlockDragState.originStartMs) >= 1000 ||
+          Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
+        moveEvent.preventDefault();
+      };
+
+      const onUp = (upEvent) => {
+        if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId) return;
+        finishDayBlockDrag(rerender);
+      };
+
+      dayBlockDragState.onMove = onMove;
+      dayBlockDragState.onUp = onUp;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+      pointerEvent.preventDefault();
+    });
+  });
+  appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node) => {
+    node.addEventListener("pointerdown", (event) => {
+      const pointerEvent = /** @type {PointerEvent} */ (event);
+      if (pointerEvent.button !== 0) return;
+      const entry = /** @type {HTMLButtonElement} */ (node);
+      const blockId = entry.dataset.dayItemId;
+      const dayStartMs = Number(entry.dataset.dayStartMs || "");
+      const dayEndMs = Number(entry.dataset.dayEndMs || "");
+      const itemStartMs = Number(entry.dataset.dayItemStartMs || "");
+      const itemEndMs = Number(entry.dataset.dayItemEndMs || "");
+      const laneTrack = entry.closest(".day-simple-track");
+      const laneWidth = laneTrack instanceof HTMLElement ? laneTrack.clientWidth : 0;
+      if (
+        !blockId ||
+        !Number.isFinite(dayStartMs) ||
+        !Number.isFinite(dayEndMs) ||
+        !Number.isFinite(itemStartMs) ||
+        !Number.isFinite(itemEndMs) ||
+        dayEndMs <= dayStartMs ||
+        itemEndMs <= itemStartMs ||
+        laneWidth <= 1
+      ) {
+        return;
+      }
+
+      clearDayBlockDragDocumentListeners();
+      dayBlockDragState.active = true;
+      dayBlockDragState.moved = false;
+      dayBlockDragState.pointerId = pointerEvent.pointerId;
+      dayBlockDragState.blockId = blockId;
+      dayBlockDragState.dayStartMs = dayStartMs;
+      dayBlockDragState.dayEndMs = dayEndMs;
+      dayBlockDragState.rangeMs = dayEndMs - dayStartMs;
+      dayBlockDragState.trackHeightPx = 0;
+      dayBlockDragState.trackWidthPx = laneWidth;
+      dayBlockDragState.originClientY = pointerEvent.clientY;
+      dayBlockDragState.originClientX = pointerEvent.clientX;
+      dayBlockDragState.originStartMs = itemStartMs;
+      dayBlockDragState.originEndMs = itemEndMs;
+      dayBlockDragState.previewStartMs = itemStartMs;
+      dayBlockDragState.previewEndMs = itemEndMs;
+      dayBlockDragState.entry = entry;
+      dayBlockDragState.timeLabel = null;
+      dayBlockDragState.originalTopCss = entry.style.top || "";
+      dayBlockDragState.originalLeftCss = entry.style.left || "";
+      dayBlockDragState.originalTimeLabelText = "";
+      dayBlockDragState.originalTitle = entry.title || "";
+      entry.classList.add("is-dragging");
+      entry.style.zIndex = "4";
+      try {
+        entry.setPointerCapture(pointerEvent.pointerId);
+      } catch {
+        // ignore unsupported pointer capture
+      }
+
+      const onMove = (moveEvent) => {
+        if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId) return;
+        const deltaX = moveEvent.clientX - dayBlockDragState.originClientX;
+        if (!dayBlockDragState.moved && Math.abs(deltaX) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
+          return;
+        }
+        const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
+        const deltaMsRaw = (deltaX / dayBlockDragState.trackWidthPx) * dayBlockDragState.rangeMs;
+        const nextInterval = snapAndClampBlockInterval(
+          dayBlockDragState.originStartMs + deltaMsRaw,
+          durationMs,
+          dayBlockDragState.dayStartMs,
+          dayBlockDragState.dayEndMs
+        );
+        applyDayBlockPreview(entry, nextInterval);
         dayBlockDragState.moved =
           Math.abs(dayBlockDragState.previewStartMs - dayBlockDragState.originStartMs) >= 1000 ||
           Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
@@ -1930,6 +2129,23 @@ function bindDailyCalendarInteractions(rerender) {
       rerender();
     });
   });
+  appRoot.querySelectorAll("[data-block-title-save]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const button = /** @type {HTMLElement} */ (node);
+      const blockId = button.dataset.blockTitleSave;
+      if (!blockId) return;
+      const nearestContainer = button.parentElement || appRoot;
+      const scopedInput = nearestContainer.querySelector(
+        `input[data-block-title-input="${blockId}"]`
+      );
+      const fallbackInput = appRoot.querySelector(`input[data-block-title-input="${blockId}"]`);
+      const input = scopedInput || fallbackInput;
+      if (!(input instanceof HTMLInputElement)) return;
+      if (!setBlockTitle(blockId, input.value)) return;
+      setStatus(input.value.trim() ? "タイトルを保存しました" : "タイトルをクリアしました");
+      rerender();
+    });
+  });
 }
 
 function renderDashboard() {
@@ -1948,6 +2164,7 @@ function renderDashboard() {
     <div class="panel row">
       <button id="dashboard-sync" class="btn-primary">同期</button>
       <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
+      <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
       <button id="dashboard-refresh" class="btn-secondary">再読込</button>
     </div>
     ${renderDailyCalendar(selectedDate)}
@@ -2010,6 +2227,16 @@ function renderDashboard() {
       renderDashboard();
     });
   });
+  document.getElementById("dashboard-reset-blocks")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      const deletedCount = await resetBlocksForDate(date);
+      await refreshCoreData(date);
+      setStatus(`ブロックを削除しました: ${deletedCount}件 (${date})`);
+      renderDashboard();
+    });
+  });
   document.getElementById("dashboard-refresh")?.addEventListener("click", async () => {
     await runUiAction(async () => {
       const date = getSelectedDate();
@@ -2038,6 +2265,7 @@ function renderBlocks() {
       <button id="block-load" class="btn-secondary">読込</button>
       <button id="block-generate-partial" class="btn-secondary">一部生成</button>
       <button id="block-generate-bulk" class="btn-primary">一括生成</button>
+      <button id="block-reset-all" class="btn-warn">全リセット</button>
     </div>
     ${renderDailyCalendar(today)}
     <div class="grid">
@@ -2048,6 +2276,18 @@ function renderBlocks() {
             <div class="row spread">
               <h3>${blockDisplayName(block)}</h3>
               <span class="pill">${block.firmness}</span>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <label style="flex:1">
+                タイトル
+                <input
+                  type="text"
+                  value="${escapeHtml(blockTitle(block))}"
+                  data-block-title-input="${escapeHtml(block.id)}"
+                  placeholder="タイトルなし"
+                />
+              </label>
+              <button type="button" class="btn-secondary" data-block-title-save="${escapeHtml(block.id)}">タイトル保存</button>
             </div>
             <p class="small">Start: ${formatTime(block.start_at)} / End: ${formatTime(block.end_at)}</p>
             <div class="grid two" style="margin-top:10px">
@@ -2117,6 +2357,16 @@ function renderBlocks() {
       const generated = await invokeCommandWithProgress("generate_blocks", withAccount({ date }));
       setStatus(`一括生成を実行しました（${generated.length}件生成）`);
       await reload();
+    });
+  });
+  document.getElementById("block-reset-all")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const date = getSelectedDate();
+      uiState.accountId = getSelectedAccount();
+      const deletedCount = await resetBlocksForDate(date);
+      await refreshCoreData(date);
+      setStatus(`ブロックを削除しました: ${deletedCount}件 (${date})`);
+      renderBlocks();
     });
   });
   document.getElementById("block-date")?.addEventListener("change", async () => {
