@@ -41,7 +41,7 @@
 - ブロック生成時に `recipe_id` / `auto_drive_mode` を解決して `Block` に埋め込むよう変更。
 - 解決優先順位:
   1. routine/template 側の明示指定
-  2. block type 対応レシピ
+  2. recipeId 対応レシピ
   3. 既定レシピ（`rcp-*-default`）
 - Auto 生成ブロック（`rtn:auto:*`）にもレシピを付与。
 

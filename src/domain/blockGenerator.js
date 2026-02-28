@@ -115,7 +115,6 @@ export class BlockGenerator {
     const existingBlocks = options.existingBlocks ?? [];
     const source = options.source ?? "routine";
     const sourceId = options.sourceId ?? null;
-    const blockType = options.type ?? "deep";
     const maxBlocks = options.maxBlocks ?? 100;
 
     const blocks = [];
@@ -154,7 +153,6 @@ export class BlockGenerator {
               date,
               startAt: interval.start.toISOString(),
               endAt: interval.end.toISOString(),
-              type: blockType,
               firmness: "draft",
               source,
               sourceId,

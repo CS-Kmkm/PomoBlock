@@ -3,8 +3,8 @@ use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocks
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::domain::models::{
-    AutoDriveMode, Block, BlockContents, BlockType, Firmness, OverrunPolicy, PomodoroLog,
-    PomodoroPhase, Recipe, RecipePomodoroConfig, RecipeStep, RecipeStepType, Task, TaskStatus,
+    AutoDriveMode, Block, BlockContents, Firmness, OverrunPolicy, PomodoroLog, PomodoroPhase,
+    Recipe, RecipePomodoroConfig, RecipeStep, RecipeStepType, Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::{ensure_default_configs, read_timezone};
@@ -330,7 +330,6 @@ struct BlockPlan {
     instance: String,
     start_at: DateTime<Utc>,
     end_at: DateTime<Utc>,
-    block_type: BlockType,
     firmness: Firmness,
     planned_pomodoros: i32,
     source: String,
@@ -1018,7 +1017,6 @@ async fn generate_blocks_with_limit_impl(
                 date: date.to_string(),
                 start_at: plan.start_at,
                 end_at: plan.end_at,
-                block_type: plan.block_type,
                 firmness: plan.firmness,
                 planned_pomodoros: plan.planned_pomodoros,
                 source: plan.source,
@@ -1075,13 +1073,11 @@ async fn generate_blocks_with_limit_impl(
             && remaining_generation_capacity > 0
         {
             let candidate_end = cursor + block_duration;
-            let (recipe_id, auto_drive_mode) =
-                resolve_recipe_for_plan(None, &BlockType::Deep, None, &recipes);
+            let (recipe_id, auto_drive_mode) = resolve_recipe_for_plan(None, None, &recipes);
             let plan = BlockPlan {
                 instance: format!("rtn:auto:{}:{}", date, instance_index),
                 start_at: cursor,
                 end_at: candidate_end,
-                block_type: BlockType::Deep,
                 firmness: Firmness::Draft,
                 planned_pomodoros: planned_pomodoros(
                     policy.block_duration_minutes,
@@ -1113,7 +1109,6 @@ async fn generate_blocks_with_limit_impl(
                     date: date.to_string(),
                     start_at: plan.start_at,
                     end_at: plan.end_at,
-                    block_type: plan.block_type,
                     firmness: plan.firmness,
                     planned_pomodoros: plan.planned_pomodoros,
                     source: plan.source,
@@ -3112,16 +3107,6 @@ fn parse_positive_i32_value(value: &serde_json::Value) -> Option<i32> {
     (parsed > 0).then_some(parsed)
 }
 
-fn parse_block_type_value(value: Option<&serde_json::Value>) -> Option<BlockType> {
-    match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
-        "deep" => Some(BlockType::Deep),
-        "shallow" => Some(BlockType::Shallow),
-        "admin" => Some(BlockType::Admin),
-        "learning" => Some(BlockType::Learning),
-        _ => None,
-    }
-}
-
 fn parse_firmness_value(value: Option<&serde_json::Value>) -> Option<Firmness> {
     match value?.as_str()?.trim().to_ascii_lowercase().as_str() {
         "draft" => Some(Firmness::Draft),
@@ -3145,7 +3130,6 @@ struct TemplateDefinition {
     id: String,
     start: Option<NaiveTime>,
     duration_minutes: u32,
-    block_type: BlockType,
     firmness: Firmness,
     planned_pomodoros: Option<i32>,
     days: Option<HashSet<Weekday>>,
@@ -3193,9 +3177,6 @@ fn parse_template_definitions(
             continue;
         };
         let start = value_by_keys(template, &["start", "time"]).and_then(parse_time_value);
-        let block_type =
-            parse_block_type_value(value_by_keys(template, &["blockType", "block_type", "type"]))
-                .unwrap_or(BlockType::Deep);
         let firmness =
             parse_firmness_value(value_by_keys(template, &["firmness"])).unwrap_or(Firmness::Draft);
         let planned_pomodoros = value_by_keys(
@@ -3226,7 +3207,6 @@ fn parse_template_definitions(
                 id: template_id.to_string(),
                 start,
                 duration_minutes,
-                block_type,
                 firmness,
                 planned_pomodoros,
                 days,
@@ -3391,68 +3371,38 @@ fn routine_matches_date(
     true
 }
 
-fn default_recipe_id_for_block_type(block_type: &BlockType) -> String {
-    match block_type {
-        BlockType::Deep => "rcp-deep-default".to_string(),
-        BlockType::Shallow => "rcp-shallow-default".to_string(),
-        BlockType::Admin => "rcp-admin-default".to_string(),
-        BlockType::Learning => "rcp-learning-default".to_string(),
-    }
+fn default_recipe_id() -> &'static str {
+    "rcp-default"
 }
 
-fn default_recipe_name_for_block_type(block_type: &BlockType) -> &'static str {
-    match block_type {
-        BlockType::Deep => "Deep Focus",
-        BlockType::Shallow => "Shallow Tasks",
-        BlockType::Admin => "Admin Sprint",
-        BlockType::Learning => "Learning Session",
-    }
+fn default_recipe_steps() -> Vec<RecipeStep> {
+    vec![RecipeStep {
+        id: "step-1".to_string(),
+        step_type: RecipeStepType::Pomodoro,
+        title: "Focus".to_string(),
+        duration_seconds: POMODORO_FOCUS_SECONDS,
+        pomodoro: Some(RecipePomodoroConfig {
+            focus_seconds: POMODORO_FOCUS_SECONDS,
+            break_seconds: POMODORO_BREAK_SECONDS,
+            cycles: 1,
+            long_break_seconds: None,
+            long_break_every: None,
+        }),
+        overrun_policy: Some(OverrunPolicy::Wait),
+    }]
 }
 
-fn default_recipe_steps_for_block_type(block_type: &BlockType) -> Vec<RecipeStep> {
-    match block_type {
-        BlockType::Admin => vec![RecipeStep {
-            id: "step-1".to_string(),
-            step_type: RecipeStepType::Micro,
-            title: "Admin checklist".to_string(),
-            duration_seconds: 15 * 60,
-            pomodoro: None,
-            overrun_policy: Some(OverrunPolicy::Wait),
-        }],
-        _ => vec![RecipeStep {
-            id: "step-1".to_string(),
-            step_type: RecipeStepType::Pomodoro,
-            title: "Focus".to_string(),
-            duration_seconds: POMODORO_FOCUS_SECONDS,
-            pomodoro: Some(RecipePomodoroConfig {
-                focus_seconds: POMODORO_FOCUS_SECONDS,
-                break_seconds: POMODORO_BREAK_SECONDS,
-                cycles: 1,
-                long_break_seconds: None,
-                long_break_every: None,
-            }),
-            overrun_policy: Some(OverrunPolicy::Wait),
-        }],
-    }
-}
-
-fn default_recipe_for_block_type(block_type: BlockType) -> Recipe {
+fn default_recipe() -> Recipe {
     Recipe {
-        id: default_recipe_id_for_block_type(&block_type),
-        name: default_recipe_name_for_block_type(&block_type).to_string(),
-        block_type: block_type.clone(),
+        id: default_recipe_id().to_string(),
+        name: "Default Focus".to_string(),
         auto_drive_mode: AutoDriveMode::Manual,
-        steps: default_recipe_steps_for_block_type(&block_type),
+        steps: default_recipe_steps(),
     }
 }
 
 fn default_recipe_catalog() -> Vec<Recipe> {
-    vec![
-        default_recipe_for_block_type(BlockType::Deep),
-        default_recipe_for_block_type(BlockType::Shallow),
-        default_recipe_for_block_type(BlockType::Admin),
-        default_recipe_for_block_type(BlockType::Learning),
-    ]
+    vec![default_recipe()]
 }
 
 fn parse_recipe_step_type_value(value: Option<&serde_json::Value>) -> Option<RecipeStepType> {
@@ -3485,9 +3435,6 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
         .filter(|value| !value.is_empty())
         .unwrap_or(id.as_str())
         .to_string();
-    let block_type =
-        parse_block_type_value(value_by_keys(object, &["blockType", "block_type", "type"]))
-            .unwrap_or(BlockType::Deep);
     let auto_drive_mode =
         parse_auto_drive_mode_value(value_by_keys(object, &["autoDriveMode", "auto_drive_mode"]))
             .unwrap_or(AutoDriveMode::Manual);
@@ -3566,12 +3513,11 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
         })
         .unwrap_or_default();
     if steps.is_empty() {
-        steps = default_recipe_steps_for_block_type(&block_type);
+        steps = default_recipe_steps();
     }
     let recipe = Recipe {
         id,
         name,
-        block_type,
         auto_drive_mode,
         steps,
     };
@@ -3599,7 +3545,6 @@ fn load_configured_recipes(config_dir: &Path) -> Vec<Recipe> {
 
 fn resolve_recipe_for_plan(
     explicit_recipe_id: Option<String>,
-    block_type: &BlockType,
     auto_drive_override: Option<AutoDriveMode>,
     recipes: &[Recipe],
 ) -> (String, AutoDriveMode) {
@@ -3619,25 +3564,19 @@ fn resolve_recipe_for_plan(
         return (recipe_id, auto_drive_override.unwrap_or(AutoDriveMode::Manual));
     }
 
-    if let Some(recipe) = recipes.iter().find(|candidate| candidate.block_type == *block_type) {
-        return (
+    let fallback = recipes
+        .iter()
+        .find(|candidate| candidate.id == default_recipe_id())
+        .or_else(|| recipes.first());
+    match fallback {
+        Some(recipe) => (
             recipe.id.clone(),
             auto_drive_override.unwrap_or_else(|| recipe.auto_drive_mode.clone()),
-        );
-    }
-
-    (
-        default_recipe_id_for_block_type(block_type),
-        auto_drive_override.unwrap_or(AutoDriveMode::Manual),
-    )
-}
-
-fn block_type_as_str(value: &BlockType) -> &'static str {
-    match value {
-        BlockType::Deep => "deep",
-        BlockType::Shallow => "shallow",
-        BlockType::Admin => "admin",
-        BlockType::Learning => "learning",
+        ),
+        None => (
+            default_recipe_id().to_string(),
+            auto_drive_override.unwrap_or(AutoDriveMode::Manual),
+        ),
     }
 }
 
@@ -3666,7 +3605,7 @@ fn overrun_policy_as_str(value: &OverrunPolicy) -> &'static str {
 
 fn parse_recipe_payload(payload: &serde_json::Value) -> Result<Recipe, InfraError> {
     parse_recipe_from_value(payload).ok_or_else(|| {
-        InfraError::InvalidConfig("invalid recipe payload; check id/name/blockType/steps".to_string())
+        InfraError::InvalidConfig("invalid recipe payload; check id/name/steps".to_string())
     })
 }
 
@@ -3751,7 +3690,6 @@ fn recipe_to_json_value(recipe: &Recipe) -> serde_json::Value {
     serde_json::json!({
         "id": recipe.id,
         "name": recipe.name,
-        "blockType": block_type_as_str(&recipe.block_type),
         "autoDriveMode": auto_drive_mode_as_str(&recipe.auto_drive_mode),
         "steps": steps,
     })
@@ -3842,7 +3780,6 @@ fn load_configured_block_plans(
         let end_at = start_at + Duration::minutes(template.duration_minutes as i64);
         let (recipe_id, auto_drive_mode) = resolve_recipe_for_plan(
             template.recipe_id.clone(),
-            &template.block_type,
             template.auto_drive_mode.clone(),
             recipes,
         );
@@ -3850,7 +3787,6 @@ fn load_configured_block_plans(
             instance: format!("tpl:{}:{}", template.id, date),
             start_at,
             end_at,
-            block_type: template.block_type.clone(),
             firmness: template.firmness.clone(),
             planned_pomodoros: template.planned_pomodoros.unwrap_or_else(|| {
                 planned_pomodoros(template.duration_minutes, policy.break_duration_minutes)
@@ -3914,13 +3850,6 @@ fn load_configured_block_plans(
             continue;
         };
         let end_at = start_at + Duration::minutes(duration_minutes as i64);
-        let block_type = parse_block_type_value(
-            default
-                .and_then(|value| value_by_keys(value, &["blockType", "block_type", "type"]))
-                .or_else(|| value_by_keys(routine, &["blockType", "block_type", "type"])),
-        )
-        .or_else(|| linked_template.map(|template| template.block_type.clone()))
-        .unwrap_or(BlockType::Deep);
         let firmness = parse_firmness_value(
             default
                 .and_then(|value| value_by_keys(value, &["firmness"]))
@@ -3961,13 +3890,12 @@ fn load_configured_block_plans(
         )
         .or_else(|| linked_template.and_then(|template| template.auto_drive_mode.clone()));
         let (recipe_id, auto_drive_mode) =
-            resolve_recipe_for_plan(explicit_recipe_id, &block_type, auto_drive_override, recipes);
+            resolve_recipe_for_plan(explicit_recipe_id, auto_drive_override, recipes);
 
         plans.push(BlockPlan {
             instance: format!("rtn:{}:{}", routine_id, date),
             start_at,
             end_at,
-            block_type,
             firmness,
             planned_pomodoros: planned,
             source: "routine".to_string(),
@@ -4640,7 +4568,6 @@ mod tests {
       "name": "Focus Morning",
       "start": "09:00",
       "durationMinutes": 50,
-      "blockType": "deep",
       "firmness": "soft",
       "plannedPomodoros": 2
     }
@@ -4662,7 +4589,6 @@ mod tests {
         "durationMinutes": 25,
         "pomodoros": 1
       },
-      "blockType": "admin",
       "firmness": "draft"
     }
   ]
@@ -4699,12 +4625,11 @@ mod tests {
             end_at: DateTime::parse_from_rfc3339(end_at)
                 .expect("end")
                 .with_timezone(&Utc),
-            block_type: BlockType::Deep,
             firmness: Firmness::Draft,
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("auto".to_string()),
-            recipe_id: "rcp-deep-default".to_string(),
+            recipe_id: "rcp-default".to_string(),
             auto_drive_mode: AutoDriveMode::Manual,
             contents: BlockContents::default(),
         };
@@ -4860,12 +4785,11 @@ mod tests {
             end_at: DateTime::parse_from_rfc3339("2026-02-16T09:50:00Z")
                 .expect("end")
                 .with_timezone(&Utc),
-            block_type: BlockType::Deep,
             firmness: Firmness::Draft,
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("auto".to_string()),
-            recipe_id: "rcp-deep-default".to_string(),
+            recipe_id: "rcp-default".to_string(),
             auto_drive_mode: AutoDriveMode::Manual,
             contents: BlockContents::default(),
         };

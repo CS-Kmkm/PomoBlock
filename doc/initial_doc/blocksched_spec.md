@@ -27,7 +27,6 @@
 - `instance`：インスタンスキー（重複防止の主キー）
 - `date`：YYYY-MM-DD（ユーザーTZ基準の所属日）
 - `startAt` / `endAt`：RFC3339（TZ込み）
-- `type`：deep/shallow/admin/learning
 - `firmness`：draft/soft/hard
 - `plannedPomodoros`：int
 - `status`：planned/running/done/partial/skipped（主にアプリ内状態）
@@ -38,7 +37,7 @@
 ### 2.2 Routine（繰り返し定義）
 - `id`：rtn_*
 - `rrule`：RFC5545互換文字列
-- `default`：start/duration/type/pomodoros/firmness
+- `default`：start/duration/pomodoros/firmness
 - `exceptions`：skip期間等
 - `carryover`：繰越方針（任意）
 
@@ -60,7 +59,6 @@
     - `bs_date` = "YYYY-MM-DD"
     - `bs_src` = template|routine|manual
     - `bs_src_id` = tpl_*|rtn_*（任意）
-    - `bs_type` = deep|shallow|admin|learning
     - `bs_firm` = draft|soft|hard
     - `bs_pp` = planned pomodoros（文字列）
 

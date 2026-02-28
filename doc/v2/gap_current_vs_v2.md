@@ -135,7 +135,6 @@ interface RecipeStep {
 interface Recipe {
   id: string;
   name: string;
-  blockType: "deep" | "shallow" | "admin" | "learning";
   autoDriveMode: AutoDriveMode;
   steps: RecipeStep[];
 }
@@ -157,7 +156,6 @@ interface Block {
   date: string;
   startAt: string;
   endAt: string;
-  type: "deep" | "shallow" | "admin" | "learning";
   firmness: "draft" | "soft" | "hard";
   plannedPomodoros: number;
   source: string;
@@ -173,7 +171,6 @@ interface Routine {
   id: string;
   name: string;
   rrule: string;
-  blockType: "deep" | "shallow" | "admin" | "learning";
   firmness: "draft" | "soft" | "hard";
   durationMinutes: number;
 
@@ -211,7 +208,6 @@ interface Routine {
     {
       "id": "rcp-morning-micro",
       "name": "朝支度",
-      "blockType": "admin",
       "autoDriveMode": "auto",
       "steps": [
         { "id": "s1", "type": "micro", "title": "着替え", "durationSeconds": 180 },

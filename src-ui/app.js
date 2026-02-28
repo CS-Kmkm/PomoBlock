@@ -204,16 +204,14 @@ function ensureMockRecipesSeeded() {
   if (mockState.recipes.length > 0) return;
   mockState.recipes = [
     {
-      id: "rcp-deep-default",
-      name: "Deep Focus",
-      block_type: "deep",
+      id: "rcp-default",
+      name: "Default Focus",
       auto_drive_mode: "manual",
       steps: [{ id: "step-1", type: "pomodoro", title: "Focus", durationSeconds: 1500 }],
     },
     {
-      id: "rcp-admin-default",
-      name: "Admin Sprint",
-      block_type: "admin",
+      id: "rcp-quick",
+      name: "Quick Admin",
       auto_drive_mode: "auto",
       steps: [{ id: "step-1", type: "micro", title: "Admin", durationSeconds: 900 }],
     },
@@ -407,7 +405,11 @@ function syncNowTimerDisplay(stateInput) {
       if (previousPhase !== "paused" || uiState.nowUi.phaseTotalSeconds <= 0) {
         uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
       }
-      uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+      if (previousPhase === "paused" && previousDisplay > 0) {
+        uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
+      } else {
+        uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+      }
     } else {
       // Keep local 1-second countdown smooth; only correct downward from backend snapshots.
       uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
@@ -419,7 +421,11 @@ function syncNowTimerDisplay(stateInput) {
       }
     }
   } else if (state.phase === "paused") {
-    uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+    if (previousDisplay > 0) {
+      uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
+    } else {
+      uiState.nowUi.displayRemainingSeconds = remainingSeconds;
+    }
     if (uiState.nowUi.phaseTotalSeconds <= 0) {
       uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
     }
@@ -1838,7 +1844,6 @@ async function mockInvoke(name, payload) {
       const recipe = {
         id: String(payloadRecipe.id),
         name: String(payloadRecipe.name || payloadRecipe.id),
-        block_type: String(payloadRecipe.blockType || payloadRecipe.block_type || "deep"),
         auto_drive_mode: String(payloadRecipe.autoDriveMode || payloadRecipe.auto_drive_mode || "manual"),
         steps: Array.isArray(payloadRecipe.steps) ? payloadRecipe.steps : [],
       };
@@ -2018,12 +2023,11 @@ async function mockInvoke(name, payload) {
           date,
           start_at: startAt.toISOString(),
           end_at: endAt.toISOString(),
-          block_type: "deep",
           firmness: "draft",
           planned_pomodoros: 2,
           source: "routine",
           source_id: "mock",
-          recipe_id: "rcp-deep-default",
+          recipe_id: "rcp-default",
           auto_drive_mode: "manual",
           contents: { task_refs: [], checklist: [], time_splits: [], memo: null },
         };
@@ -2333,7 +2337,6 @@ function renderTodaySequenceItems() {
     .slice(0, 8)
     .map((recipe) => {
       const name = typeof recipe?.name === "string" && recipe.name.trim() ? recipe.name.trim() : "Untitled";
-      const blockType = typeof recipe?.block_type === "string" && recipe.block_type.trim() ? recipe.block_type.trim() : "misc";
       const autoDriveMode =
         typeof recipe?.auto_drive_mode === "string" && recipe.auto_drive_mode.trim()
           ? recipe.auto_drive_mode.trim()
@@ -2341,10 +2344,10 @@ function renderTodaySequenceItems() {
       const stepCount = Array.isArray(recipe?.steps) ? recipe.steps.length : 0;
       return `
         <article class="today-sequence-item">
-          <div class="today-sequence-icon" aria-hidden="true">${escapeHtml(blockType.slice(0, 1).toUpperCase())}</div>
+          <div class="today-sequence-icon" aria-hidden="true">${escapeHtml(name.slice(0, 1).toUpperCase())}</div>
           <div class="today-sequence-content">
             <p class="today-sequence-title">${escapeHtml(name)}</p>
-            <p class="today-sequence-meta">${escapeHtml(blockType)} / ${escapeHtml(autoDriveMode)} / ${stepCount} steps</p>
+            <p class="today-sequence-meta">${escapeHtml(autoDriveMode)} / ${stepCount} steps</p>
           </div>
         </article>
       `;
@@ -2363,6 +2366,7 @@ function renderTodayLibraryLinks() {
 
 function renderTodayStatusCard() {
   const state = normalizePomodoroState(uiState.pomodoro || {});
+  const controls = resolveTimerControlModel(state);
   const phaseLabel = pomodoroPhaseLabel(state.phase);
   const focusTask = resolveCurrentFocusTask(state);
   const currentBlock = state.current_block_id
@@ -2370,6 +2374,10 @@ function renderTodayStatusCard() {
     : null;
   const currentTitle = currentBlock ? blockTitle(currentBlock) || currentBlock.id : "-";
   const progressPercent = pomodoroProgressPercent(state);
+  const displayRemainingSeconds =
+    uiState.nowUi.lastSyncEpochMs > 0
+      ? Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0))
+      : Math.max(0, Math.floor(state.remaining_seconds || 0));
   return `
     <section class="today-right-section today-right-section--status">
       <h3>Current Status</h3>
@@ -2378,11 +2386,126 @@ function renderTodayStatusCard() {
         <p class="today-status-title">${escapeHtml(currentTitle)}</p>
         <p class="today-status-subtitle">Block: ${escapeHtml(state.current_block_id || "-")}</p>
         <p class="today-status-subtitle">Task: ${escapeHtml(focusTask?.title || "-")}</p>
-        <div class="today-status-time">${toTimerText(state.remaining_seconds)}</div>
+        <div class="today-status-time" data-today-status-time>${toTimerText(displayRemainingSeconds)}</div>
+        <div class="today-status-controls">
+          <button
+            class="today-status-action today-status-action--secondary"
+            data-today-timer-action="${controls.leftAction}"
+            aria-label="${controls.leftLabel}"
+            title="${controls.leftLabel}"
+            ${controls.leftDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.leftIcon}</span><span class="now-visually-hidden">${controls.leftLabel}</span></button>
+          <button
+            class="today-status-action today-status-action--primary"
+            data-today-timer-action="${controls.primaryAction}"
+            aria-label="${controls.primaryLabel}"
+            title="${controls.primaryLabel}"
+            ${controls.primaryDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.primaryIcon}</span><span class="now-visually-hidden">${controls.primaryLabel}</span></button>
+          <button
+            class="today-status-action today-status-action--secondary"
+            data-today-timer-action="${controls.rightAction}"
+            aria-label="${controls.rightLabel}"
+            title="${controls.rightLabel}"
+            ${controls.rightDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.rightIcon}</span><span class="now-visually-hidden">${controls.rightLabel}</span></button>
+        </div>
         <div class="bar-track"><div class="bar-fill" style="width:${progressPercent}%"></div></div>
       </div>
     </section>
   `;
+}
+
+function refreshTodayStatusTimerDisplay() {
+  if (getRoute() !== "today") {
+    return;
+  }
+  const statusTime = appRoot.querySelector("[data-today-status-time]");
+  if (!(statusTime instanceof HTMLElement)) {
+    return;
+  }
+  const state = normalizePomodoroState(uiState.pomodoro || {});
+  const displayRemainingSeconds =
+    uiState.nowUi.lastSyncEpochMs > 0
+      ? Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0))
+      : Math.max(0, Math.floor(state.remaining_seconds || 0));
+  statusTime.textContent = toTimerText(displayRemainingSeconds);
+}
+
+function resolveTimerControlModel(stateInput = uiState.pomodoro) {
+  const state = normalizePomodoroState(stateInput || {});
+  const canStart = state.phase === "idle" && Boolean(resolveNowAutoStartBlock(state));
+  const isRunningPhase = state.phase === "focus" || state.phase === "break";
+  const canPause = isRunningPhase;
+  const canNext = isRunningPhase;
+  const canStop = isRunningPhase;
+  const canResume = state.phase === "paused";
+  const controlsDisabled = Boolean(uiState.nowUi.actionInFlight);
+  const leftAction = canStop ? "stop" : "";
+  const rightAction = canNext ? "next" : "";
+  const primaryAction = state.phase === "idle" ? "start" : canPause ? "pause" : canResume ? "resume" : "";
+  return {
+    leftAction,
+    leftLabel: "Stop",
+    leftIcon: "⏹",
+    leftDisabled: controlsDisabled || !leftAction,
+    rightAction,
+    rightLabel: "Next",
+    rightIcon: "⏭",
+    rightDisabled: controlsDisabled || !rightAction,
+    primaryAction,
+    primaryLabel: primaryAction === "start" ? "開始" : primaryAction === "pause" ? "中断" : "再開",
+    primaryIcon: primaryAction === "pause" ? "⏸" : "▶",
+    primaryDisabled:
+      controlsDisabled ||
+      !primaryAction ||
+      (primaryAction === "start" && !canStart) ||
+      (primaryAction === "pause" && !canPause) ||
+      (primaryAction === "resume" && !canResume),
+  };
+}
+
+async function executeTimerAction(action, rerender) {
+  if (!action || uiState.nowUi.actionInFlight) return;
+  uiState.nowUi.actionInFlight = true;
+  rerender();
+
+  let shouldRefresh = true;
+  await runUiAction(async () => {
+    if (action === "start") {
+      const latestState = normalizePomodoroState(uiState.pomodoro || {});
+      const targetBlock = resolveNowAutoStartBlock(latestState);
+      if (!targetBlock) {
+        setStatus("start_block_timer skipped: no block available for today");
+        shouldRefresh = false;
+        return;
+      }
+      const targetTask = resolveNowAutoStartTask(latestState);
+      const payload = { block_id: targetBlock.id, task_id: targetTask?.id || null };
+      await safeInvokeWithFallback("start_block_timer", payload, "start_pomodoro", payload);
+    } else if (action === "pause") {
+      await safeInvokeWithFallback("pause_timer", { reason: "manual_pause" }, "pause_pomodoro", {
+        reason: "manual_pause",
+      });
+    } else if (action === "resume") {
+      await safeInvokeWithFallback("resume_timer", {}, "resume_pomodoro", {});
+    } else if (action === "next") {
+      await safeInvokeWithFallback("next_step", {}, "advance_pomodoro", {});
+    } else if (action === "stop") {
+      await safeInvokeWithFallback("pause_timer", { reason: "manual_stop" }, "pause_pomodoro", {
+        reason: "manual_stop",
+      });
+    } else {
+      shouldRefresh = false;
+    }
+
+    if (shouldRefresh) {
+      await refreshNowPanelState(true);
+    }
+  });
+
+  uiState.nowUi.actionInFlight = false;
+  rerender();
 }
 
 function renderTodayTaskPanel() {
@@ -2803,6 +2926,12 @@ function renderDashboard() {
       </aside>
     </section>
   `;
+  appRoot.querySelectorAll("[data-today-timer-action]").forEach((node) => {
+    node.addEventListener("click", async (event) => {
+      const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.todayTimerAction;
+      await executeTimerAction(action || "", renderDashboard);
+    });
+  });
   bindDailyCalendarInteractions(renderDashboard);
 }
 
@@ -3127,30 +3256,7 @@ function renderPomodoro() {
   const objectiveBlockId = runningBlock?.id || autoStartBlock?.id || "-";
   const currentStep = state.total_cycles > 0 ? Math.max(1, Math.min(state.current_cycle || 1, state.total_cycles)) : 1;
   const totalSteps = state.total_cycles > 0 ? state.total_cycles : Math.max(1, autoStartBlock?.planned_pomodoros || 1);
-  const canStart = state.phase === "idle" && Boolean(autoStartBlock);
-  const isRunningPhase = state.phase === "focus" || state.phase === "break";
-  const canPause = isRunningPhase;
-  const canNext = isRunningPhase;
-  const canInterrupt = state.phase !== "idle";
-  const canResume = state.phase === "paused";
-  const controlsDisabled = Boolean(uiState.nowUi.actionInFlight);
-  const leftAction = canInterrupt ? "reset" : "";
-  const leftLabel = "Reset";
-  const leftIcon = "⟲";
-  const leftDisabled = controlsDisabled || !leftAction;
-  const rightAction = canNext ? "next" : "";
-  const rightLabel = "Next";
-  const rightIcon = "⏭";
-  const rightDisabled = controlsDisabled || !rightAction;
-  const primaryAction = state.phase === "idle" ? "start" : canPause ? "pause" : canResume ? "resume" : "";
-  const primaryLabel = primaryAction === "start" ? "開始" : primaryAction === "pause" ? "中断" : "再開";
-  const primaryIcon = primaryAction === "pause" ? "⏸" : "▶";
-  const primaryDisabled =
-    controlsDisabled ||
-    !primaryAction ||
-    (primaryAction === "start" && !canStart) ||
-    (primaryAction === "pause" && !canPause) ||
-    (primaryAction === "resume" && !canResume);
+  const controls = resolveTimerControlModel(state);
 
   appRoot.innerHTML = `
     <section class="now-layout">
@@ -3195,27 +3301,27 @@ function renderPomodoro() {
           <button
             id="now-left-action"
             class="now-control now-control--secondary"
-            data-now-action="${leftAction}"
-            aria-label="${leftLabel}"
-            title="${leftLabel}"
-            ${leftDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${leftIcon}</span><span class="now-visually-hidden">${leftLabel}</span></button>
+            data-now-action="${controls.leftAction}"
+            aria-label="${controls.leftLabel}"
+            title="${controls.leftLabel}"
+            ${controls.leftDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.leftIcon}</span><span class="now-visually-hidden">${controls.leftLabel}</span></button>
           <button
             id="now-primary-action"
             class="now-control now-control--primary"
-            data-now-action="${primaryAction}"
-            aria-label="${primaryLabel}"
-            title="${primaryLabel}"
-            ${primaryDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${primaryIcon}</span><span class="now-visually-hidden">${primaryLabel}</span></button>
+            data-now-action="${controls.primaryAction}"
+            aria-label="${controls.primaryLabel}"
+            title="${controls.primaryLabel}"
+            ${controls.primaryDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.primaryIcon}</span><span class="now-visually-hidden">${controls.primaryLabel}</span></button>
           <button
             id="now-right-action"
             class="now-control now-control--secondary"
-            data-now-action="${rightAction}"
-            aria-label="${rightLabel}"
-            title="${rightLabel}"
-            ${rightDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${rightIcon}</span><span class="now-visually-hidden">${rightLabel}</span></button>
+            data-now-action="${controls.rightAction}"
+            aria-label="${controls.rightLabel}"
+            title="${controls.rightLabel}"
+            ${controls.rightDisabled ? "disabled" : ""}
+          ><span class="now-control-icon" aria-hidden="true">${controls.rightIcon}</span><span class="now-visually-hidden">${controls.rightLabel}</span></button>
         </div>
         <section class="now-objective-card">
           <div class="row spread">
@@ -3281,65 +3387,10 @@ function renderPomodoro() {
     </section>
   `;
 
-  const runTimerAction = async (runner) => {
-    if (uiState.nowUi.actionInFlight) {
-      return;
-    }
-    uiState.nowUi.actionInFlight = true;
-    renderPomodoro();
-    let shouldRefresh = true;
-    await runUiAction(async () => {
-      const runnerResult = await runner();
-      shouldRefresh = runnerResult !== false;
-      if (shouldRefresh) {
-        await refreshNowPanelState(true);
-      }
-    });
-    uiState.nowUi.actionInFlight = false;
-    renderPomodoro();
-  };
-
-  const executeNowAction = async (action) => {
-    if (!action) return;
-    await runTimerAction(async () => {
-      if (action === "start") {
-        const latestState = normalizePomodoroState(uiState.pomodoro || {});
-        const targetBlock = resolveNowAutoStartBlock(latestState);
-        if (!targetBlock) {
-          setStatus("start_block_timer skipped: no block available for today");
-          return false;
-        }
-        const targetTask = resolveNowAutoStartTask(latestState);
-        const payload = { block_id: targetBlock.id, task_id: targetTask?.id || null };
-        await safeInvokeWithFallback("start_block_timer", payload, "start_pomodoro", payload);
-        return true;
-      }
-      if (action === "pause") {
-        await safeInvokeWithFallback("pause_timer", { reason: "manual_pause" }, "pause_pomodoro", {
-          reason: "manual_pause",
-        });
-        return true;
-      }
-      if (action === "resume") {
-        await safeInvokeWithFallback("resume_timer", {}, "resume_pomodoro", {});
-        return true;
-      }
-      if (action === "next") {
-        await safeInvokeWithFallback("next_step", {}, "advance_pomodoro", {});
-        return true;
-      }
-      if (action === "reset") {
-        await safeInvokeWithFallback("interrupt_timer", { reason: "manual_reset" }, "complete_pomodoro", {});
-        return true;
-      }
-      return false;
-    });
-  };
-
   ["now-left-action", "now-primary-action", "now-right-action"].forEach((id) => {
     document.getElementById(id)?.addEventListener("click", async (event) => {
       const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.nowAction;
-      await executeNowAction(action || "");
+      await executeTimerAction(action || "", renderPomodoro);
     });
   });
 
@@ -3407,9 +3458,7 @@ function renderRoutines() {
                     (recipe) => `
               <div class="panel">
                 <p><b>${recipe.name || recipe.id}</b></p>
-                <p class="small">${recipe.id} / ${recipe.block_type || recipe.blockType || "deep"} / ${
-                      recipe.auto_drive_mode || recipe.autoDriveMode || "manual"
-                    }</p>
+                <p class="small">${recipe.id} / ${recipe.auto_drive_mode || recipe.autoDriveMode || "manual"}</p>
                 <div class="row" style="margin-top:8px">
                   <button class="btn-secondary" data-edit-recipe="${recipe.id}">編集</button>
                   <button class="btn-danger" data-delete-recipe="${recipe.id}">削除</button>
@@ -3425,22 +3474,13 @@ function renderRoutines() {
         <h3>Recipe Editor</h3>
         <label>ID <input id="recipe-id" placeholder="rcp-morning-micro" /></label>
         <label>名前 <input id="recipe-name" placeholder="朝支度" /></label>
-        <div class="grid two">
-          <label>Block Type
-            <select id="recipe-block-type">
-              ${["deep", "shallow", "admin", "learning"]
-                .map((type) => `<option value="${type}">${type}</option>`)
-                .join("")}
-            </select>
-          </label>
-          <label>Auto Drive
-            <select id="recipe-auto-drive">
-              ${["manual", "auto", "auto-silent"]
-                .map((mode) => `<option value="${mode}">${mode}</option>`)
-                .join("")}
-            </select>
-          </label>
-        </div>
+        <label>Auto Drive
+          <select id="recipe-auto-drive">
+            ${["manual", "auto", "auto-silent"]
+              .map((mode) => `<option value="${mode}">${mode}</option>`)
+              .join("")}
+          </select>
+        </label>
         <div class="grid two">
           <label>Step Type
             <select id="recipe-step-type">
@@ -3472,8 +3512,6 @@ function renderRoutines() {
     /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value = recipe.id || "";
     /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value =
       recipe.name || recipe.id || "";
-    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-block-type")).value =
-      recipe.block_type || recipe.blockType || "deep";
     /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value =
       recipe.auto_drive_mode || recipe.autoDriveMode || "manual";
     /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value = stepType;
@@ -3504,7 +3542,6 @@ function renderRoutines() {
     fillRecipeForm({
       id: "",
       name: "",
-      block_type: "deep",
       auto_drive_mode: "manual",
       steps: [],
     });
@@ -3533,7 +3570,6 @@ function renderRoutines() {
     await runUiAction(async () => {
       const id = /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value.trim();
       const name = /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value.trim();
-      const blockType = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-block-type")).value;
       const autoDriveMode = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value;
       const stepType = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value;
       const stepTitle = /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-title")).value.trim() || "Step";
@@ -3555,7 +3591,6 @@ function renderRoutines() {
       const payload = {
         id,
         name,
-        blockType,
         autoDriveMode,
         steps: [
           {
@@ -3966,7 +4001,8 @@ setInterval(async () => {
 }, 5000);
 
 setInterval(() => {
-  if (getRoute() !== "now") {
+  const route = getRoute();
+  if (route !== "now" && route !== "today") {
     return;
   }
   const state = normalizePomodoroState(uiState.pomodoro || {});
@@ -3977,7 +4013,11 @@ setInterval(() => {
     return;
   }
   uiState.nowUi.displayRemainingSeconds = Math.max(0, uiState.nowUi.displayRemainingSeconds - 1);
-  renderPomodoro();
+  if (route === "now") {
+    renderPomodoro();
+  } else {
+    refreshTodayStatusTimerDisplay();
+  }
 }, 1000);
 
 (async () => {

@@ -11,15 +11,6 @@ pub enum Firmness {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum BlockType {
-    Deep,
-    Shallow,
-    Admin,
-    Learning,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum BlockStatus {
     Planned,
     Running,
@@ -97,7 +88,6 @@ impl RecipeStep {
 pub struct Recipe {
     pub id: String,
     pub name: String,
-    pub block_type: BlockType,
     pub auto_drive_mode: AutoDriveMode,
     pub steps: Vec<RecipeStep>,
 }
@@ -166,7 +156,6 @@ pub struct Block {
     pub date: String,
     pub start_at: DateTime<Utc>,
     pub end_at: DateTime<Utc>,
-    pub block_type: BlockType,
     pub firmness: Firmness,
     pub planned_pomodoros: i32,
     pub source: String,
@@ -410,7 +399,6 @@ impl Policy {
 pub struct RoutineDefault {
     pub start: String,
     pub duration_minutes: u32,
-    pub block_type: BlockType,
     pub pomodoros: u32,
     pub firmness: Firmness,
 }
@@ -581,7 +569,6 @@ mod tests {
             date: "2026-02-16".to_string(),
             start_at: fixed_time("2026-02-16T09:00:00Z"),
             end_at: fixed_time("2026-02-16T10:00:00Z"),
-            block_type: BlockType::Deep,
             firmness: Firmness::Draft,
             planned_pomodoros: 2,
             source: "template".to_string(),
@@ -654,7 +641,6 @@ mod tests {
             default_rule: RoutineDefault {
                 start: "09:00".to_string(),
                 duration_minutes: 90,
-                block_type: BlockType::Deep,
                 pomodoros: 2,
                 firmness: Firmness::Draft,
             },
@@ -669,7 +655,6 @@ mod tests {
         Recipe {
             id: "rcp-deep-default".to_string(),
             name: "Deep Work".to_string(),
-            block_type: BlockType::Deep,
             auto_drive_mode: AutoDriveMode::Manual,
             steps: vec![RecipeStep {
                 id: "step-1".to_string(),
