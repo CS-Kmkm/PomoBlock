@@ -730,6 +730,34 @@ p {
   line-height: 1;
 }
 
+.today-status-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.today-status-action {
+  width: 42px;
+  height: 42px;
+  min-width: 0;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #eef5ff;
+}
+
+.today-status-action--secondary {
+  background: rgba(6, 22, 54, 0.28);
+}
+
+.today-status-action--primary {
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .today-status-card .bar-track {
   background: rgba(11, 35, 84, 0.5);
 }
@@ -1915,7 +1943,8 @@ th {
   }
 
   .now-controls button,
-  .now-task-actions button {
+  .now-task-actions button,
+  .today-status-controls .today-status-action {
     width: auto;
   }
 
