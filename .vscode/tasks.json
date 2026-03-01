@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Tauri Dev",
+			"type": "shell",
+			"command": "cd src-tauri ; cargo tauri dev",
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}

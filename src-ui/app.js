@@ -67,6 +67,14 @@ const commandArgAliases = {
   interrupt_timer: [["reason", "reason"]],
   update_recipe: [["recipe_id", "recipeId"]],
   delete_recipe: [["recipe_id", "recipeId"]],
+  update_module: [["module_id", "moduleId"]],
+  delete_module: [["module_id", "moduleId"]],
+  apply_studio_template_to_today: [
+    ["template_id", "templateId"],
+    ["trigger_time", "triggerTime"],
+    ["conflict_policy", "conflictPolicy"],
+    ["account_id", "accountId"],
+  ],
   create_task: [["estimated_pomodoros", "estimatedPomodoros"]],
   update_task: [
     ["task_id", "taskId"],
@@ -90,6 +98,130 @@ const BLOCKS_INITIAL_VISIBLE = 50;
 const DAY_BLOCK_DRAG_SNAP_MINUTES = 5;
 const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
+
+// Routine Studio のドラッグデータを保持するモジュール変数
+let routineStudioActiveDrag = /** @type {{ kind: string, id: string } | null} */ (null);
+/** @type {{ move: (e: PointerEvent) => void, up: (e: PointerEvent) => void } | null} */
+let _rsDragHandlers = null;
+/** @type {HTMLElement | null} */
+let _rsDragGhost = null;
+/** @type {HTMLElement | null} */
+let _rsDragSource = null;
+let _rsDragOffsetX = 0;
+let _rsDragOffsetY = 0;
+const routineStudioSeedModules = [
+  {
+    id: "mod-deep-work-init",
+    name: "Deep Work Init",
+    category: "Focus Work",
+    description: "Environment prep",
+    icon: "spark",
+    durationMinutes: 5,
+    stepType: "micro",
+    checklist: ["Close distracting tabs", "Set Slack to Away", "Enable Do Not Disturb"],
+    pomodoro: null,
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+  {
+    id: "mod-pomodoro-focus",
+    name: "Pomodoro Focus",
+    category: "Focus Work",
+    description: "25m work block",
+    icon: "timer",
+    durationMinutes: 25,
+    stepType: "pomodoro",
+    pomodoro: {
+      focusSeconds: 1500,
+      breakSeconds: 300,
+      cycles: 1,
+      longBreakSeconds: 900,
+      longBreakEvery: 4,
+    },
+    checklist: ["Focus on one task only", "No context switching"],
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+  {
+    id: "mod-two-min-triage",
+    name: "2m Triage",
+    category: "Communication",
+    description: "Quick inbox sort",
+    icon: "mail",
+    durationMinutes: 2,
+    stepType: "micro",
+    checklist: ["Reply, archive, or defer", "No deep replies"],
+    pomodoro: null,
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+  {
+    id: "mod-slack-status",
+    name: "Slack Status",
+    category: "Communication",
+    description: "Update availability",
+    icon: "chat",
+    durationMinutes: 3,
+    stepType: "micro",
+    checklist: ["Set current status", "Confirm mention rules"],
+    pomodoro: null,
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+  {
+    id: "mod-break-reset",
+    name: "Reset Break",
+    category: "Recovery",
+    description: "Short recovery",
+    icon: "break",
+    durationMinutes: 5,
+    stepType: "free",
+    checklist: ["Leave desk", "Hydrate", "Eye rest"],
+    pomodoro: null,
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+  {
+    id: "mod-plan-next",
+    name: "Plan Next",
+    category: "Planning",
+    description: "Choose next task",
+    icon: "plan",
+    durationMinutes: 4,
+    stepType: "micro",
+    checklist: ["Pick next high-impact task", "Write first action"],
+    pomodoro: null,
+    overrunPolicy: "wait",
+    executionHints: {
+      allowSkip: true,
+      mustCompleteChecklist: false,
+      autoAdvance: true,
+    },
+  },
+];
+const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
+const routineStudioMacroTargets = [30, 45, 60, 90];
+let routineStudioSequence = 1;
 
 /** @typedef {{id:string,date:string,start_at:string,end_at:string,firmness:string,instance:string,planned_pomodoros:number,source:string,source_id:string|null,recipe_id?:string,auto_drive_mode?:string,contents?:any}} Block */
 /** @typedef {{account_id:string,id:string,title:string,start_at:string,end_at:string}} SyncedEvent */
@@ -123,6 +255,27 @@ const uiState = {
     lastReflectionSyncEpochMs: 0,
     actionInFlight: false,
   },
+  routineStudio: {
+    assetsLoaded: false,
+    assetsLoading: false,
+    activeTab: "modules",
+    search: "",
+    draftName: "Morning Deep Work",
+    templateId: "rcp-routine-studio",
+    triggerTime: "09:00",
+    context: "Work - Deep Focus",
+    autoStart: true,
+    macroTargetMinutes: 30,
+    modules: [],
+    hiddenTemplateCount: 0,
+    canvasEntries: [],
+    history: [],
+    historyIndex: -1,
+    dragInsertIndex: -1,
+    selectedEntryId: "",
+    editingModuleId: "",
+    moduleEditor: null,
+  },
   settings: {
     page: "blocks",
     workStart: "09:00",
@@ -138,6 +291,7 @@ const mockState = {
   tasks: [],
   blocks: [],
   recipes: [],
+  modules: [],
   syncedEventsByAccount: {},
   taskAssignmentsByTask: {},
   taskAssignmentsByBlock: {},
@@ -207,15 +361,36 @@ function ensureMockRecipesSeeded() {
       id: "rcp-default",
       name: "Default Focus",
       auto_drive_mode: "manual",
-      steps: [{ id: "step-1", type: "pomodoro", title: "Focus", durationSeconds: 1500 }],
+      studioMeta: { version: 1, kind: "routine_studio" },
+      steps: [
+        {
+          id: "step-1",
+          type: "pomodoro",
+          title: "Focus",
+          durationSeconds: 1500,
+          moduleId: "mod-pomodoro-focus",
+          checklist: ["Focus on one task only"],
+          executionHints: { allowSkip: false, mustCompleteChecklist: false, autoAdvance: true },
+        },
+      ],
     },
     {
-      id: "rcp-quick",
-      name: "Quick Admin",
+      id: "rcp-legacy",
+      name: "Legacy Template",
       auto_drive_mode: "auto",
       steps: [{ id: "step-1", type: "micro", title: "Admin", durationSeconds: 900 }],
     },
   ];
+}
+
+function ensureMockModulesSeeded() {
+  if (mockState.modules.length > 0) return;
+  mockState.modules = routineStudioSeedModules.map((module) => ({
+    ...module,
+    checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
+    pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
+    executionHints: module.executionHints ? { ...module.executionHints } : null,
+  }));
 }
 
 function isoDate(value) {
@@ -642,6 +817,35 @@ function toDurationLabel(totalMinutes) {
   if (hours > 0 && minutes > 0) return `${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h`;
   return `${minutes}m`;
+}
+
+function nextRoutineStudioEntryId() {
+  const id = `studio-entry-${routineStudioSequence}`;
+  routineStudioSequence += 1;
+  return id;
+}
+
+function routineStudioStepDurationMinutes(step) {
+  const durationSeconds = Number(step?.durationSeconds ?? step?.duration_seconds ?? 300);
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return 5;
+  return Math.max(1, Math.round(durationSeconds / 60));
+}
+
+function routineStudioSlug(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function isRoutineStudioRecipe(recipe) {
+  const meta = recipe?.studioMeta || recipe?.studio_meta;
+  return Number(meta?.version) === 1 && String(meta?.kind || "").toLowerCase() === "routine_studio";
+}
+
+function cloneValue(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function toClippedInterval(startAt, endAt, dayStartMs, dayEndMs) {
@@ -1834,6 +2038,7 @@ async function mockInvoke(name, payload) {
       ensureMockRecipesSeeded();
       return [...mockState.recipes];
     case "create_recipe": {
+      ensureMockRecipesSeeded();
       const payloadRecipe = payload.payload || payload;
       if (!payloadRecipe?.id) {
         throw new Error("recipe id is required");
@@ -1846,11 +2051,13 @@ async function mockInvoke(name, payload) {
         name: String(payloadRecipe.name || payloadRecipe.id),
         auto_drive_mode: String(payloadRecipe.autoDriveMode || payloadRecipe.auto_drive_mode || "manual"),
         steps: Array.isArray(payloadRecipe.steps) ? payloadRecipe.steps : [],
+        studioMeta: payloadRecipe.studioMeta || payloadRecipe.studio_meta || null,
       };
       mockState.recipes.push(recipe);
       return recipe;
     }
     case "update_recipe": {
+      ensureMockRecipesSeeded();
       const payloadRecipe = payload.payload || payload;
       const recipeId = String(payload.recipe_id || "").trim();
       if (!recipeId) throw new Error("recipe_id is required");
@@ -1865,10 +2072,163 @@ async function mockInvoke(name, payload) {
       return updated;
     }
     case "delete_recipe": {
+      ensureMockRecipesSeeded();
       const recipeId = String(payload.recipe_id || "").trim();
       const before = mockState.recipes.length;
       mockState.recipes = mockState.recipes.filter((recipe) => recipe.id !== recipeId);
       return before !== mockState.recipes.length;
+    }
+    case "list_modules":
+      ensureMockModulesSeeded();
+      return [...mockState.modules];
+    case "create_module": {
+      ensureMockModulesSeeded();
+      const payloadModule = payload.payload || payload;
+      if (!payloadModule?.id) {
+        throw new Error("module id is required");
+      }
+      const id = String(payloadModule.id);
+      if (mockState.modules.some((module) => module.id === id)) {
+        throw new Error("module already exists");
+      }
+      const created = {
+        id,
+        name: String(payloadModule.name || id),
+        category: String(payloadModule.category || "General"),
+        description: payloadModule.description ? String(payloadModule.description) : "",
+        icon: payloadModule.icon ? String(payloadModule.icon) : "module",
+        stepType: String(payloadModule.stepType || payloadModule.step_type || "micro"),
+        durationMinutes: Math.max(1, Number(payloadModule.durationMinutes || payloadModule.duration_minutes || 1)),
+        checklist: Array.isArray(payloadModule.checklist) ? payloadModule.checklist.map(String).filter(Boolean) : [],
+        pomodoro: payloadModule.pomodoro ? { ...payloadModule.pomodoro } : null,
+        overrunPolicy: String(payloadModule.overrunPolicy || payloadModule.overrun_policy || "wait"),
+        executionHints: payloadModule.executionHints
+          ? { ...payloadModule.executionHints }
+          : { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
+      };
+      mockState.modules.push(created);
+      return created;
+    }
+    case "update_module": {
+      ensureMockModulesSeeded();
+      const moduleId = String(payload.module_id || "").trim();
+      if (!moduleId) throw new Error("module_id is required");
+      const payloadModule = payload.payload || payload;
+      const index = mockState.modules.findIndex((module) => module.id === moduleId);
+      if (index < 0) throw new Error("module not found");
+      const updated = {
+        ...mockState.modules[index],
+        ...payloadModule,
+        id: moduleId,
+      };
+      updated.durationMinutes = Math.max(1, Number(updated.durationMinutes || updated.duration_minutes || 1));
+      updated.checklist = Array.isArray(updated.checklist) ? updated.checklist.map(String).filter(Boolean) : [];
+      updated.pomodoro = updated.pomodoro ? { ...updated.pomodoro } : null;
+      updated.executionHints = updated.executionHints
+        ? { ...updated.executionHints }
+        : { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true };
+      mockState.modules[index] = updated;
+      return updated;
+    }
+    case "delete_module": {
+      ensureMockModulesSeeded();
+      const moduleId = String(payload.module_id || "").trim();
+      const before = mockState.modules.length;
+      mockState.modules = mockState.modules.filter((module) => module.id !== moduleId);
+      return before !== mockState.modules.length;
+    }
+    case "apply_studio_template_to_today": {
+      ensureMockRecipesSeeded();
+      const templateId = String(payload.template_id || "").trim();
+      const date = String(payload.date || isoDate(new Date()));
+      const triggerTime = String(payload.trigger_time || "09:00");
+      const recipe = mockState.recipes.find((entry) => entry.id === templateId);
+      if (!recipe) throw new Error("template not found");
+      const meta = recipe.studioMeta || recipe.studio_meta;
+      if (!meta || Number(meta.version) !== 1 || String(meta.kind || "").toLowerCase() !== "routine_studio") {
+        throw new Error("template is not a routine studio template");
+      }
+      const totalSeconds = (Array.isArray(recipe.steps) ? recipe.steps : []).reduce(
+        (sum, step) => sum + Math.max(60, Number(step?.durationSeconds || step?.duration_seconds || 0)),
+        0
+      );
+      if (totalSeconds <= 0) throw new Error("template has no duration");
+      const [hh, mm] = triggerTime.split(":").map((entry) => Number(entry || 0));
+      const requestedStart = new Date(`${date}T00:00:00`);
+      requestedStart.setHours(Number.isFinite(hh) ? hh : 9, Number.isFinite(mm) ? mm : 0, 0, 0);
+      const requestedEnd = new Date(requestedStart.getTime() + totalSeconds * 1000);
+      const busyIntervals = [];
+      mockState.blocks
+        .filter((block) => block.date === date)
+        .forEach((block) => {
+          busyIntervals.push({
+            startMs: new Date(block.start_at).getTime(),
+            endMs: new Date(block.end_at).getTime(),
+          });
+        });
+      Object.values(mockState.syncedEventsByAccount)
+        .flat()
+        .forEach((event) => {
+          busyIntervals.push({
+            startMs: new Date(event.start_at).getTime(),
+            endMs: new Date(event.end_at).getTime(),
+          });
+        });
+      const overlaps = (leftStart, leftEnd, rightStart, rightEnd) => leftStart < rightEnd && rightStart < leftEnd;
+      const requestedStartMs = requestedStart.getTime();
+      const requestedEndMs = requestedEnd.getTime();
+      const conflictCount = busyIntervals.filter((interval) =>
+        overlaps(requestedStartMs, requestedEndMs, interval.startMs, interval.endMs)
+      ).length;
+      let appliedStartMs = requestedStartMs;
+      let appliedEndMs = requestedEndMs;
+      let shifted = false;
+      if (conflictCount > 0) {
+        const sorted = busyIntervals
+          .filter((interval) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs) && interval.endMs > interval.startMs)
+          .sort((left, right) => left.startMs - right.startMs);
+        let cursor = requestedStartMs;
+        for (const interval of sorted) {
+          if (cursor + totalSeconds * 1000 <= interval.startMs) break;
+          if (interval.endMs > cursor) {
+            cursor = interval.endMs;
+          }
+        }
+        const dayEnd = new Date(`${date}T23:59:59`).getTime();
+        if (cursor + totalSeconds * 1000 > dayEnd) {
+          throw new Error("no available free slot to apply template today");
+        }
+        appliedStartMs = cursor;
+        appliedEndMs = cursor + totalSeconds * 1000;
+        shifted = true;
+      }
+      const blockId = nextMockId("blk");
+      const block = {
+        id: blockId,
+        instance: `studio:${templateId}:${date}:${Date.now()}`,
+        date,
+        start_at: new Date(appliedStartMs).toISOString(),
+        end_at: new Date(appliedEndMs).toISOString(),
+        firmness: "draft",
+        planned_pomodoros: Math.max(1, Math.round(totalSeconds / 1500)),
+        source: "routine_studio",
+        source_id: templateId,
+        recipe_id: templateId,
+        auto_drive_mode: String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual"),
+        contents: {},
+      };
+      mockState.blocks.push(block);
+      return {
+        template_id: templateId,
+        date,
+        requested_start_at: requestedStart.toISOString(),
+        requested_end_at: requestedEnd.toISOString(),
+        applied_start_at: new Date(appliedStartMs).toISOString(),
+        applied_end_at: new Date(appliedEndMs).toISOString(),
+        shifted,
+        conflict_count: conflictCount,
+        block_id: blockId,
+      };
     }
     case "list_tasks":
       return [...mockState.tasks];
@@ -2301,8 +2661,10 @@ function render() {
   markActiveRoute(route);
   document.body.classList.toggle("route-today", route === "today");
   document.body.classList.toggle("route-now", route === "now");
+  document.body.classList.toggle("route-routines", route === "routines");
   appRoot.classList.toggle("view-root--today", route === "today");
   appRoot.classList.toggle("view-root--now", route === "now");
+  appRoot.classList.toggle("view-root--routines", route === "routines");
 
   switch (route) {
     case "today":
@@ -3432,194 +3794,1312 @@ function renderPomodoro() {
 
 function renderRoutines() {
   const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
-  appRoot.innerHTML = `
-    <section class="view-head">
-      <div>
-        <h2>Routines</h2>
-        <p>Routine / Recipe を編集して、Today 生成時の自動選択を固定します。</p>
-      </div>
-      <div class="row">
-        <button id="routines-load-recipes" class="btn-secondary">Recipe再読込</button>
-        <a href="#/settings/auth" class="btn-secondary" style="text-decoration:none;display:inline-flex;align-items:center">Auth設定</a>
-      </div>
-    </section>
-    <div class="grid two">
-      <div class="panel">
-        <div class="row spread">
-          <h3>Recipe一覧</h3>
-          <button id="routine-new-recipe" class="btn-secondary">新規</button>
-        </div>
-        <div class="log-list" style="margin-top:10px">
-          ${
-            recipes.length === 0
-              ? '<p class="small">recipe がありません。右側フォームで作成してください。</p>'
-              : recipes
-                  .map(
-                    (recipe) => `
-              <div class="panel">
-                <p><b>${recipe.name || recipe.id}</b></p>
-                <p class="small">${recipe.id} / ${recipe.auto_drive_mode || recipe.autoDriveMode || "manual"}</p>
-                <div class="row" style="margin-top:8px">
-                  <button class="btn-secondary" data-edit-recipe="${recipe.id}">編集</button>
-                  <button class="btn-danger" data-delete-recipe="${recipe.id}">削除</button>
-                </div>
-              </div>
-            `
-                  )
-                  .join("")
-          }
-        </div>
-      </div>
-      <div class="panel grid">
-        <h3>Recipe Editor</h3>
-        <label>ID <input id="recipe-id" placeholder="rcp-morning-micro" /></label>
-        <label>名前 <input id="recipe-name" placeholder="朝支度" /></label>
-        <label>Auto Drive
-          <select id="recipe-auto-drive">
-            ${["manual", "auto", "auto-silent"]
-              .map((mode) => `<option value="${mode}">${mode}</option>`)
-              .join("")}
-          </select>
-        </label>
-        <div class="grid two">
-          <label>Step Type
-            <select id="recipe-step-type">
-              ${["pomodoro", "micro", "free"]
-                .map((type) => `<option value="${type}">${type}</option>`)
-                .join("")}
-            </select>
-          </label>
-          <label>Step Title <input id="recipe-step-title" value="Focus" /></label>
-        </div>
-        <div class="grid three">
-          <label>Duration(sec) <input id="recipe-step-duration" type="number" min="1" value="1500" /></label>
-          <label>Focus(sec) <input id="recipe-focus" type="number" min="1" value="1500" /></label>
-          <label>Break(sec) <input id="recipe-break" type="number" min="1" value="300" /></label>
-        </div>
-        <label>Cycles <input id="recipe-cycles" type="number" min="1" value="1" /></label>
-        <div class="row">
-          <button id="routine-save-recipe" class="btn-primary">保存</button>
-        </div>
-      </div>
-    </div>
-  `;
-
-  const fillRecipeForm = (recipe) => {
-    if (!recipe) return;
-    const step = Array.isArray(recipe.steps) && recipe.steps.length > 0 ? recipe.steps[0] : null;
-    const stepType = step?.type || step?.step_type || "pomodoro";
-    const pomodoro = step?.pomodoro || null;
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value = recipe.id || "";
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value =
-      recipe.name || recipe.id || "";
-    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value =
-      recipe.auto_drive_mode || recipe.autoDriveMode || "manual";
-    /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value = stepType;
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-title")).value =
-      step?.title || "Focus";
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-duration")).value = String(
-      step?.durationSeconds || step?.duration_seconds || 1500
-    );
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-focus")).value = String(
-      pomodoro?.focusSeconds || pomodoro?.focus_seconds || 1500
-    );
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-break")).value = String(
-      pomodoro?.breakSeconds || pomodoro?.break_seconds || 300
-    );
-    /** @type {HTMLInputElement} */ (document.getElementById("recipe-cycles")).value = String(
-      pomodoro?.cycles || 1
-    );
+  if (!uiState.routineStudio || typeof uiState.routineStudio !== "object") {
+    uiState.routineStudio = {};
+  }
+  const studio = uiState.routineStudio;
+  const safeStepTypes = new Set(["micro", "pomodoro", "free"]);
+  const safeOverrunPolicies = new Set(["wait", "notify_and_next"]);
+  const normalizeStepType = (value) => {
+    const candidate = String(value || "micro").trim().toLowerCase();
+    return safeStepTypes.has(candidate) ? candidate : "micro";
   };
-
-  document.getElementById("routines-load-recipes")?.addEventListener("click", async () => {
-    await runUiAction(async () => {
-      uiState.recipes = await safeInvoke("list_recipes", {});
-      renderRoutines();
-    });
+  const normalizeOverrunPolicy = (value) => {
+    const candidate = String(value || "wait").trim().toLowerCase();
+    return safeOverrunPolicies.has(candidate) ? candidate : "wait";
+  };
+  const normalizeExecutionHints = (value) => ({
+    allowSkip: Boolean(value?.allowSkip ?? value?.allow_skip ?? true),
+    mustCompleteChecklist: Boolean(
+      value?.mustCompleteChecklist ?? value?.must_complete_checklist ?? false
+    ),
+    autoAdvance: Boolean(value?.autoAdvance ?? value?.auto_advance ?? true),
+  });
+  const normalizePomodoro = (value, fallbackMinutes = 25) => ({
+    focusSeconds: Math.max(
+      60,
+      Number(value?.focusSeconds || value?.focus_seconds || Math.max(60, Math.round(fallbackMinutes * 60)))
+    ),
+    breakSeconds: Math.max(60, Number(value?.breakSeconds || value?.break_seconds || 300)),
+    cycles: Math.max(1, Number(value?.cycles || 1)),
+    longBreakSeconds: Math.max(0, Number(value?.longBreakSeconds || value?.long_break_seconds || 0)),
+    longBreakEvery: Math.max(0, Number(value?.longBreakEvery || value?.long_break_every || 0)),
   });
 
-  document.getElementById("routine-new-recipe")?.addEventListener("click", () => {
-    fillRecipeForm({
+  studio.assetsLoaded = Boolean(studio.assetsLoaded);
+  studio.assetsLoading = Boolean(studio.assetsLoading);
+  studio.activeTab = studio.activeTab === "templates" ? "templates" : "modules";
+  studio.search = typeof studio.search === "string" ? studio.search : "";
+  studio.draftName =
+    typeof studio.draftName === "string" && studio.draftName.trim() ? studio.draftName : "Routine Draft";
+  studio.templateId =
+    typeof studio.templateId === "string" && studio.templateId.trim()
+      ? studio.templateId
+      : `rcp-${routineStudioSlug(studio.draftName) || "routine-studio"}`;
+  studio.triggerTime =
+    typeof studio.triggerTime === "string" && /^\d{2}:\d{2}$/.test(studio.triggerTime) ? studio.triggerTime : "09:00";
+  studio.context =
+    typeof studio.context === "string" && studio.context.trim() ? studio.context : routineStudioContexts[0];
+  studio.autoStart = Boolean(studio.autoStart);
+  studio.macroTargetMinutes = Number.isFinite(Number(studio.macroTargetMinutes))
+    ? Number(studio.macroTargetMinutes)
+    : 30;
+  studio.modules = Array.isArray(studio.modules) ? studio.modules : [];
+  studio.canvasEntries = Array.isArray(studio.canvasEntries) ? studio.canvasEntries : [];
+  studio.history = Array.isArray(studio.history) ? studio.history : [];
+  studio.historyIndex = Number.isInteger(studio.historyIndex) ? studio.historyIndex : -1;
+  studio.dragInsertIndex = Number.isInteger(studio.dragInsertIndex) ? studio.dragInsertIndex : -1;
+  studio.selectedEntryId = typeof studio.selectedEntryId === "string" ? studio.selectedEntryId : "";
+  studio.hiddenTemplateCount = Number.isFinite(Number(studio.hiddenTemplateCount))
+    ? Number(studio.hiddenTemplateCount)
+    : 0;
+  studio.lastApplyResult = typeof studio.lastApplyResult === "string" ? studio.lastApplyResult : "";
+  studio.moduleEditor = studio.moduleEditor && typeof studio.moduleEditor === "object" ? studio.moduleEditor : null;
+  studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
+
+  const normalizeModule = (module, index) => {
+    const id = String(module?.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
+    const pomodoro = module?.pomodoro && typeof module.pomodoro === "object" ? module.pomodoro : null;
+    const executionHints =
+      module?.executionHints && typeof module.executionHints === "object"
+        ? module.executionHints
+        : module?.execution_hints && typeof module.execution_hints === "object"
+      ? module.execution_hints
+      : null;
+    const stepType = normalizeStepType(module?.stepType || module?.step_type || "micro");
+    const durationMinutes = Math.max(1, Number(module?.durationMinutes || module?.duration_minutes || 1));
+    return {
+      id,
+      name: String(module?.name || id),
+      category: String(module?.category || "General"),
+      description: String(module?.description || ""),
+      icon: String(module?.icon || "module"),
+      durationMinutes,
+      stepType,
+      checklist: Array.isArray(module?.checklist) ? module.checklist.map(String).filter(Boolean) : [],
+      overrunPolicy: normalizeOverrunPolicy(module?.overrunPolicy || module?.overrun_policy || "wait"),
+      pomodoro: stepType === "pomodoro" ? normalizePomodoro(pomodoro, durationMinutes) : null,
+      executionHints: normalizeExecutionHints(executionHints),
+    };
+  };
+  const normalizeEntry = (entry, index) => {
+    const stepType = normalizeStepType(entry?.stepType || entry?.step_type || entry?.type || "micro");
+    const durationMinutes = Math.max(
+      1,
+      Number(entry?.durationMinutes || entry?.duration_minutes || 5)
+    );
+    return {
+      entryId: String(entry?.entryId || nextRoutineStudioEntryId()),
+      sourceKind: String(entry?.sourceKind || entry?.source_kind || "module"),
+      sourceId: String(entry?.sourceId || entry?.source_id || ""),
+      moduleId: String(entry?.moduleId || entry?.module_id || ""),
+      title: String(entry?.title || `Step ${index + 1}`),
+      subtitle: String(entry?.subtitle || ""),
+      durationMinutes,
+      stepType,
+      checklist: Array.isArray(entry?.checklist) ? entry.checklist.map(String).filter(Boolean) : [],
+      note: String(entry?.note || ""),
+      overrunPolicy: normalizeOverrunPolicy(entry?.overrunPolicy || entry?.overrun_policy || "wait"),
+      executionHints: normalizeExecutionHints(entry?.executionHints || entry?.execution_hints),
+      pomodoro: stepType === "pomodoro" ? normalizePomodoro(entry?.pomodoro, durationMinutes) : null,
+    };
+  };
+  const parseChecklistText = (value) =>
+    String(value || "")
+      .split(/\r?\n/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  const normalizeModuleEditor = (editor) => {
+    const stepType = normalizeStepType(editor?.stepType || editor?.step_type || "micro");
+    return {
+      id: String(editor?.id || ""),
+      name: String(editor?.name || ""),
+      category: String(editor?.category || "General"),
+      description: String(editor?.description || ""),
+      icon: String(editor?.icon || "module"),
+      durationMinutes: Math.max(1, Number(editor?.durationMinutes || editor?.duration_minutes || 5)),
+      stepType,
+      overrunPolicy: normalizeOverrunPolicy(editor?.overrunPolicy || editor?.overrun_policy || "wait"),
+      checklistText: String(editor?.checklistText || ""),
+      executionHints: normalizeExecutionHints(editor?.executionHints || editor?.execution_hints),
+      pomodoro: normalizePomodoro(editor?.pomodoro, Number(editor?.durationMinutes || 25)),
+    };
+  };
+  const createEmptyModuleEditor = () =>
+    normalizeModuleEditor({
       id: "",
       name: "",
-      auto_drive_mode: "manual",
-      steps: [],
+      category: "General",
+      description: "",
+      icon: "module",
+      durationMinutes: 5,
+      stepType: "micro",
+      overrunPolicy: "wait",
+      checklistText: "",
+      executionHints: { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
+      pomodoro: normalizePomodoro(null, 25),
     });
-  });
+  studio.modules = studio.modules.map(normalizeModule);
+  studio.canvasEntries = studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index));
+  studio.moduleEditor = studio.moduleEditor ? normalizeModuleEditor(studio.moduleEditor) : null;
 
-  appRoot.querySelectorAll("[data-edit-recipe]").forEach((node) => {
-    node.addEventListener("click", () => {
-      const recipeId = /** @type {HTMLElement} */ (node).dataset.editRecipe;
-      const recipe = recipes.find((item) => item.id === recipeId);
-      fillRecipeForm(recipe);
-    });
-  });
-
-  appRoot.querySelectorAll("[data-delete-recipe]").forEach((node) => {
-    node.addEventListener("click", async () => {
-      await runUiAction(async () => {
-        const recipeId = /** @type {HTMLElement} */ (node).dataset.deleteRecipe;
-        await safeInvoke("delete_recipe", { recipe_id: recipeId });
-        uiState.recipes = await safeInvoke("list_recipes", {});
+  if (!studio.assetsLoaded) {
+    appRoot.innerHTML = `
+      <section class="routine-studio-root">
+        <header class="routine-studio-toolbar">
+          <div>
+            <h2>Routine Studio</h2>
+            <p>モジュールとテンプレートを読み込み中...</p>
+          </div>
+        </header>
+      </section>
+    `;
+    if (!studio.assetsLoading) {
+      studio.assetsLoading = true;
+      runUiAction(async () => {
+        const [recipesResult, modulesResult] = await Promise.all([
+          safeInvoke("list_recipes", {}),
+          safeInvoke("list_modules", {}).catch(() => cloneValue(routineStudioSeedModules)),
+        ]);
+        uiState.recipes = Array.isArray(recipesResult) ? recipesResult : [];
+        studio.modules = Array.isArray(modulesResult) ? modulesResult.map(normalizeModule) : [];
+        studio.assetsLoaded = true;
+        studio.assetsLoading = false;
         renderRoutines();
+      });
+    }
+    return;
+  }
+
+  const moduleToEntry = (module) =>
+    normalizeEntry({
+      entryId: nextRoutineStudioEntryId(),
+      sourceKind: "module",
+      sourceId: module.id,
+      moduleId: module.id,
+      title: module.name,
+      subtitle: module.description || module.category || "Module",
+      durationMinutes: Math.max(1, Number(module.durationMinutes) || 5),
+      stepType: module.stepType || "micro",
+      checklist: Array.isArray(module.checklist) ? module.checklist.map(String).filter(Boolean) : [],
+      note: "",
+      overrunPolicy: module.overrunPolicy || "wait",
+      executionHints: normalizeExecutionHints(module.executionHints),
+      pomodoro: module.stepType === "pomodoro" ? normalizePomodoro(module.pomodoro, module.durationMinutes) : null,
+    });
+  const recipeToEntries = (recipe) => {
+    const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
+    const autoDriveMode = String(recipe?.auto_drive_mode || recipe?.autoDriveMode || "manual");
+    if (steps.length === 0) {
+      return [
+        {
+          entryId: nextRoutineStudioEntryId(),
+          sourceKind: "template",
+          sourceId: recipe?.id || "",
+          moduleId: "",
+          title: recipe?.name || recipe?.id || "Template Step",
+          subtitle: "Imported template",
+          durationMinutes: 5,
+          stepType: "micro",
+          checklist: [],
+          note: "",
+          overrunPolicy: "wait",
+          executionHints: { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
+          pomodoro: null,
+          autoDriveMode,
+        },
+      ];
+    }
+    return steps.map((step, index) => {
+      const stepType = String(step?.type || step?.step_type || "micro");
+      const pomodoro = step?.pomodoro || {};
+      const executionHints = step?.executionHints || step?.execution_hints || {};
+      return normalizeEntry({
+        entryId: nextRoutineStudioEntryId(),
+        sourceKind: "template",
+        sourceId: recipe?.id || "",
+        moduleId: String(step?.moduleId || step?.module_id || ""),
+        title: String(step?.title || `Step ${index + 1}`),
+        subtitle: recipe?.name || recipe?.id || "Template",
+        durationMinutes: routineStudioStepDurationMinutes(step),
+        stepType,
+        checklist: Array.isArray(step?.checklist)
+          ? step.checklist.map(String).filter(Boolean)
+          : [],
+        note: String(step?.note || ""),
+        overrunPolicy: String(step?.overrunPolicy || step?.overrun_policy || "wait"),
+        executionHints: normalizeExecutionHints(executionHints),
+        pomodoro: stepType === "pomodoro" ? normalizePomodoro(pomodoro, routineStudioStepDurationMinutes(step)) : null,
+        autoDriveMode,
+      });
+    });
+  };
+  const syncFromRecipe = (recipe) => {
+    if (!recipe) return;
+    const autoDriveMode = String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual");
+    studio.templateId = String(recipe.id || studio.templateId);
+    studio.draftName = String(recipe.name || recipe.id || studio.draftName);
+    studio.autoStart = autoDriveMode !== "manual";
+  };
+  if (!studio.bootstrapped) {
+    const studioRecipes = recipes.filter((recipe) => isRoutineStudioRecipe(recipe));
+    if (studioRecipes.length > 0) {
+      syncFromRecipe(studioRecipes[0]);
+      studio.canvasEntries = recipeToEntries(studioRecipes[0]);
+    } else {
+      studio.canvasEntries = studio.modules.slice(0, 3).map(moduleToEntry);
+    }
+    studio.bootstrapped = true;
+    studio.history = [cloneValue(studio.canvasEntries)];
+    studio.historyIndex = 0;
+    studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+  }
+  if (studio.history.length === 0) {
+    studio.history = [cloneValue(studio.canvasEntries)];
+    studio.historyIndex = 0;
+  }
+  if (studio.historyIndex < 0 || studio.historyIndex >= studio.history.length) {
+    studio.historyIndex = studio.history.length - 1;
+  }
+  if (!studio.selectedEntryId && studio.canvasEntries.length > 0) {
+    studio.selectedEntryId = studio.canvasEntries[0].entryId;
+  }
+  const addAssetToCanvas = (kind, id, replace = false, insertIndex = studio.canvasEntries.length) => {
+    if (!id) return false;
+    const clampedInsertIndex = Math.max(
+      0,
+      Math.min(Number(insertIndex) || 0, studio.canvasEntries.length)
+    );
+    if (kind === "module") {
+      const module = studio.modules.find((candidate) => candidate.id === id);
+      if (!module) return false;
+      const next = moduleToEntry(module);
+      if (replace) {
+        applyCanvasEntries([next], true);
+      } else {
+        const nextEntries = [...studio.canvasEntries];
+        nextEntries.splice(clampedInsertIndex, 0, next);
+        applyCanvasEntries(nextEntries, true);
+      }
+      studio.selectedEntryId = next.entryId;
+      return true;
+    }
+    if (kind === "template") {
+      const recipe = recipes.find((candidate) => candidate.id === id && isRoutineStudioRecipe(candidate));
+      if (!recipe) return false;
+      const entries = recipeToEntries(recipe);
+      if (replace) {
+        applyCanvasEntries(entries, true);
+      } else {
+        const nextEntries = [...studio.canvasEntries];
+        nextEntries.splice(clampedInsertIndex, 0, ...entries);
+        applyCanvasEntries(nextEntries, true);
+      }
+      syncFromRecipe(recipe);
+      studio.selectedEntryId = entries[0]?.entryId || studio.selectedEntryId;
+      return true;
+    }
+    return false;
+  };
+  const pushHistory = () => {
+    const snapshot = cloneValue(studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index)));
+    const current =
+      studio.historyIndex >= 0 && studio.historyIndex < studio.history.length
+        ? studio.history[studio.historyIndex]
+        : null;
+    if (current && JSON.stringify(current) === JSON.stringify(snapshot)) {
+      return;
+    }
+    const truncated = studio.history.slice(0, studio.historyIndex + 1);
+    truncated.push(snapshot);
+    if (truncated.length > 50) {
+      truncated.shift();
+    }
+    studio.history = truncated;
+    studio.historyIndex = studio.history.length - 1;
+  };
+  const applyCanvasEntries = (nextEntries, recordHistory = true) => {
+    studio.canvasEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry, index) =>
+      normalizeEntry(entry, index)
+    );
+    if (studio.canvasEntries.length > 0 && !studio.selectedEntryId) {
+      studio.selectedEntryId = studio.canvasEntries[0].entryId;
+    }
+    if (
+      studio.selectedEntryId &&
+      studio.canvasEntries.every((entry) => entry.entryId !== studio.selectedEntryId)
+    ) {
+      studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+    }
+    if (recordHistory) {
+      pushHistory();
+    }
+  };
+
+  const searchNeedle = studio.search.trim().toLowerCase();
+  const moduleAssets = studio.modules.filter((module) => {
+    if (!searchNeedle) return true;
+    return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
+  });
+  const allStudioRecipes = recipes.filter((recipe) => isRoutineStudioRecipe(recipe));
+  studio.hiddenTemplateCount = Math.max(0, recipes.length - allStudioRecipes.length);
+  const templateAssets = allStudioRecipes
+    .map((recipe) => {
+      const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
+      const totalMinutes = steps.reduce((sum, step) => sum + routineStudioStepDurationMinutes(step), 0);
+      return {
+        id: String(recipe.id || ""),
+        name: String(recipe.name || recipe.id || "Untitled"),
+        autoDriveMode: String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual"),
+        stepCount: steps.length,
+        totalMinutes,
+      };
+    })
+    .filter((template) => {
+      if (!searchNeedle) return true;
+      return `${template.id} ${template.name} ${template.autoDriveMode}`.toLowerCase().includes(searchNeedle);
+    });
+  const totalMinutes = studio.canvasEntries.reduce((sum, entry) => sum + (Number(entry.durationMinutes) || 0), 0);
+  const targetMinutes = Math.max(15, Number(studio.macroTargetMinutes) || 30);
+  const fitPercent = Math.min(100, Math.round((totalMinutes / targetMinutes) * 100));
+  const macroFits = totalMinutes > 0 && totalMinutes <= targetMinutes;
+  const macroMessage =
+    totalMinutes === 0
+      ? "キャンバスが空です。"
+      : macroFits
+      ? `${targetMinutes}分の枠に収まります。`
+      : `目標（${targetMinutes}分）を${totalMinutes - targetMinutes}分オーバーしています。`;
+  const dateKey = uiState.dashboardDate || isoDate(new Date());
+  const triggerStart = new Date(`${dateKey}T${studio.triggerTime || "09:00"}:00`);
+  const triggerStartMs = triggerStart.getTime();
+  const triggerEndMs = triggerStartMs + totalMinutes * 60000;
+  const overlaps = (leftStart, leftEnd, rightStart, rightEnd) => leftStart < rightEnd && rightStart < leftEnd;
+  const conflictItems = [];
+  if (totalMinutes > 0 && Number.isFinite(triggerStartMs) && Number.isFinite(triggerEndMs)) {
+    uiState.blocks
+      .filter((block) => String(block?.date || "") === dateKey)
+      .forEach((block) => {
+        const startMs = new Date(block.start_at).getTime();
+        const endMs = new Date(block.end_at).getTime();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+        if (!overlaps(triggerStartMs, triggerEndMs, startMs, endMs)) return;
+        conflictItems.push({
+          kind: "block",
+          title: blockTitle(block) || "Scheduled Block",
+          startMs,
+          endMs,
+        });
+      });
+    uiState.calendarEvents.forEach((event) => {
+      const startMs = new Date(event.start_at).getTime();
+      const endMs = new Date(event.end_at).getTime();
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+      if (!overlaps(triggerStartMs, triggerEndMs, startMs, endMs)) return;
+      conflictItems.push({
+        kind: "event",
+        title: String(event.title || "Calendar Event"),
+        startMs,
+        endMs,
+      });
+    });
+    conflictItems.sort((left, right) => left.startMs - right.startMs);
+  }
+  const conflictCount = conflictItems.length;
+  const conflictMessage =
+    totalMinutes <= 0
+      ? "モジュールを追加すると競合チェックできます。"
+      : conflictCount === 0
+      ? "競合するスケジュールはありません。"
+      : `${conflictCount}件の競合が検出されました。`;
+
+  appRoot.innerHTML = `
+    <section class="routine-studio-root">
+      <header class="routine-studio-toolbar">
+        <div>
+          <h2>Routine Studio</h2>
+          <p>部品（モジュール）を選んで、組み立てる（キャンバス）、保存する（テンプレート）。</p>
+        </div>
+        <div class="rs-toolbar-actions">
+          <button type="button" id="studio-refresh-recipes" class="rs-btn rs-btn-secondary">アセット更新</button>
+          <button type="button" id="studio-new-module" class="rs-btn rs-btn-secondary">モジュールを追加</button>
+        </div>
+      </header>
+      <div class="routine-studio-layout">
+        <aside class="rs-library">
+          <div class="rs-tabs">
+            <button type="button" class="rs-tab ${studio.activeTab === "modules" ? "is-active" : ""}" data-studio-tab="modules">モジュール</button>
+            <button type="button" class="rs-tab ${studio.activeTab === "templates" ? "is-active" : ""}" data-studio-tab="templates">テンプレート</button>
+          </div>
+          <div class="rs-search-wrap">
+            <input id="studio-search-input" type="search" placeholder="アセットを検索..." value="${escapeHtml(studio.search)}" />
+            ${
+              studio.activeTab === "templates" && studio.hiddenTemplateCount > 0
+                ? `<p class="small rs-legacy-note">${studio.hiddenTemplateCount}件の旧テンプレートが非表示です。</p>`
+                : ""
+            }
+          </div>
+          <div class="rs-assets">
+            ${
+              studio.activeTab === "modules"
+                ? (() => {
+                    const grouped = moduleAssets.reduce((accumulator, module) => {
+                      const category = String(module.category || "General");
+                      if (!accumulator[category]) accumulator[category] = [];
+                      accumulator[category].push(module);
+                      return accumulator;
+                    }, {});
+                    const categories = Object.keys(grouped).sort((left, right) => left.localeCompare(right));
+                    if (categories.length === 0) {
+                      return '<p class="small">モジュールが見つかりません。</p>';
+                    }
+                    return categories
+                      .map(
+                        (category) => `
+                        <section class="rs-asset-group">
+                          <h4 class="rs-asset-group-title">${escapeHtml(category)}</h4>
+                          ${grouped[category]
+                            .map(
+                              (module) => `
+                            <article class="rs-asset-card" draggable="true" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}">
+                              <div class="rs-asset-head">
+                                <p class="rs-asset-title">${escapeHtml(module.name)}</p>
+                                <span class="rs-asset-duration">${module.durationMinutes}m</span>
+                              </div>
+                              <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
+                              <div class="rs-asset-actions">
+                                <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">追加</button>
+                                <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
+                                <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#10005;</button>
+                              </div>
+                            </article>
+                          `
+                            )
+                            .join("")}
+                        </section>
+                      `
+                      )
+                      .join("");
+                  })()
+                : templateAssets
+                    .map(
+                      (template) => `
+                <article class="rs-asset-card" draggable="true" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(template.id)}">
+                  <div class="rs-asset-head">
+                    <p class="rs-asset-title">${escapeHtml(template.name)}</p>
+                    <span class="rs-asset-duration">${template.totalMinutes}m</span>
+                  </div>
+                  <p class="rs-asset-subtitle">${template.stepCount} ステップ • ${escapeHtml(template.autoDriveMode)}</p>
+                  <div class="rs-asset-actions">
+                    <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(template.id)}">挿入</button>
+                    <button type="button" class="rs-btn rs-btn-ghost" data-studio-load-template="${escapeHtml(template.id)}">読込</button>
+                  </div>
+                </article>
+              `
+                    )
+                    .join("")
+            }
+          </div>
+        </aside>
+        <section class="rs-canvas">
+          <header class="rs-canvas-head">
+            <div>
+              <h3>ルーティンキャンバス</h3>
+              <p>モジュールをドラッグして追加</p>
+            </div>
+            <div class="rs-history-actions">
+              <button type="button" id="studio-undo" class="rs-btn rs-btn-ghost" ${studio.historyIndex <= 0 ? "disabled" : ""}>元に戻す</button>
+              <button type="button" id="studio-redo" class="rs-btn rs-btn-ghost" ${studio.historyIndex >= studio.history.length - 1 ? "disabled" : ""}>やり直す</button>
+            </div>
+          </header>
+          <div class="rs-canvas-body">
+            <div id="routine-studio-dropzone" class="rs-dropzone">
+              ${
+                studio.canvasEntries.length === 0
+                  ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
+                  : studio.canvasEntries
+                      .map(
+                        (entry, index) => `
+                  <article class="rs-canvas-card ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(entry.entryId)}" draggable="true" data-studio-canvas-entry="${escapeHtml(entry.entryId)}">
+                    <header class="rs-canvas-card-head">
+                      <span class="rs-drag-handle" aria-hidden="true" title="ドラッグして並び順を変更">&#x2807;</span>
+                      <button type="button" class="rs-canvas-index" data-studio-select-entry="${escapeHtml(entry.entryId)}">${index + 1}</button>
+                      <div class="rs-canvas-meta">
+                        <p class="rs-canvas-title">${escapeHtml(entry.title || `Step ${index + 1}`)}</p>
+                        <p class="rs-canvas-subtitle">${escapeHtml(entry.subtitle || "")}</p>
+                      </div>
+                      <span class="rs-canvas-duration">${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
+                      <div class="rs-canvas-actions">
+                        <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
+                        <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="down" ${index === studio.canvasEntries.length - 1 ? "disabled" : ""}>↓</button>
+                        <button type="button" class="rs-icon-btn is-danger" data-studio-remove="${escapeHtml(entry.entryId)}">×</button>
+                      </div>
+                    </header>
+                    <details class="rs-canvas-details" ${studio.selectedEntryId === entry.entryId ? "open" : ""}>
+                      <summary>詳細設定</summary>
+                      <div class="rs-entry-grid">
+                        <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${escapeHtml(entry.title)}" /></label>
+                        <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${escapeHtml(entry.entryId)}" type="number" min="1" value="${Math.max(1, Number(entry.durationMinutes) || 1)}" /></label>
+                        <label class="rs-field">タイプ
+                          <select data-studio-entry-field="stepType" data-studio-entry-id="${escapeHtml(entry.entryId)}">
+                            <option value="micro" ${entry.stepType === "micro" ? "selected" : ""}>micro</option>
+                            <option value="pomodoro" ${entry.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
+                            <option value="free" ${entry.stepType === "free" ? "selected" : ""}>free</option>
+                          </select>
+                        </label>
+                        <label class="rs-field">モジュール
+                          <select data-studio-entry-field="moduleId" data-studio-entry-id="${escapeHtml(entry.entryId)}">
+                            <option value="">なし</option>
+                            ${studio.modules
+                              .map(
+                                (module) =>
+                                  `<option value="${escapeHtml(module.id)}" ${module.id === entry.moduleId ? "selected" : ""}>${escapeHtml(module.name)}</option>`
+                              )
+                              .join("")}
+                          </select>
+                        </label>
+                        <label class="rs-field">超過時
+                          <select data-studio-entry-field="overrunPolicy" data-studio-entry-id="${escapeHtml(entry.entryId)}">
+                            <option value="wait" ${entry.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
+                            <option value="notify_and_next" ${entry.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
+                          </select>
+                        </label>
+                        <label class="rs-field rs-field-full">チェックリスト
+                          <textarea class="rs-textarea" data-studio-entry-field="checklist" data-studio-entry-id="${escapeHtml(entry.entryId)}">${escapeHtml((entry.checklist || []).join("\n"))}</textarea>
+                        </label>
+                        <label class="rs-field rs-field-full">ノート
+                          <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${escapeHtml(entry.entryId)}">${escapeHtml(entry.note || "")}</textarea>
+                        </label>
+                        <fieldset class="rs-entry-checks rs-field-full">
+                          <legend>実行ヒント</legend>
+                          <label><input type="checkbox" data-studio-entry-hint="allowSkip" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.allowSkip ? "checked" : ""} />スキップ可</label>
+                          <label><input type="checkbox" data-studio-entry-hint="mustCompleteChecklist" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.mustCompleteChecklist ? "checked" : ""} />完了必須</label>
+                          <label><input type="checkbox" data-studio-entry-hint="autoAdvance" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.autoAdvance ? "checked" : ""} />自動進行</label>
+                        </fieldset>
+                        ${
+                          entry.stepType === "pomodoro"
+                            ? `<div class="rs-inline-fields rs-field-full">
+                                <label class="rs-field">集中(秒)<input type="number" min="60" data-studio-entry-pomodoro="focusSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(60, Number(entry.pomodoro?.focusSeconds) || 1500)}" /></label>
+                                <label class="rs-field">休憩(秒)<input type="number" min="60" data-studio-entry-pomodoro="breakSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(60, Number(entry.pomodoro?.breakSeconds) || 300)}" /></label>
+                                <label class="rs-field">サイクル<input type="number" min="1" data-studio-entry-pomodoro="cycles" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(1, Number(entry.pomodoro?.cycles) || 1)}" /></label>
+                                <label class="rs-field">長休憩(秒)<input type="number" min="0" data-studio-entry-pomodoro="longBreakSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(0, Number(entry.pomodoro?.longBreakSeconds) || 0)}" /></label>
+                                <label class="rs-field">頻度<input type="number" min="0" data-studio-entry-pomodoro="longBreakEvery" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(0, Number(entry.pomodoro?.longBreakEvery) || 0)}" /></label>
+                              </div>`
+                            : ""
+                        }
+                      </div>
+                    </details>
+                  </article>
+                `
+                      )
+                      .join('<div class="rs-canvas-connector" aria-hidden="true"></div>')
+              }
+            </div>
+          </div>
+        </section>
+        <aside class="rs-intel">
+          <header class="rs-intel-head">
+            <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
+            <p class="small">編集済み</p>
+            <div class="rs-total">${totalMinutes}<span> min</span></div>
+            <div class="bar-track"><div class="bar-fill rs-total-fill" style="width:${fitPercent}%"></div></div>
+          </header>
+          <div class="rs-intel-body">
+            <section class="rs-health">
+              <h4>ルーティン診断</h4>
+              <article class="rs-health-card ${macroFits ? "is-ok" : "is-warn"}"><p class="rs-health-title">時間フィット</p><p class="small">${escapeHtml(macroMessage)}</p></article>
+              <article class="rs-health-card ${conflictCount === 0 ? "is-ok" : "is-warn"}">
+                <p class="rs-health-title">スケジュール競合</p>
+                <p class="small">${escapeHtml(conflictMessage)}</p>
+                ${
+                  conflictItems.length > 0
+                    ? `<ul class="rs-conflict-list">${conflictItems
+                        .slice(0, 4)
+                        .map(
+                          (item) =>
+                            `<li>${escapeHtml(item.title)} (${formatHHmm(new Date(item.startMs).toISOString())}-${formatHHmm(new Date(item.endMs).toISOString())})</li>`
+                        )
+                        .join("")}</ul>`
+                    : ""
+                }
+              </article>
+            </section>
+            <details class="rs-properties" open>
+              <summary class="rs-properties-summary">プロパティ</summary>
+              <label class="rs-field">テンプレートID<input id="studio-template-id" value="${escapeHtml(studio.templateId)}" /></label>
+              <label class="rs-field">ルーティン名<input id="studio-draft-name" value="${escapeHtml(studio.draftName)}" /></label>
+              <label class="rs-field">コンテキスト<select id="studio-context">${routineStudioContexts
+                .map((context) => `<option value="${escapeHtml(context)}" ${context === studio.context ? "selected" : ""}>${escapeHtml(context)}</option>`)
+                .join("")}</select></label>
+              <label class="rs-field">開始時刻<input id="studio-trigger-time" type="time" value="${escapeHtml(studio.triggerTime)}" /></label>
+              <label class="rs-field">目標時間<select id="studio-macro-target">${routineStudioMacroTargets
+                .map((minutes) => `<option value="${minutes}" ${minutes === targetMinutes ? "selected" : ""}>${minutes} 分</option>`)
+                .join("")}</select></label>
+              <label class="rs-field rs-toggle" for="studio-auto-start"><span>次のモジュールを自動開始</span><input id="studio-auto-start" type="checkbox" ${studio.autoStart ? "checked" : ""} /></label>
+              ${
+                studio.lastApplyResult
+                  ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>`
+                  : ""
+              }
+            </details>
+          </div>
+          <footer class="rs-intel-actions">
+            <button type="button" id="studio-save-template" class="rs-btn rs-btn-primary">テンプレートとして保存</button>
+            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-secondary">今日に適用</button>
+            <button type="button" id="studio-delete-template" class="rs-btn rs-btn-ghost rs-danger-btn" ${studio.templateId ? "" : "disabled"}>テンプレートを削除</button>
+            <button type="button" id="studio-clear-canvas" class="rs-btn rs-btn-ghost">キャンバスをリセット</button>
+          </footer>
+        </aside>
+      </div>
+      ${studio.moduleEditor ? `
+        <div class="rs-modal-overlay" id="module-editor-overlay">
+          <div class="rs-modal" role="dialog" aria-modal="true">
+            <header class="rs-modal-head">
+              <h4 class="rs-modal-title">${studio.editingModuleId ? "モジュールを編集" : "新規モジュール"}</h4>
+            </header>
+            <div class="rs-inline-fields">
+              <label class="rs-field">ID<input id="studio-module-id" value="${escapeHtml(studio.moduleEditor.id)}" ${studio.editingModuleId ? "disabled" : ""} /></label>
+              <label class="rs-field">名前<input id="studio-module-name" value="${escapeHtml(studio.moduleEditor.name)}" /></label>
+            </div>
+            <div class="rs-inline-fields">
+              <label class="rs-field">カテゴリ<input id="studio-module-category" value="${escapeHtml(studio.moduleEditor.category)}" /></label>
+              <label class="rs-field">分<input id="studio-module-duration" type="number" min="1" value="${Math.max(1, Number(studio.moduleEditor.durationMinutes) || 1)}" /></label>
+              <label class="rs-field">タイプ
+                <select id="studio-module-step-type">
+                  <option value="micro" ${studio.moduleEditor.stepType === "micro" ? "selected" : ""}>micro</option>
+                  <option value="pomodoro" ${studio.moduleEditor.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
+                  <option value="free" ${studio.moduleEditor.stepType === "free" ? "selected" : ""}>free</option>
+                </select>
+              </label>
+            </div>
+            <div class="rs-inline-fields">
+              <label class="rs-field">超過時
+                <select id="studio-module-overrun">
+                  <option value="wait" ${studio.moduleEditor.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
+                  <option value="notify_and_next" ${studio.moduleEditor.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
+                </select>
+              </label>
+              <label class="rs-field">アイコン<input id="studio-module-icon" value="${escapeHtml(studio.moduleEditor.icon)}" /></label>
+            </div>
+            <label class="rs-field">説明<input id="studio-module-description" value="${escapeHtml(studio.moduleEditor.description)}" /></label>
+            <label class="rs-field">チェックリスト<textarea id="studio-module-checklist" class="rs-textarea">${escapeHtml(studio.moduleEditor.checklistText)}</textarea></label>
+            ${studio.moduleEditor.stepType === "pomodoro" ? `
+              <div class="rs-inline-fields">
+                <label class="rs-field">集中(秒)<input id="studio-module-focus" type="number" min="60" value="${Math.max(60, Number(studio.moduleEditor.pomodoro.focusSeconds) || 1500)}" /></label>
+                <label class="rs-field">休憩(秒)<input id="studio-module-break" type="number" min="60" value="${Math.max(60, Number(studio.moduleEditor.pomodoro.breakSeconds) || 300)}" /></label>
+                <label class="rs-field">サイクル<input id="studio-module-cycles" type="number" min="1" value="${Math.max(1, Number(studio.moduleEditor.pomodoro.cycles) || 1)}" /></label>
+                <label class="rs-field">長休憩(秒)<input id="studio-module-long-break" type="number" min="0" value="${Math.max(0, Number(studio.moduleEditor.pomodoro.longBreakSeconds) || 0)}" /></label>
+                <label class="rs-field">頻度<input id="studio-module-long-every" type="number" min="0" value="${Math.max(0, Number(studio.moduleEditor.pomodoro.longBreakEvery) || 0)}" /></label>
+              </div>` : ""}
+            <fieldset class="rs-entry-checks">
+              <legend>実行ヒント</legend>
+              <label><input id="studio-module-allow-skip" type="checkbox" ${studio.moduleEditor.executionHints.allowSkip ? "checked" : ""} />スキップ可</label>
+              <label><input id="studio-module-must-checklist" type="checkbox" ${studio.moduleEditor.executionHints.mustCompleteChecklist ? "checked" : ""} />完了必須</label>
+              <label><input id="studio-module-auto-advance" type="checkbox" ${studio.moduleEditor.executionHints.autoAdvance ? "checked" : ""} />自動進行</label>
+            </fieldset>
+            <div class="rs-modal-actions">
+              <button type="button" id="studio-module-save" class="rs-btn rs-btn-primary">保存</button>
+              <button type="button" id="studio-module-cancel" class="rs-btn rs-btn-ghost">キャンセル</button>
+            </div>
+          </div>
+        </div>
+      ` : ""}
+    </section>
+  `;
+
+  const rerender = () => renderRoutines();
+  const buildRecipePayload = () => {
+    if (studio.canvasEntries.length === 0) {
+      throw new Error("キャンバスが空です。モジュールを追加してください。");
+    }
+    const name = studio.draftName.trim() || "Routine Draft";
+    const slugBase = routineStudioSlug(studio.templateId || name) || "routine-studio";
+    const id = slugBase.startsWith("rcp-") ? slugBase : `rcp-${slugBase}`;
+    studio.templateId = id;
+    const steps = studio.canvasEntries.map((entry, index) => {
+      const stepType = normalizeStepType(entry.stepType || "micro");
+      const durationSeconds = Math.max(60, Math.round((Number(entry.durationMinutes) || 1) * 60));
+      const step = {
+        id: `step-${index + 1}`,
+        type: stepType,
+        title: String(entry.title || `Step ${index + 1}`),
+        durationSeconds,
+        overrunPolicy: normalizeOverrunPolicy(entry.overrunPolicy || "wait"),
+        checklist: Array.isArray(entry.checklist) ? entry.checklist.map(String).filter(Boolean) : [],
+        executionHints: normalizeExecutionHints(entry.executionHints),
+      };
+      const moduleId = String(entry.moduleId || "").trim();
+      if (moduleId) {
+        step.moduleId = moduleId;
+      }
+      const note = String(entry.note || "").trim();
+      if (note) {
+        step.note = note;
+      }
+      if (stepType === "pomodoro") {
+        step.pomodoro = {
+          focusSeconds: Math.max(60, Number(entry.pomodoro?.focusSeconds) || 1500),
+          breakSeconds: Math.max(60, Number(entry.pomodoro?.breakSeconds) || 300),
+          cycles: Math.max(1, Number(entry.pomodoro?.cycles) || 1),
+          longBreakSeconds: Math.max(0, Number(entry.pomodoro?.longBreakSeconds) || 0),
+          longBreakEvery: Math.max(0, Number(entry.pomodoro?.longBreakEvery) || 0),
+        };
+      }
+      return step;
+    });
+    return {
+      id,
+      name,
+      autoDriveMode: studio.autoStart ? "auto" : "manual",
+      studioMeta: {
+        version: 1,
+        kind: "routine_studio",
+      },
+      steps,
+    };
+  };
+  const persistTemplate = async () => {
+    const payload = buildRecipePayload();
+    const exists = recipes.some((recipe) => recipe.id === payload.id);
+    if (exists) {
+      await safeInvoke("update_recipe", { recipe_id: payload.id, payload });
+    } else {
+      await safeInvoke("create_recipe", { payload });
+    }
+    uiState.recipes = await safeInvoke("list_recipes", {});
+    studio.templateId = payload.id;
+    studio.draftName = payload.name;
+    return payload.id;
+  };
+  const readField = (id) =>
+    /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null} */ (
+      document.getElementById(id)
+    )?.value || "";
+  const readChecked = (id) =>
+    Boolean(/** @type {HTMLInputElement | null} */ (document.getElementById(id))?.checked);
+  const openModuleEditor = (module) => {
+    if (!module) {
+      studio.editingModuleId = "";
+      studio.moduleEditor = createEmptyModuleEditor();
+      return;
+    }
+    studio.editingModuleId = module.id;
+    studio.moduleEditor = normalizeModuleEditor({
+      ...module,
+      checklistText: (Array.isArray(module.checklist) ? module.checklist : []).join("\n"),
+    });
+  };
+  const updateEntry = (entryId, updater) => {
+    const index = studio.canvasEntries.findIndex((entry) => entry.entryId === entryId);
+    if (index < 0) return false;
+    const nextEntries = [...studio.canvasEntries];
+    const draft = normalizeEntry(nextEntries[index], index);
+    nextEntries[index] = normalizeEntry(updater(draft) || draft, index);
+    applyCanvasEntries(nextEntries, true);
+    studio.selectedEntryId = entryId;
+    return true;
+  };
+  const resolveDropInsertIndex = (dropzone, clientY) => {
+    const cards = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+    for (let index = 0; index < cards.length; index += 1) {
+      const rect = /** @type {HTMLElement} */ (cards[index]).getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) {
+        return index;
+      }
+    }
+    return cards.length;
+  };
+  const clearDropIndicator = (dropzone) => {
+    dropzone.classList.remove("is-over", "is-insert-end");
+    dropzone.querySelectorAll(".is-insert-target").forEach((node) => node.classList.remove("is-insert-target"));
+    studio.dragInsertIndex = -1;
+  };
+  const paintDropIndicator = (dropzone, insertIndex) => {
+    clearDropIndicator(dropzone);
+    const cards = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+    dropzone.classList.add("is-over");
+    if (cards.length === 0) {
+      // 空キャンバス: 末尾挿入として扱う
+      studio.dragInsertIndex = 0;
+      return;
+    }
+    if (insertIndex >= cards.length) {
+      dropzone.classList.add("is-insert-end");
+      studio.dragInsertIndex = cards.length;
+      return;
+    }
+    if (insertIndex >= 0 && insertIndex < cards.length) {
+      cards[insertIndex].classList.add("is-insert-target");
+      studio.dragInsertIndex = insertIndex;
+      return;
+    }
+    studio.dragInsertIndex = cards.length;
+  };
+
+  document.getElementById("studio-refresh-recipes")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const [recipesResult, modulesResult] = await Promise.all([
+        safeInvoke("list_recipes", {}),
+        safeInvoke("list_modules", {}).catch(() => cloneValue(routineStudioSeedModules)),
+      ]);
+      uiState.recipes = Array.isArray(recipesResult) ? recipesResult : [];
+      studio.modules = Array.isArray(modulesResult) ? modulesResult.map(normalizeModule) : [];
+      rerender();
+    });
+  });
+  document.getElementById("studio-new-module")?.addEventListener("click", () => {
+    studio.activeTab = "modules";
+    openModuleEditor(null);
+    rerender();
+  });
+  document.getElementById("studio-module-step-type")?.addEventListener("change", (event) => {
+    if (!studio.moduleEditor) return;
+    studio.moduleEditor = normalizeModuleEditor({
+      ...studio.moduleEditor,
+      stepType: /** @type {HTMLSelectElement} */ (event.currentTarget).value,
+    });
+    rerender();
+  });
+  document.getElementById("studio-module-cancel")?.addEventListener("click", () => {
+    studio.moduleEditor = null;
+    studio.editingModuleId = "";
+    rerender();
+  });
+  document.getElementById("module-editor-overlay")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) {
+      studio.moduleEditor = null;
+      studio.editingModuleId = "";
+      rerender();
+    }
+  });
+  document.getElementById("studio-module-save")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const moduleName = readField("studio-module-name").trim();
+      const rawId = readField("studio-module-id").trim();
+      const moduleId =
+        studio.editingModuleId || rawId || `mod-${routineStudioSlug(moduleName || "module") || "module"}`;
+      const stepType = normalizeStepType(readField("studio-module-step-type"));
+      const payload = {
+        id: moduleId,
+        name: moduleName || moduleId,
+        category: readField("studio-module-category").trim() || "General",
+        description: readField("studio-module-description").trim(),
+        icon: readField("studio-module-icon").trim() || "module",
+        stepType,
+        durationMinutes: Math.max(1, Number(readField("studio-module-duration") || "1")),
+        checklist: parseChecklistText(readField("studio-module-checklist")),
+        overrunPolicy: normalizeOverrunPolicy(readField("studio-module-overrun") || "wait"),
+        executionHints: {
+          allowSkip: readChecked("studio-module-allow-skip"),
+          mustCompleteChecklist: readChecked("studio-module-must-checklist"),
+          autoAdvance: readChecked("studio-module-auto-advance"),
+        },
+        pomodoro:
+          stepType === "pomodoro"
+            ? normalizePomodoro(
+                {
+                  focusSeconds: Number(readField("studio-module-focus") || "1500"),
+                  breakSeconds: Number(readField("studio-module-break") || "300"),
+                  cycles: Number(readField("studio-module-cycles") || "1"),
+                  longBreakSeconds: Number(readField("studio-module-long-break") || "0"),
+                  longBreakEvery: Number(readField("studio-module-long-every") || "0"),
+                },
+                Number(readField("studio-module-duration") || "25")
+              )
+            : null,
+      };
+      if (studio.editingModuleId) {
+        await safeInvoke("update_module", { module_id: studio.editingModuleId, payload });
+      } else {
+        await safeInvoke("create_module", { payload });
+      }
+      const modulesResult = await safeInvoke("list_modules", {});
+      studio.modules = Array.isArray(modulesResult) ? modulesResult.map(normalizeModule) : [];
+      studio.moduleEditor = null;
+      studio.editingModuleId = "";
+      setStatus(`module saved: ${moduleId}`);
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-tab]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const tab = /** @type {HTMLElement} */ (node).dataset.studioTab;
+      studio.activeTab = tab === "templates" ? "templates" : "modules";
+      rerender();
+    });
+  });
+  document.getElementById("studio-search-input")?.addEventListener("input", (event) => {
+    studio.search = /** @type {HTMLInputElement} */ (event.currentTarget).value || "";
+    rerender();
+  });
+  appRoot.querySelectorAll("[data-studio-module-edit]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleEdit || "";
+      const module = studio.modules.find((candidate) => candidate.id === moduleId);
+      if (!module) return;
+      openModuleEditor(module);
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-module-delete]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleDelete || "";
+      if (!moduleId) return;
+      await runUiAction(async () => {
+        const deleted = await safeInvoke("delete_module", { module_id: moduleId });
+        if (!deleted) {
+          setStatus(`module not found: ${moduleId}`);
+          return;
+        }
+        const modulesResult = await safeInvoke("list_modules", {});
+        studio.modules = Array.isArray(modulesResult) ? modulesResult.map(normalizeModule) : [];
+        if (studio.editingModuleId === moduleId) {
+          studio.editingModuleId = "";
+          studio.moduleEditor = null;
+        }
+        setStatus(`module deleted: ${moduleId}`);
+        rerender();
       });
     });
   });
-
-  document.getElementById("routine-save-recipe")?.addEventListener("click", async () => {
-    await runUiAction(async () => {
-      const id = /** @type {HTMLInputElement} */ (document.getElementById("recipe-id")).value.trim();
-      const name = /** @type {HTMLInputElement} */ (document.getElementById("recipe-name")).value.trim();
-      const autoDriveMode = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-auto-drive")).value;
-      const stepType = /** @type {HTMLSelectElement} */ (document.getElementById("recipe-step-type")).value;
-      const stepTitle = /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-title")).value.trim() || "Step";
-      const durationSeconds = Number(
-        /** @type {HTMLInputElement} */ (document.getElementById("recipe-step-duration")).value || "1500"
-      );
-      const focusSeconds = Number(
-        /** @type {HTMLInputElement} */ (document.getElementById("recipe-focus")).value || "1500"
-      );
-      const breakSeconds = Number(
-        /** @type {HTMLInputElement} */ (document.getElementById("recipe-break")).value || "300"
-      );
-      const cycles = Number(/** @type {HTMLInputElement} */ (document.getElementById("recipe-cycles")).value || "1");
-
-      if (!id || !name) {
-        throw new Error("recipe id と name は必須です");
+  appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const element = /** @type {HTMLElement} */ (node);
+      if (addAssetToCanvas(element.dataset.studioInsertKind || "", element.dataset.studioInsertId || "")) {
+        rerender();
       }
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-load-template]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const templateId = /** @type {HTMLElement} */ (node).dataset.studioLoadTemplate || "";
+      if (addAssetToCanvas("template", templateId, true)) {
+        rerender();
+      }
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-remove]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const entryId = /** @type {HTMLElement} */ (node).dataset.studioRemove || "";
+      applyCanvasEntries(studio.canvasEntries.filter((entry) => entry.entryId !== entryId), true);
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-move]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const element = /** @type {HTMLElement} */ (node);
+      const entryId = element.dataset.studioMove || "";
+      const direction = element.dataset.studioDir || "";
+      const index = studio.canvasEntries.findIndex((entry) => entry.entryId === entryId);
+      if (index < 0) return;
+      const nextIndex = direction === "up" ? index - 1 : index + 1;
+      if (nextIndex < 0 || nextIndex >= studio.canvasEntries.length) return;
+      const nextEntries = [...studio.canvasEntries];
+      [nextEntries[index], nextEntries[nextIndex]] = [nextEntries[nextIndex], nextEntries[index]];
+      applyCanvasEntries(nextEntries, true);
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-select-entry]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const entryId = /** @type {HTMLElement} */ (node).dataset.studioSelectEntry || "";
+      if (!entryId) return;
+      studio.selectedEntryId = entryId;
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-entry-field]").forEach((node) => {
+    node.addEventListener("change", (event) => {
+      const element = /** @type {HTMLElement} */ (event.currentTarget);
+      const entryId = element.dataset.studioEntryId || "";
+      const field = element.dataset.studioEntryField || "";
+      const value = /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */ (
+        event.currentTarget
+      ).value;
+      if (!entryId || !field) return;
+      const changed = updateEntry(entryId, (entry) => {
+        if (field === "title") {
+          entry.title = String(value || "").trim() || entry.title;
+        } else if (field === "durationMinutes") {
+          entry.durationMinutes = Math.max(1, Number(value || "1"));
+          if (entry.stepType === "pomodoro") {
+            entry.pomodoro = normalizePomodoro(entry.pomodoro, entry.durationMinutes);
+          }
+        } else if (field === "stepType") {
+          entry.stepType = normalizeStepType(value);
+          entry.pomodoro =
+            entry.stepType === "pomodoro"
+              ? normalizePomodoro(entry.pomodoro, entry.durationMinutes)
+              : null;
+        } else if (field === "moduleId") {
+          entry.moduleId = String(value || "").trim();
+        } else if (field === "overrunPolicy") {
+          entry.overrunPolicy = normalizeOverrunPolicy(value);
+        } else if (field === "checklist") {
+          entry.checklist = parseChecklistText(value);
+        } else if (field === "note") {
+          entry.note = String(value || "");
+        }
+        return entry;
+      });
+      if (changed) rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-entry-hint]").forEach((node) => {
+    node.addEventListener("change", (event) => {
+      const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+      const entryId = input.dataset.studioEntryId || "";
+      const hint = input.dataset.studioEntryHint || "";
+      if (!entryId || !hint) return;
+      const changed = updateEntry(entryId, (entry) => {
+        const hints = normalizeExecutionHints(entry.executionHints);
+        if (hint === "allowSkip") hints.allowSkip = input.checked;
+        if (hint === "mustCompleteChecklist") hints.mustCompleteChecklist = input.checked;
+        if (hint === "autoAdvance") hints.autoAdvance = input.checked;
+        entry.executionHints = hints;
+        return entry;
+      });
+      if (changed) rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-entry-pomodoro]").forEach((node) => {
+    node.addEventListener("change", (event) => {
+      const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+      const entryId = input.dataset.studioEntryId || "";
+      const field = input.dataset.studioEntryPomodoro || "";
+      if (!entryId || !field) return;
+      const changed = updateEntry(entryId, (entry) => {
+        const pomodoro = normalizePomodoro(entry.pomodoro, entry.durationMinutes);
+        const value = Number(input.value || "0");
+        if (field === "focusSeconds") pomodoro.focusSeconds = Math.max(60, value || 60);
+        if (field === "breakSeconds") pomodoro.breakSeconds = Math.max(60, value || 60);
+        if (field === "cycles") pomodoro.cycles = Math.max(1, value || 1);
+        if (field === "longBreakSeconds") pomodoro.longBreakSeconds = Math.max(0, value || 0);
+        if (field === "longBreakEvery") pomodoro.longBreakEvery = Math.max(0, value || 0);
+        entry.pomodoro = pomodoro;
+        return entry;
+      });
+      if (changed) rerender();
+    });
+  });
+  document.getElementById("studio-undo")?.addEventListener("click", () => {
+    if (studio.historyIndex <= 0) return;
+    studio.historyIndex -= 1;
+    studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry, index) =>
+      normalizeEntry(entry, index)
+    );
+    studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+    rerender();
+  });
+  document.getElementById("studio-redo")?.addEventListener("click", () => {
+    if (studio.historyIndex >= studio.history.length - 1) return;
+    studio.historyIndex += 1;
+    studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry, index) =>
+      normalizeEntry(entry, index)
+    );
+    studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+    rerender();
+  });
+  // ================================================================
+  // Pointer-based DnD （WebView2/Tauri 対応 - HTML5 DnD の代替）
+  // ================================================================
 
-      const payload = {
-        id,
-        name,
-        autoDriveMode,
-        steps: [
-          {
-            id: "step-1",
-            type: stepType,
-            title: stepTitle,
-            durationSeconds: Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 60,
-            pomodoro:
-              stepType === "pomodoro"
-                ? {
-                    focusSeconds: Number.isFinite(focusSeconds) && focusSeconds > 0 ? focusSeconds : 1500,
-                    breakSeconds: Number.isFinite(breakSeconds) && breakSeconds > 0 ? breakSeconds : 300,
-                    cycles: Number.isFinite(cycles) && cycles > 0 ? cycles : 1,
-                  }
-                : undefined,
-            overrunPolicy: "wait",
-          },
-        ],
-      };
+  // 前回のレンダリングから安いているドキュメントレベルリスナーを削除
+  if (_rsDragHandlers) {
+    document.removeEventListener("pointermove", _rsDragHandlers.move);
+    document.removeEventListener("pointerup",   _rsDragHandlers.up);
+    document.removeEventListener("pointercancel", _rsDragHandlers.up);
+    _rsDragHandlers = null;
+  }
+  // 制御中のドラッグをクリア
+  if (_rsDragGhost) { _rsDragGhost.remove(); _rsDragGhost = null; }
+  if (_rsDragSource) { _rsDragSource.classList.remove("is-dragging"); _rsDragSource = null; }
+  routineStudioActiveDrag = null;
 
-      const exists = recipes.some((recipe) => recipe.id === id);
-      if (exists) {
-        await safeInvoke("update_recipe", { recipe_id: id, payload });
-      } else {
-        await safeInvoke("create_recipe", { payload });
+  // ドロップを確定する内部関数
+  const commitStudioDrop = (clientX, clientY) => {
+    const dz = document.getElementById("routine-studio-dropzone");
+    if (!dz) { routineStudioActiveDrag = null; return; }
+    const dzRect = dz.getBoundingClientRect();
+    const inside =
+      clientX >= dzRect.left && clientX <= dzRect.right &&
+      clientY >= dzRect.top  && clientY <= dzRect.bottom;
+    const insertIndex = studio.dragInsertIndex >= 0 ? studio.dragInsertIndex : studio.canvasEntries.length;
+    clearDropIndicator(dz);
+    if (!inside || !routineStudioActiveDrag) {
+      routineStudioActiveDrag = null;
+      return;
+    }
+    const { kind, id } = routineStudioActiveDrag;
+    routineStudioActiveDrag = null;
+    if (kind === "entry") {
+      const sourceIndex = studio.canvasEntries.findIndex((e) => e.entryId === id);
+      if (sourceIndex < 0) return;
+      const target = Math.max(0, Math.min(insertIndex, studio.canvasEntries.length));
+      const nextEntries = [...studio.canvasEntries];
+      const [moved] = nextEntries.splice(sourceIndex, 1);
+      const adjusted = target > sourceIndex ? target - 1 : target;
+      nextEntries.splice(Math.max(0, adjusted), 0, moved);
+      applyCanvasEntries(nextEntries, true);
+      studio.selectedEntryId = moved?.entryId || "";
+    } else {
+      addAssetToCanvas(kind, id, false, insertIndex);
+    }
+    rerender();
+  };
+
+  // pointermove: ゴーストを移動し、挿入インジケータを更新
+  const onRsDragMove = (/** @type {PointerEvent} */ event) => {
+    if (!_rsDragGhost) return;
+    _rsDragGhost.style.left = `${event.clientX - _rsDragOffsetX}px`;
+    _rsDragGhost.style.top  = `${event.clientY - _rsDragOffsetY}px`;
+    const dz = document.getElementById("routine-studio-dropzone");
+    if (!dz) return;
+    const dzRect = dz.getBoundingClientRect();
+    if (
+      event.clientX >= dzRect.left && event.clientX <= dzRect.right &&
+      event.clientY >= dzRect.top  && event.clientY <= dzRect.bottom
+    ) {
+      paintDropIndicator(dz, resolveDropInsertIndex(dz, event.clientY));
+    } else {
+      clearDropIndicator(dz);
+    }
+  };
+
+  // pointerup / pointercancel: ドロップを確定またはキャンセル
+  const onRsDragUp = (/** @type {PointerEvent} */ event) => {
+    document.removeEventListener("pointermove",   onRsDragMove);
+    document.removeEventListener("pointerup",     onRsDragUp);
+    document.removeEventListener("pointercancel", onRsDragUp);
+    _rsDragHandlers = null;
+    if (_rsDragGhost)  { _rsDragGhost.remove();  _rsDragGhost = null; }
+    if (_rsDragSource) { _rsDragSource.classList.remove("is-dragging"); _rsDragSource = null; }
+    commitStudioDrop(event.clientX, event.clientY);
+  };
+
+  // ドラッグ開始共通內部関数
+  const startStudioDrag = (/** @type {PointerEvent} */ event, /** @type {{ kind: string, id: string }} */ payload, /** @type {HTMLElement} */ sourceEl) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    event.preventDefault();
+    routineStudioActiveDrag = payload;
+    _rsDragSource = sourceEl;
+    sourceEl.classList.add("is-dragging");
+    const rect = sourceEl.getBoundingClientRect();
+    _rsDragOffsetX = event.clientX - rect.left;
+    _rsDragOffsetY = event.clientY - rect.top;
+    // ゴースト生成
+    _rsDragGhost = document.createElement("div");
+    _rsDragGhost.className = "rs-drag-ghost";
+    const labelEl = sourceEl.querySelector(".rs-asset-title, .rs-canvas-title");
+    _rsDragGhost.textContent = (labelEl ? labelEl.textContent : null) ?? payload.id;
+    _rsDragGhost.style.left = `${event.clientX - _rsDragOffsetX}px`;
+    _rsDragGhost.style.top  = `${event.clientY - _rsDragOffsetY}px`;
+    document.body.appendChild(_rsDragGhost);
+    _rsDragHandlers = { move: onRsDragMove, up: onRsDragUp };
+    document.addEventListener("pointermove",   onRsDragMove);
+    document.addEventListener("pointerup",     onRsDragUp);
+    document.addEventListener("pointercancel", onRsDragUp);
+  };
+
+  // Library アセットカード: pointerdown でドラッグ開始
+  appRoot.querySelectorAll("[data-studio-draggable='true']").forEach((node) => {
+    node.addEventListener("pointerdown", (event) => {
+      const el = /** @type {HTMLElement} */ (node);
+      const kind = el.dataset.studioAssetKind || "";
+      const id   = el.dataset.studioAssetId   || "";
+      if (!kind || !id) return;
+      // ボタンクリックは無視
+      if (/** @type {HTMLElement} */ (event.target).closest("button, a")) return;
+      startStudioDrag(/** @type {PointerEvent} */ (event), { kind, id }, el);
+    });
+  });
+
+  // Canvas エントリカード: ハンドルの pointerdown でドラッグ開始
+  appRoot.querySelectorAll(".rs-drag-handle").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      const card = /** @type {HTMLElement | null} */ (
+        /** @type {HTMLElement} */ (handle).closest("[data-studio-canvas-entry]")
+      );
+      if (!card) return;
+      const id = card.dataset.studioCanvasEntry || "";
+      if (!id) return;
+      startStudioDrag(/** @type {PointerEvent} */ (event), { kind: "entry", id }, card);
+    });
+  });
+
+  document.getElementById("studio-template-id")?.addEventListener("input", (event) => {
+    studio.templateId = /** @type {HTMLInputElement} */ (event.currentTarget).value || "";
+  });
+  document.getElementById("studio-draft-name")?.addEventListener("input", (event) => {
+    studio.draftName = /** @type {HTMLInputElement} */ (event.currentTarget).value || "Routine Draft";
+    const titleNode = appRoot.querySelector("[data-studio-title]");
+    if (titleNode) titleNode.textContent = studio.draftName;
+  });
+  document.getElementById("studio-context")?.addEventListener("change", (event) => {
+    studio.context = /** @type {HTMLSelectElement} */ (event.currentTarget).value || routineStudioContexts[0];
+  });
+  document.getElementById("studio-trigger-time")?.addEventListener("change", (event) => {
+    studio.triggerTime = /** @type {HTMLInputElement} */ (event.currentTarget).value || "09:00";
+    rerender();
+  });
+  document.getElementById("studio-macro-target")?.addEventListener("change", (event) => {
+    studio.macroTargetMinutes = Number(/** @type {HTMLSelectElement} */ (event.currentTarget).value || "30");
+    rerender();
+  });
+  document.getElementById("studio-auto-start")?.addEventListener("change", (event) => {
+    studio.autoStart = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  });
+  document.getElementById("studio-save-template")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const id = await persistTemplate();
+      setStatus(`template saved: ${id}`);
+      rerender();
+    });
+  });
+  document.getElementById("studio-apply-today")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const id = await persistTemplate();
+      const targetDate = isoDate(new Date());
+      const result = await safeInvoke(
+        "apply_studio_template_to_today",
+        withAccount({
+          template_id: id,
+          date: targetDate,
+          trigger_time: studio.triggerTime || "09:00",
+          conflict_policy: "shift",
+        })
+      );
+      await refreshCoreData(targetDate);
+      const requested = formatHHmm(result?.requested_start_at);
+      const applied = formatHHmm(result?.applied_start_at);
+      studio.lastApplyResult = result?.shifted
+        ? `Shifted ${requested} -> ${applied} (${result?.conflict_count || 0} conflicts)`
+        : `Applied at ${applied}`;
+      setStatus(`applied to today: ${id}`);
+      rerender();
+    });
+  });
+  document.getElementById("studio-delete-template")?.addEventListener("click", async () => {
+    await runUiAction(async () => {
+      const recipeId = String(studio.templateId || "").trim();
+      if (!recipeId) {
+        setStatus("template id is required");
+        return;
+      }
+      const deleted = await safeInvoke("delete_recipe", { recipe_id: recipeId });
+      if (!deleted) {
+        setStatus(`template not found: ${recipeId}`);
+        return;
       }
       uiState.recipes = await safeInvoke("list_recipes", {});
-      renderRoutines();
+      studio.lastApplyResult = "";
+      setStatus(`template deleted: ${recipeId}`);
+      rerender();
     });
+  });
+  document.getElementById("studio-clear-canvas")?.addEventListener("click", () => {
+    applyCanvasEntries([], true);
+    studio.selectedEntryId = "";
+    rerender();
   });
 }
 
