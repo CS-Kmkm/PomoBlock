@@ -10,6 +10,7 @@ const POLICIES_JSON: &str = "policies.json";
 const TEMPLATES_JSON: &str = "templates.json";
 const ROUTINES_JSON: &str = "routines.json";
 const RECIPES_JSON: &str = "recipes.json";
+const MODULES_JSON: &str = "modules.json";
 const OVERRIDES_JSON: &str = "overrides.json";
 const DEFAULT_ACCOUNT_ID: &str = "default";
 
@@ -26,6 +27,7 @@ pub struct ConfigBundle {
     pub templates: serde_json::Value,
     pub routines: serde_json::Value,
     pub recipes: serde_json::Value,
+    pub modules: serde_json::Value,
     pub overrides: serde_json::Value,
 }
 
@@ -101,6 +103,71 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
             }),
         ),
         (
+            MODULES_JSON,
+            serde_json::json!({
+                "schema": 1,
+                "modules": [
+                    {
+                        "id": "mod-deep-work-init",
+                        "name": "Deep Work Init",
+                        "category": "Focus Work",
+                        "description": "Environment prep",
+                        "icon": "spark",
+                        "stepType": "micro",
+                        "durationMinutes": 5,
+                        "checklist": ["Close distracting tabs", "Set Slack to Away", "Enable Do Not Disturb"],
+                        "pomodoro": null,
+                        "overrunPolicy": "wait",
+                        "executionHints": {
+                            "allowSkip": true,
+                            "mustCompleteChecklist": false,
+                            "autoAdvance": true
+                        }
+                    },
+                    {
+                        "id": "mod-pomodoro-focus",
+                        "name": "Pomodoro Focus",
+                        "category": "Focus Work",
+                        "description": "25m work block",
+                        "icon": "timer",
+                        "stepType": "pomodoro",
+                        "durationMinutes": 25,
+                        "checklist": ["Focus on one task only", "No context switching"],
+                        "pomodoro": {
+                            "focusSeconds": 1500,
+                            "breakSeconds": 300,
+                            "cycles": 1,
+                            "longBreakSeconds": 900,
+                            "longBreakEvery": 4
+                        },
+                        "overrunPolicy": "wait",
+                        "executionHints": {
+                            "allowSkip": true,
+                            "mustCompleteChecklist": false,
+                            "autoAdvance": true
+                        }
+                    },
+                    {
+                        "id": "mod-two-min-triage",
+                        "name": "2m Triage",
+                        "category": "Communication",
+                        "description": "Quick inbox sort",
+                        "icon": "mail",
+                        "stepType": "micro",
+                        "durationMinutes": 2,
+                        "checklist": ["Reply, archive, or defer", "No deep replies"],
+                        "pomodoro": null,
+                        "overrunPolicy": "wait",
+                        "executionHints": {
+                            "allowSkip": true,
+                            "mustCompleteChecklist": false,
+                            "autoAdvance": true
+                        }
+                    }
+                ]
+            }),
+        ),
+        (
             OVERRIDES_JSON,
             serde_json::json!({
                 "schema": 1,
@@ -147,6 +214,7 @@ pub fn load_configs(config_dir: &Path) -> Result<ConfigBundle, InfraError> {
         templates: read_config(&config_dir.join(TEMPLATES_JSON))?,
         routines: read_config(&config_dir.join(ROUTINES_JSON))?,
         recipes: read_config(&config_dir.join(RECIPES_JSON))?,
+        modules: read_config(&config_dir.join(MODULES_JSON))?,
         overrides: read_config(&config_dir.join(OVERRIDES_JSON))?,
     })
 }

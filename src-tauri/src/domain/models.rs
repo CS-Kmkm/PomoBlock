@@ -53,6 +53,22 @@ pub struct RecipePomodoroConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionHints {
+    #[serde(default)]
+    pub allow_skip: bool,
+    #[serde(default)]
+    pub must_complete_checklist: bool,
+    #[serde(default)]
+    pub auto_advance: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecipeStudioMeta {
+    pub version: u8,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RecipeStep {
     pub id: String,
     pub step_type: RecipeStepType,
@@ -60,6 +76,11 @@ pub struct RecipeStep {
     pub duration_seconds: u32,
     pub pomodoro: Option<RecipePomodoroConfig>,
     pub overrun_policy: Option<OverrunPolicy>,
+    pub module_id: Option<String>,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+    pub note: Option<String>,
+    pub execution_hints: Option<ExecutionHints>,
 }
 
 impl RecipeStep {
@@ -68,6 +89,12 @@ impl RecipeStep {
         validate_non_empty(&self.title, "recipe_step.title")?;
         if self.duration_seconds == 0 {
             return Err("recipe_step.duration_seconds must be > 0".to_string());
+        }
+        if let Some(module_id) = &self.module_id {
+            validate_non_empty(module_id, "recipe_step.module_id")?;
+        }
+        for item in &self.checklist {
+            validate_non_empty(item, "recipe_step.checklist[]")?;
         }
         if let Some(pomodoro) = &self.pomodoro {
             if pomodoro.focus_seconds == 0 {
@@ -90,6 +117,7 @@ pub struct Recipe {
     pub name: String,
     pub auto_drive_mode: AutoDriveMode,
     pub steps: Vec<RecipeStep>,
+    pub studio_meta: Option<RecipeStudioMeta>,
 }
 
 impl Recipe {
@@ -99,8 +127,65 @@ impl Recipe {
         if self.steps.is_empty() {
             return Err("recipe.steps must not be empty".to_string());
         }
+        if let Some(meta) = &self.studio_meta {
+            if meta.version != 1 {
+                return Err("recipe.studio_meta.version must be 1".to_string());
+            }
+            validate_non_empty(&meta.kind, "recipe.studio_meta.kind")?;
+        }
         for step in &self.steps {
             step.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModulePomodoroConfig {
+    pub focus_seconds: u32,
+    pub break_seconds: u32,
+    pub cycles: u32,
+    pub long_break_seconds: Option<u32>,
+    pub long_break_every: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Module {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub step_type: RecipeStepType,
+    pub duration_minutes: u32,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+    pub pomodoro: Option<ModulePomodoroConfig>,
+    pub overrun_policy: Option<OverrunPolicy>,
+    pub execution_hints: Option<ExecutionHints>,
+}
+
+impl Module {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "module.id")?;
+        validate_non_empty(&self.name, "module.name")?;
+        validate_non_empty(&self.category, "module.category")?;
+        if self.duration_minutes == 0 {
+            return Err("module.duration_minutes must be > 0".to_string());
+        }
+        for item in &self.checklist {
+            validate_non_empty(item, "module.checklist[]")?;
+        }
+        if let Some(pomodoro) = &self.pomodoro {
+            if pomodoro.focus_seconds == 0 {
+                return Err("module.pomodoro.focus_seconds must be > 0".to_string());
+            }
+            if pomodoro.break_seconds == 0 {
+                return Err("module.pomodoro.break_seconds must be > 0".to_string());
+            }
+            if pomodoro.cycles == 0 {
+                return Err("module.pomodoro.cycles must be > 0".to_string());
+            }
         }
         Ok(())
     }
@@ -669,7 +754,12 @@ mod tests {
                     long_break_every: None,
                 }),
                 overrun_policy: Some(OverrunPolicy::Wait),
+                module_id: None,
+                checklist: Vec::new(),
+                note: None,
+                execution_hints: None,
             }],
+            studio_meta: None,
         }
     }
 

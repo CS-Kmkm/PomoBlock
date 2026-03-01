@@ -3,8 +3,9 @@ use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocks
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::domain::models::{
-    AutoDriveMode, Block, BlockContents, Firmness, OverrunPolicy, PomodoroLog, PomodoroPhase,
-    Recipe, RecipePomodoroConfig, RecipeStep, RecipeStepType, Task, TaskStatus,
+    AutoDriveMode, Block, BlockContents, ExecutionHints, Firmness, Module, ModulePomodoroConfig,
+    OverrunPolicy, PomodoroLog, PomodoroPhase, Recipe, RecipePomodoroConfig, RecipeStep,
+    RecipeStepType, RecipeStudioMeta, Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::{ensure_default_configs, read_timezone};
@@ -42,6 +43,7 @@ const DEFAULT_MAX_RELOCATIONS_PER_SYNC: u32 = 50;
 const BLOCK_CREATION_CONCURRENCY: usize = 4;
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
 const RECIPES_FILE_NAME: &str = "recipes.json";
+const MODULES_FILE_NAME: &str = "modules.json";
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -269,6 +271,19 @@ pub struct CarryOverTaskResponse {
     pub from_block_id: String,
     pub to_block_id: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApplyStudioResult {
+    pub template_id: String,
+    pub date: String,
+    pub requested_start_at: String,
+    pub requested_end_at: String,
+    pub applied_start_at: String,
+    pub applied_end_at: String,
+    pub shifted: bool,
+    pub conflict_count: usize,
+    pub block_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -2035,6 +2050,331 @@ pub fn delete_recipe_impl(state: &AppState, recipe_id: String) -> Result<bool, I
     Ok(deleted)
 }
 
+pub fn list_modules_impl(state: &AppState) -> Result<Vec<Module>, InfraError> {
+    Ok(load_configured_modules(state.config_dir()))
+}
+
+pub fn create_module_impl(state: &AppState, payload: serde_json::Value) -> Result<Module, InfraError> {
+    let module = parse_module_payload(&payload)?;
+    let existing = load_configured_modules(state.config_dir());
+    if existing.iter().any(|candidate| candidate.id == module.id) {
+        return Err(InfraError::InvalidConfig(format!(
+            "module already exists: {}",
+            module.id
+        )));
+    }
+    let mut document = read_modules_document(state.config_dir())?;
+    let modules = modules_array_mut(&mut document)?;
+    modules.push(module_to_json_value(&module));
+    write_modules_document(state.config_dir(), &document)?;
+    state.log_info("create_module", &format!("created module_id={}", module.id));
+    Ok(module)
+}
+
+pub fn update_module_impl(
+    state: &AppState,
+    module_id: String,
+    payload: serde_json::Value,
+) -> Result<Module, InfraError> {
+    let module_id = module_id.trim();
+    if module_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "module_id must not be empty".to_string(),
+        ));
+    }
+    let module = parse_module_payload_with_id(&payload, module_id)?;
+    let mut document = read_modules_document(state.config_dir())?;
+    let modules = modules_array_mut(&mut document)?;
+    let mut updated = false;
+    for existing in modules.iter_mut() {
+        let existing_id = existing
+            .as_object()
+            .and_then(|object| object.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if existing_id == module_id {
+            *existing = module_to_json_value(&module);
+            updated = true;
+            break;
+        }
+    }
+    if !updated {
+        modules.push(module_to_json_value(&module));
+    }
+    write_modules_document(state.config_dir(), &document)?;
+    state.log_info("update_module", &format!("updated module_id={}", module.id));
+    Ok(module)
+}
+
+pub fn delete_module_impl(state: &AppState, module_id: String) -> Result<bool, InfraError> {
+    let module_id = module_id.trim();
+    if module_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "module_id must not be empty".to_string(),
+        ));
+    }
+    let mut document = read_modules_document(state.config_dir())?;
+    let modules = modules_array_mut(&mut document)?;
+    let before = modules.len();
+    modules.retain(|entry| {
+        let existing_id = entry
+            .as_object()
+            .and_then(|object| object.get("id"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        existing_id != module_id
+    });
+    let deleted = modules.len() != before;
+    if deleted {
+        write_modules_document(state.config_dir(), &document)?;
+        state.log_info("delete_module", &format!("deleted module_id={}", module_id));
+    }
+    Ok(deleted)
+}
+
+pub async fn apply_studio_template_to_today_impl(
+    state: &AppState,
+    template_id: String,
+    date: String,
+    trigger_time: String,
+    conflict_policy: Option<String>,
+    account_id: Option<String>,
+) -> Result<ApplyStudioResult, InfraError> {
+    let template_id = template_id.trim();
+    if template_id.is_empty() {
+        return Err(InfraError::InvalidConfig(
+            "template_id must not be empty".to_string(),
+        ));
+    }
+    let trigger_time_value = NaiveTime::parse_from_str(trigger_time.trim(), "%H:%M").map_err(|error| {
+        InfraError::InvalidConfig(format!("trigger_time must be HH:MM: {error}"))
+    })?;
+    let policy = load_runtime_policy(state.config_dir());
+    let account_id = normalize_account_id(account_id);
+    let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
+        .map_err(|error| InfraError::InvalidConfig(format!("date must be YYYY-MM-DD: {error}")))?;
+    let resolved_conflict_policy = conflict_policy
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("shift");
+    if !resolved_conflict_policy.eq_ignore_ascii_case("shift") {
+        return Err(InfraError::InvalidConfig(
+            "unsupported conflict_policy (expected 'shift')".to_string(),
+        ));
+    }
+
+    let recipes = load_configured_recipes(state.config_dir());
+    let template = recipes
+        .iter()
+        .find(|candidate| candidate.id == template_id)
+        .ok_or_else(|| InfraError::InvalidConfig(format!("template not found: {template_id}")))?;
+    if !recipe_is_routine_studio(template) {
+        return Err(InfraError::InvalidConfig(
+            "template is not a routine studio template".to_string(),
+        ));
+    }
+
+    let total_seconds = template
+        .steps
+        .iter()
+        .map(|step| step.duration_seconds as i64)
+        .sum::<i64>();
+    if total_seconds <= 0 {
+        return Err(InfraError::InvalidConfig(
+            "template steps must have positive duration".to_string(),
+        ));
+    }
+
+    let requested_start = local_datetime_to_utc(date, trigger_time_value, policy.timezone)?;
+    let requested_end = requested_start + Duration::seconds(total_seconds);
+    let requested_interval = Interval {
+        start: requested_start,
+        end: requested_end,
+    };
+
+    let (existing_blocks, synced_events_by_account, mut blocks_calendar_ids) = {
+        let runtime = lock_runtime(state)?;
+        (
+            runtime
+                .blocks
+                .values()
+                .filter(|stored| stored.block.date == date.to_string())
+                .cloned()
+                .collect::<Vec<_>>(),
+            runtime.synced_events_by_account.clone(),
+            runtime.blocks_calendar_ids.clone(),
+        )
+    };
+
+    let mut busy_intervals = Vec::new();
+    for stored in &existing_blocks {
+        busy_intervals.push(Interval {
+            start: stored.block.start_at,
+            end: stored.block.end_at,
+        });
+    }
+    if let Some(events) = synced_events_by_account.get(&account_id) {
+        for event in events {
+            if let Some(interval) = event_to_interval(event) {
+                busy_intervals.push(interval);
+            }
+        }
+    } else {
+        for events in synced_events_by_account.values() {
+            for event in events {
+                if let Some(interval) = event_to_interval(event) {
+                    busy_intervals.push(interval);
+                }
+            }
+        }
+    }
+
+    let conflict_count = busy_intervals
+        .iter()
+        .filter(|interval| intervals_overlap(interval, &requested_interval))
+        .count();
+
+    let merged_busy = merge_intervals(busy_intervals);
+    let mut applied_start = requested_start;
+    let mut applied_end = requested_end;
+    let mut shifted = false;
+    if merged_busy
+        .iter()
+        .any(|interval| intervals_overlap(interval, &requested_interval))
+    {
+        let day_start = local_datetime_to_utc(
+            date,
+            NaiveTime::from_hms_opt(0, 0, 0).expect("valid fixed time"),
+            policy.timezone,
+        )?;
+        let day_end = day_start + Duration::days(1);
+        let slots = free_slots(day_start, day_end, &merged_busy);
+        let mut found = None;
+        for slot in slots {
+            let candidate_start = if slot.start < requested_start {
+                requested_start
+            } else {
+                slot.start
+            };
+            let candidate_end = candidate_start + Duration::seconds(total_seconds);
+            if candidate_end <= slot.end {
+                found = Some((candidate_start, candidate_end));
+                break;
+            }
+        }
+        let Some((shifted_start, shifted_end)) = found else {
+            return Err(InfraError::InvalidConfig(
+                "no available free slot to apply template today".to_string(),
+            ));
+        };
+        applied_start = shifted_start;
+        applied_end = shifted_end;
+        shifted = true;
+    }
+
+    let duration_minutes = ((total_seconds + 59) / 60) as u32;
+    let block_plan = BlockPlan {
+        instance: format!(
+            "studio:{}:{}:{}",
+            template_id,
+            date,
+            next_id("inst")
+        ),
+        start_at: applied_start,
+        end_at: applied_end,
+        firmness: Firmness::Draft,
+        planned_pomodoros: planned_pomodoros(duration_minutes, policy.break_duration_minutes),
+        source: "routine_studio".to_string(),
+        source_id: Some(template_id.to_string()),
+        recipe_id: template.id.clone(),
+        auto_drive_mode: template.auto_drive_mode.clone(),
+    };
+    let mut generated = vec![StoredBlock {
+        block: Block {
+            id: next_id("blk"),
+            instance: block_plan.instance,
+            date: date.to_string(),
+            start_at: block_plan.start_at,
+            end_at: block_plan.end_at,
+            firmness: block_plan.firmness,
+            planned_pomodoros: block_plan.planned_pomodoros,
+            source: block_plan.source,
+            source_id: block_plan.source_id,
+            recipe_id: block_plan.recipe_id,
+            auto_drive_mode: block_plan.auto_drive_mode,
+            contents: BlockContents::default(),
+        },
+        calendar_event_id: None,
+        calendar_account_id: Some(account_id.clone()),
+    }];
+
+    let access_token = try_access_token(Some(account_id.clone())).await?;
+    if !blocks_calendar_ids.contains_key(&account_id) {
+        if let Some(token) = access_token.as_deref() {
+            let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
+            let resolved = ensure_blocks_calendar_id(
+                state.config_dir(),
+                token,
+                Arc::clone(&calendar_client),
+                &account_id,
+            )
+            .await?;
+            blocks_calendar_ids.insert(account_id.clone(), resolved.clone());
+            let mut runtime = lock_runtime(state)?;
+            runtime
+                .blocks_calendar_ids
+                .insert(account_id.clone(), resolved);
+        }
+    }
+    let calendar_id = blocks_calendar_ids.get(&account_id).map(String::as_str);
+    if let (Some(token), Some(calendar_id)) = (access_token.as_deref(), calendar_id) {
+        let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
+        let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
+        let sync_service = Arc::new(CalendarSyncService::new(
+            Arc::clone(&calendar_client),
+            sync_state_repo,
+            Arc::clone(&state.calendar_cache),
+        ));
+        create_calendar_events_for_generated_blocks(sync_service, token, calendar_id, &mut generated)
+            .await?;
+    }
+
+    let created = generated.remove(0);
+    {
+        let mut runtime = lock_runtime(state)?;
+        if let Some(calendar_id) = blocks_calendar_ids.get(&account_id).cloned() {
+            runtime
+                .blocks_calendar_ids
+                .insert(account_id.clone(), calendar_id);
+        }
+        runtime
+            .blocks
+            .insert(created.block.id.clone(), created.clone());
+    }
+
+    state.log_info(
+        "apply_studio_template_to_today",
+        &format!(
+            "template_id={} date={} shifted={} conflict_count={} block_id={}",
+            template_id, date, shifted, conflict_count, created.block.id
+        ),
+    );
+    Ok(ApplyStudioResult {
+        template_id: template_id.to_string(),
+        date: date.to_string(),
+        requested_start_at: requested_start.to_rfc3339(),
+        requested_end_at: requested_end.to_rfc3339(),
+        applied_start_at: created.block.start_at.to_rfc3339(),
+        applied_end_at: created.block.end_at.to_rfc3339(),
+        shifted,
+        conflict_count,
+        block_id: created.block.id,
+    })
+}
+
 pub async fn generate_today_blocks_impl(
     state: &AppState,
     account_id: Option<String>,
@@ -3389,6 +3729,10 @@ fn default_recipe_steps() -> Vec<RecipeStep> {
             long_break_every: None,
         }),
         overrun_policy: Some(OverrunPolicy::Wait),
+        module_id: None,
+        checklist: Vec::new(),
+        note: None,
+        execution_hints: None,
     }]
 }
 
@@ -3398,6 +3742,7 @@ fn default_recipe() -> Recipe {
         name: "Default Focus".to_string(),
         auto_drive_mode: AutoDriveMode::Manual,
         steps: default_recipe_steps(),
+        studio_meta: None,
     }
 }
 
@@ -3500,6 +3845,44 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
                         });
                     let overrun_policy =
                         parse_overrun_policy_value(value_by_keys(step_object, &["overrunPolicy", "overrun_policy"]));
+                    let module_id = value_by_keys(step_object, &["moduleId", "module_id"])
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned);
+                    let checklist = value_by_keys(step_object, &["checklist"])
+                        .and_then(serde_json::Value::as_array)
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(serde_json::Value::as_str)
+                                .map(str::trim)
+                                .filter(|value| !value.is_empty())
+                                .map(ToOwned::to_owned)
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    let note = value_by_keys(step_object, &["note"])
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToOwned::to_owned);
+                    let execution_hints = value_by_keys(step_object, &["executionHints", "execution_hints"])
+                        .and_then(serde_json::Value::as_object)
+                        .map(|hints| ExecutionHints {
+                            allow_skip: value_by_keys(hints, &["allowSkip", "allow_skip"])
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                            must_complete_checklist: value_by_keys(
+                                hints,
+                                &["mustCompleteChecklist", "must_complete_checklist"],
+                            )
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false),
+                            auto_advance: value_by_keys(hints, &["autoAdvance", "auto_advance"])
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false),
+                        });
                     Some(RecipeStep {
                         id: step_id,
                         step_type,
@@ -3507,6 +3890,10 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
                         duration_seconds,
                         pomodoro,
                         overrun_policy,
+                        module_id,
+                        checklist,
+                        note,
+                        execution_hints,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -3520,6 +3907,20 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
         name,
         auto_drive_mode,
         steps,
+        studio_meta: value_by_keys(object, &["studioMeta", "studio_meta"])
+            .and_then(serde_json::Value::as_object)
+            .map(|meta| RecipeStudioMeta {
+                version: value_by_keys(meta, &["version"])
+                    .and_then(serde_json::Value::as_u64)
+                    .map(|value| value as u8)
+                    .unwrap_or(1),
+                kind: value_by_keys(meta, &["kind"])
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("routine_studio")
+                    .to_string(),
+            }),
     };
     if recipe.validate().is_err() {
         return None;
@@ -3683,16 +4084,405 @@ fn recipe_to_json_value(recipe: &Recipe) -> serde_json::Value {
                     serde_json::Value::String(overrun_policy_as_str(overrun_policy).to_string()),
                 );
             }
+            if let Some(module_id) = &step.module_id {
+                object.insert(
+                    "moduleId".to_string(),
+                    serde_json::Value::String(module_id.clone()),
+                );
+            }
+            if !step.checklist.is_empty() {
+                object.insert(
+                    "checklist".to_string(),
+                    serde_json::Value::Array(
+                        step.checklist
+                            .iter()
+                            .map(|item| serde_json::Value::String(item.clone()))
+                            .collect::<Vec<_>>(),
+                    ),
+                );
+            }
+            if let Some(note) = &step.note {
+                object.insert(
+                    "note".to_string(),
+                    serde_json::Value::String(note.clone()),
+                );
+            }
+            if let Some(hints) = &step.execution_hints {
+                object.insert(
+                    "executionHints".to_string(),
+                    serde_json::json!({
+                        "allowSkip": hints.allow_skip,
+                        "mustCompleteChecklist": hints.must_complete_checklist,
+                        "autoAdvance": hints.auto_advance,
+                    }),
+                );
+            }
             serde_json::Value::Object(object)
         })
         .collect::<Vec<_>>();
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_string(), serde_json::Value::String(recipe.id.clone()));
+    object.insert("name".to_string(), serde_json::Value::String(recipe.name.clone()));
+    object.insert(
+        "autoDriveMode".to_string(),
+        serde_json::Value::String(auto_drive_mode_as_str(&recipe.auto_drive_mode).to_string()),
+    );
+    object.insert("steps".to_string(), serde_json::Value::Array(steps));
+    if let Some(meta) = &recipe.studio_meta {
+        object.insert(
+            "studioMeta".to_string(),
+            serde_json::json!({
+                "version": meta.version,
+                "kind": meta.kind,
+            }),
+        );
+    }
+    serde_json::Value::Object(object)
+}
 
-    serde_json::json!({
-        "id": recipe.id,
-        "name": recipe.name,
-        "autoDriveMode": auto_drive_mode_as_str(&recipe.auto_drive_mode),
-        "steps": steps,
+fn modules_config_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(MODULES_FILE_NAME)
+}
+
+fn read_modules_document(config_dir: &Path) -> Result<serde_json::Value, InfraError> {
+    let path = modules_config_path(config_dir);
+    if !path.exists() {
+        return Ok(serde_json::json!({
+            "schema": 1,
+            "modules": default_modules_catalog()
+                .iter()
+                .map(module_to_json_value)
+                .collect::<Vec<_>>(),
+        }));
+    }
+    let raw = fs::read_to_string(&path)?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+    if !parsed.is_object() {
+        return Err(InfraError::InvalidConfig(format!(
+            "{} must be a JSON object",
+            path.display()
+        )));
+    }
+    let schema = parsed
+        .get("schema")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    if schema != 1 {
+        return Err(InfraError::InvalidConfig(format!(
+            "unsupported schema {} in {}",
+            schema,
+            path.display()
+        )));
+    }
+    Ok(parsed)
+}
+
+fn write_modules_document(
+    config_dir: &Path,
+    document: &serde_json::Value,
+) -> Result<(), InfraError> {
+    let path = modules_config_path(config_dir);
+    let formatted = serde_json::to_string_pretty(document)?;
+    fs::write(path, format!("{formatted}\n"))?;
+    Ok(())
+}
+
+fn modules_array_mut(
+    document: &mut serde_json::Value,
+) -> Result<&mut Vec<serde_json::Value>, InfraError> {
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| InfraError::InvalidConfig("modules document must be object".to_string()))?;
+    object
+        .entry("schema".to_string())
+        .or_insert_with(|| serde_json::Value::from(1_u8));
+    let modules_entry = object
+        .entry("modules".to_string())
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    modules_entry.as_array_mut().ok_or_else(|| {
+        InfraError::InvalidConfig("modules must be an array in modules.json".to_string())
     })
+}
+
+fn parse_module_payload(payload: &serde_json::Value) -> Result<Module, InfraError> {
+    parse_module_from_value(payload).ok_or_else(|| {
+        InfraError::InvalidConfig("invalid module payload; check id/name/category/duration".to_string())
+    })
+}
+
+fn parse_module_payload_with_id(
+    payload: &serde_json::Value,
+    module_id: &str,
+) -> Result<Module, InfraError> {
+    let mut object = payload
+        .as_object()
+        .cloned()
+        .ok_or_else(|| InfraError::InvalidConfig("module payload must be object".to_string()))?;
+    object.insert(
+        "id".to_string(),
+        serde_json::Value::String(module_id.to_string()),
+    );
+    parse_module_payload(&serde_json::Value::Object(object))
+}
+
+fn parse_module_from_value(raw: &serde_json::Value) -> Option<Module> {
+    let object = raw.as_object()?;
+    let id = value_by_keys(object, &["id"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let name = value_by_keys(object, &["name"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let category = value_by_keys(object, &["category"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("General")
+        .to_string();
+    let description = value_by_keys(object, &["description"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let icon = value_by_keys(object, &["icon"])
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let step_type = parse_recipe_step_type_value(value_by_keys(
+        object,
+        &["stepType", "step_type", "type"],
+    ))
+    .unwrap_or(RecipeStepType::Micro);
+    let duration_minutes = value_by_keys(object, &["durationMinutes", "duration_minutes"])
+        .and_then(parse_positive_u32_value)
+        .unwrap_or(1);
+    let checklist = value_by_keys(object, &["checklist"])
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let pomodoro = value_by_keys(object, &["pomodoro"])
+        .and_then(serde_json::Value::as_object)
+        .map(|pomodoro| ModulePomodoroConfig {
+            focus_seconds: value_by_keys(pomodoro, &["focusSeconds", "focus_seconds"])
+                .and_then(parse_positive_u32_value)
+                .unwrap_or(POMODORO_FOCUS_SECONDS),
+            break_seconds: value_by_keys(pomodoro, &["breakSeconds", "break_seconds"])
+                .and_then(parse_positive_u32_value)
+                .unwrap_or(POMODORO_BREAK_SECONDS),
+            cycles: value_by_keys(pomodoro, &["cycles"])
+                .and_then(parse_positive_u32_value)
+                .unwrap_or(1),
+            long_break_seconds: value_by_keys(pomodoro, &["longBreakSeconds", "long_break_seconds"])
+                .and_then(parse_positive_u32_value),
+            long_break_every: value_by_keys(pomodoro, &["longBreakEvery", "long_break_every"])
+                .and_then(parse_positive_u32_value),
+        });
+    let overrun_policy =
+        parse_overrun_policy_value(value_by_keys(object, &["overrunPolicy", "overrun_policy"]));
+    let execution_hints = value_by_keys(object, &["executionHints", "execution_hints"])
+        .and_then(serde_json::Value::as_object)
+        .map(|hints| ExecutionHints {
+            allow_skip: value_by_keys(hints, &["allowSkip", "allow_skip"])
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            must_complete_checklist: value_by_keys(
+                hints,
+                &["mustCompleteChecklist", "must_complete_checklist"],
+            )
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+            auto_advance: value_by_keys(hints, &["autoAdvance", "auto_advance"])
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        });
+    let module = Module {
+        id,
+        name,
+        category,
+        description,
+        icon,
+        step_type,
+        duration_minutes,
+        checklist,
+        pomodoro,
+        overrun_policy,
+        execution_hints,
+    };
+    module.validate().ok()?;
+    Some(module)
+}
+
+fn module_to_json_value(module: &Module) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    object.insert("id".to_string(), serde_json::Value::String(module.id.clone()));
+    object.insert(
+        "name".to_string(),
+        serde_json::Value::String(module.name.clone()),
+    );
+    object.insert(
+        "category".to_string(),
+        serde_json::Value::String(module.category.clone()),
+    );
+    if let Some(description) = &module.description {
+        object.insert(
+            "description".to_string(),
+            serde_json::Value::String(description.clone()),
+        );
+    }
+    if let Some(icon) = &module.icon {
+        object.insert("icon".to_string(), serde_json::Value::String(icon.clone()));
+    }
+    object.insert(
+        "stepType".to_string(),
+        serde_json::Value::String(recipe_step_type_as_str(&module.step_type).to_string()),
+    );
+    object.insert(
+        "durationMinutes".to_string(),
+        serde_json::Value::from(module.duration_minutes),
+    );
+    object.insert(
+        "checklist".to_string(),
+        serde_json::Value::Array(
+            module
+                .checklist
+                .iter()
+                .map(|item| serde_json::Value::String(item.clone()))
+                .collect::<Vec<_>>(),
+        ),
+    );
+    if let Some(pomodoro) = &module.pomodoro {
+        object.insert(
+            "pomodoro".to_string(),
+            serde_json::json!({
+                "focusSeconds": pomodoro.focus_seconds,
+                "breakSeconds": pomodoro.break_seconds,
+                "cycles": pomodoro.cycles,
+                "longBreakSeconds": pomodoro.long_break_seconds,
+                "longBreakEvery": pomodoro.long_break_every,
+            }),
+        );
+    }
+    if let Some(overrun_policy) = &module.overrun_policy {
+        object.insert(
+            "overrunPolicy".to_string(),
+            serde_json::Value::String(overrun_policy_as_str(overrun_policy).to_string()),
+        );
+    }
+    if let Some(hints) = &module.execution_hints {
+        object.insert(
+            "executionHints".to_string(),
+            serde_json::json!({
+                "allowSkip": hints.allow_skip,
+                "mustCompleteChecklist": hints.must_complete_checklist,
+                "autoAdvance": hints.auto_advance,
+            }),
+        );
+    }
+    serde_json::Value::Object(object)
+}
+
+fn default_modules_catalog() -> Vec<Module> {
+    vec![
+        Module {
+            id: "mod-deep-work-init".to_string(),
+            name: "Deep Work Init".to_string(),
+            category: "Focus Work".to_string(),
+            description: Some("Environment prep".to_string()),
+            icon: Some("spark".to_string()),
+            step_type: RecipeStepType::Micro,
+            duration_minutes: 5,
+            checklist: vec![
+                "Close distracting tabs".to_string(),
+                "Set Slack to Away".to_string(),
+                "Enable Do Not Disturb".to_string(),
+            ],
+            pomodoro: None,
+            overrun_policy: Some(OverrunPolicy::Wait),
+            execution_hints: Some(ExecutionHints {
+                allow_skip: true,
+                must_complete_checklist: false,
+                auto_advance: true,
+            }),
+        },
+        Module {
+            id: "mod-pomodoro-focus".to_string(),
+            name: "Pomodoro Focus".to_string(),
+            category: "Focus Work".to_string(),
+            description: Some("25m work block".to_string()),
+            icon: Some("timer".to_string()),
+            step_type: RecipeStepType::Pomodoro,
+            duration_minutes: 25,
+            checklist: vec![
+                "Focus on one task only".to_string(),
+                "No context switching".to_string(),
+            ],
+            pomodoro: Some(ModulePomodoroConfig {
+                focus_seconds: 1500,
+                break_seconds: 300,
+                cycles: 1,
+                long_break_seconds: Some(900),
+                long_break_every: Some(4),
+            }),
+            overrun_policy: Some(OverrunPolicy::Wait),
+            execution_hints: Some(ExecutionHints {
+                allow_skip: true,
+                must_complete_checklist: false,
+                auto_advance: true,
+            }),
+        },
+        Module {
+            id: "mod-two-min-triage".to_string(),
+            name: "2m Triage".to_string(),
+            category: "Communication".to_string(),
+            description: Some("Quick inbox sort".to_string()),
+            icon: Some("mail".to_string()),
+            step_type: RecipeStepType::Micro,
+            duration_minutes: 2,
+            checklist: vec![
+                "Reply, archive, or defer".to_string(),
+                "No deep replies".to_string(),
+            ],
+            pomodoro: None,
+            overrun_policy: Some(OverrunPolicy::Wait),
+            execution_hints: Some(ExecutionHints {
+                allow_skip: true,
+                must_complete_checklist: false,
+                auto_advance: true,
+            }),
+        },
+    ]
+}
+
+fn load_configured_modules(config_dir: &Path) -> Vec<Module> {
+    let mut modules = read_config_array(config_dir, MODULES_FILE_NAME, "modules")
+        .iter()
+        .filter_map(parse_module_from_value)
+        .collect::<Vec<_>>();
+    if modules.is_empty() {
+        modules = default_modules_catalog();
+    }
+    modules
+}
+
+fn recipe_is_routine_studio(recipe: &Recipe) -> bool {
+    recipe
+        .studio_meta
+        .as_ref()
+        .map(|meta| meta.version == 1 && meta.kind.eq_ignore_ascii_case("routine_studio"))
+        .unwrap_or(false)
 }
 
 fn recipes_config_path(config_dir: &Path) -> PathBuf {
@@ -4611,6 +5401,383 @@ mod tests {
         assert!(generated
             .iter()
             .any(|block| block.instance.starts_with("rtn:auto:")));
+    }
+
+    #[test]
+    fn modules_crud_persists_to_modules_json() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let before = list_modules_impl(&state).expect("list modules");
+        assert!(!before.is_empty());
+
+        let created = create_module_impl(
+            &state,
+            serde_json::json!({
+                "id": "mod-test-module",
+                "name": "Test Module",
+                "category": "Testing",
+                "description": "integration test module",
+                "icon": "beaker",
+                "stepType": "micro",
+                "durationMinutes": 7,
+                "checklist": ["one", "two"],
+                "overrunPolicy": "wait",
+                "executionHints": {
+                    "allowSkip": true,
+                    "mustCompleteChecklist": false,
+                    "autoAdvance": true
+                }
+            }),
+        )
+        .expect("create module");
+        assert_eq!(created.id, "mod-test-module");
+
+        let updated = update_module_impl(
+            &state,
+            "mod-test-module".to_string(),
+            serde_json::json!({
+                "name": "Test Module Updated",
+                "category": "Testing",
+                "stepType": "micro",
+                "durationMinutes": 9,
+                "checklist": ["three"],
+                "overrunPolicy": "wait"
+            }),
+        )
+        .expect("update module");
+        assert_eq!(updated.name, "Test Module Updated");
+        assert_eq!(updated.duration_minutes, 9);
+
+        let listed = list_modules_impl(&state).expect("list modules");
+        assert!(listed.iter().any(|module| module.id == "mod-test-module"));
+
+        let deleted = delete_module_impl(&state, "mod-test-module".to_string()).expect("delete module");
+        assert!(deleted);
+        let after_delete = list_modules_impl(&state).expect("list modules");
+        assert!(after_delete
+            .iter()
+            .all(|module| module.id != "mod-test-module"));
+    }
+
+    #[tokio::test]
+    async fn apply_studio_template_to_today_creates_block_without_shift() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        create_recipe_impl(
+            &state,
+            serde_json::json!({
+                "id": "rcp-studio-a",
+                "name": "Studio A",
+                "autoDriveMode": "manual",
+                "studioMeta": {
+                    "version": 1,
+                    "kind": "routine_studio"
+                },
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "micro",
+                        "title": "A",
+                        "durationSeconds": 900
+                    }
+                ]
+            }),
+        )
+        .expect("create studio recipe");
+
+        let result = apply_studio_template_to_today_impl(
+            &state,
+            "rcp-studio-a".to_string(),
+            "2026-02-16".to_string(),
+            "09:00".to_string(),
+            Some("shift".to_string()),
+            None,
+        )
+        .await
+        .expect("apply studio template");
+
+        assert!(!result.shifted);
+        assert_eq!(result.conflict_count, 0);
+        let blocks = list_blocks_impl(&state, Some("2026-02-16".to_string())).expect("list blocks");
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].source, "routine_studio");
+        assert_eq!(blocks[0].recipe_id, "rcp-studio-a");
+    }
+
+    #[tokio::test]
+    async fn apply_studio_template_to_today_shifts_when_conflict_exists() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        create_recipe_impl(
+            &state,
+            serde_json::json!({
+                "id": "rcp-studio-b",
+                "name": "Studio B",
+                "autoDriveMode": "manual",
+                "studioMeta": {
+                    "version": 1,
+                    "kind": "routine_studio"
+                },
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "micro",
+                        "title": "B",
+                        "durationSeconds": 1800
+                    }
+                ]
+            }),
+        )
+        .expect("create studio recipe");
+
+        let busy_block = Block {
+            id: "blk-busy".to_string(),
+            instance: "manual:busy".to_string(),
+            date: "2026-02-16".to_string(),
+            start_at: DateTime::parse_from_rfc3339("2026-02-16T09:00:00Z")
+                .expect("start")
+                .with_timezone(&Utc),
+            end_at: DateTime::parse_from_rfc3339("2026-02-16T09:30:00Z")
+                .expect("end")
+                .with_timezone(&Utc),
+            firmness: Firmness::Hard,
+            planned_pomodoros: 1,
+            source: "manual".to_string(),
+            source_id: Some("busy".to_string()),
+            recipe_id: "rcp-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
+        };
+        {
+            let mut runtime = lock_runtime(&state).expect("runtime lock");
+            runtime.blocks.insert(
+                busy_block.id.clone(),
+                StoredBlock {
+                    block: busy_block.clone(),
+                    calendar_event_id: None,
+                    calendar_account_id: Some(DEFAULT_ACCOUNT_ID.to_string()),
+                },
+            );
+        }
+
+        let result = apply_studio_template_to_today_impl(
+            &state,
+            "rcp-studio-b".to_string(),
+            "2026-02-16".to_string(),
+            "09:00".to_string(),
+            Some("shift".to_string()),
+            None,
+        )
+        .await
+        .expect("apply studio template with shift");
+        assert!(result.shifted);
+        assert!(result.conflict_count >= 1);
+        let applied_start = DateTime::parse_from_rfc3339(&result.applied_start_at)
+            .expect("parse applied start")
+            .with_timezone(&Utc);
+        assert!(applied_start >= busy_block.end_at);
+    }
+
+    #[tokio::test]
+    async fn apply_studio_template_to_today_fails_when_no_free_slot() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        create_recipe_impl(
+            &state,
+            serde_json::json!({
+                "id": "rcp-studio-c",
+                "name": "Studio C",
+                "autoDriveMode": "manual",
+                "studioMeta": {
+                    "version": 1,
+                    "kind": "routine_studio"
+                },
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "micro",
+                        "title": "C",
+                        "durationSeconds": 3600
+                    }
+                ]
+            }),
+        )
+        .expect("create studio recipe");
+
+        let full_day_block = Block {
+            id: "blk-full".to_string(),
+            instance: "manual:full".to_string(),
+            date: "2026-02-16".to_string(),
+            start_at: DateTime::parse_from_rfc3339("2026-02-16T00:00:00Z")
+                .expect("start")
+                .with_timezone(&Utc),
+            end_at: DateTime::parse_from_rfc3339("2026-02-17T00:00:00Z")
+                .expect("end")
+                .with_timezone(&Utc),
+            firmness: Firmness::Hard,
+            planned_pomodoros: 1,
+            source: "manual".to_string(),
+            source_id: Some("full".to_string()),
+            recipe_id: "rcp-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
+        };
+        {
+            let mut runtime = lock_runtime(&state).expect("runtime lock");
+            runtime.blocks.insert(
+                full_day_block.id.clone(),
+                StoredBlock {
+                    block: full_day_block,
+                    calendar_event_id: None,
+                    calendar_account_id: Some(DEFAULT_ACCOUNT_ID.to_string()),
+                },
+            );
+        }
+
+        let error = apply_studio_template_to_today_impl(
+            &state,
+            "rcp-studio-c".to_string(),
+            "2026-02-16".to_string(),
+            "09:00".to_string(),
+            Some("shift".to_string()),
+            None,
+        )
+        .await
+        .expect_err("apply should fail");
+        assert!(error
+            .to_string()
+            .contains("no available free slot"));
+    }
+
+    #[tokio::test]
+    async fn apply_studio_template_to_today_rejects_non_studio_recipe() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        create_recipe_impl(
+            &state,
+            serde_json::json!({
+                "id": "rcp-legacy",
+                "name": "Legacy",
+                "autoDriveMode": "manual",
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "micro",
+                        "title": "legacy",
+                        "durationSeconds": 600
+                    }
+                ]
+            }),
+        )
+        .expect("create legacy recipe");
+
+        let error = apply_studio_template_to_today_impl(
+            &state,
+            "rcp-legacy".to_string(),
+            "2026-02-16".to_string(),
+            "09:00".to_string(),
+            Some("shift".to_string()),
+            None,
+        )
+        .await
+        .expect_err("legacy apply should fail");
+        assert!(error
+            .to_string()
+            .contains("routine studio"));
+    }
+
+    #[test]
+    fn recipe_studio_fields_are_preserved_across_create_update_list() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        create_recipe_impl(
+            &state,
+            serde_json::json!({
+                "id": "rcp-studio-meta",
+                "name": "Studio Meta",
+                "autoDriveMode": "auto",
+                "studioMeta": {
+                    "version": 1,
+                    "kind": "routine_studio"
+                },
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "pomodoro",
+                        "title": "Focus",
+                        "durationSeconds": 1500,
+                        "moduleId": "mod-pomodoro-focus",
+                        "checklist": ["Do one thing"],
+                        "note": "initial",
+                        "overrunPolicy": "wait",
+                        "executionHints": {
+                            "allowSkip": false,
+                            "mustCompleteChecklist": true,
+                            "autoAdvance": true
+                        },
+                        "pomodoro": {
+                            "focusSeconds": 1500,
+                            "breakSeconds": 300,
+                            "cycles": 1,
+                            "longBreakSeconds": 900,
+                            "longBreakEvery": 4
+                        }
+                    }
+                ]
+            }),
+        )
+        .expect("create studio recipe");
+
+        update_recipe_impl(
+            &state,
+            "rcp-studio-meta".to_string(),
+            serde_json::json!({
+                "name": "Studio Meta Updated",
+                "autoDriveMode": "manual",
+                "studioMeta": {
+                    "version": 1,
+                    "kind": "routine_studio"
+                },
+                "steps": [
+                    {
+                        "id": "step-1",
+                        "type": "micro",
+                        "title": "Focus Updated",
+                        "durationSeconds": 1200,
+                        "moduleId": "mod-deep-work-init",
+                        "checklist": ["Updated one", "Updated two"],
+                        "note": "updated",
+                        "overrunPolicy": "wait",
+                        "executionHints": {
+                            "allowSkip": true,
+                            "mustCompleteChecklist": false,
+                            "autoAdvance": true
+                        }
+                    }
+                ]
+            }),
+        )
+        .expect("update studio recipe");
+
+        let listed = list_recipes_impl(&state).expect("list recipes");
+        let target = listed
+            .into_iter()
+            .find(|recipe| recipe.id == "rcp-studio-meta")
+            .expect("recipe exists");
+        assert!(recipe_is_routine_studio(&target));
+        assert_eq!(target.name, "Studio Meta Updated");
+        assert_eq!(target.steps.len(), 1);
+        let step = &target.steps[0];
+        assert_eq!(step.module_id.as_deref(), Some("mod-deep-work-init"));
+        assert_eq!(step.checklist.len(), 2);
+        assert_eq!(step.note.as_deref(), Some("updated"));
+        assert!(step.execution_hints.as_ref().map(|h| h.allow_skip).unwrap_or(false));
     }
 
     #[test]

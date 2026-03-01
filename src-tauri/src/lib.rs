@@ -5,18 +5,19 @@ mod infrastructure;
 use application::bootstrap::bootstrap_workspace;
 use application::commands::{
     adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
-    authenticate_google_sso_impl, carry_over_task_impl, complete_pomodoro_impl, create_recipe_impl,
-    create_task_impl, delete_block_impl, delete_recipe_impl, delete_task_impl, generate_blocks_impl,
-    generate_one_block_impl, generate_today_blocks_impl, get_pomodoro_state_impl,
-    get_reflection_summary_impl, interrupt_timer_impl, list_blocks_impl, list_recipes_impl,
-    list_synced_events_impl, list_tasks_impl, next_step_impl, pause_pomodoro_impl, pause_timer_impl,
-    relocate_if_needed_impl, resume_pomodoro_impl, resume_timer_impl, split_task_impl,
-    start_block_timer_impl, start_pomodoro_impl, sync_calendar_impl, update_recipe_impl,
-    update_task_impl, AppState,
-    AuthenticateGoogleResponse, CarryOverTaskResponse, PomodoroStateResponse,
+    authenticate_google_sso_impl, carry_over_task_impl, complete_pomodoro_impl, create_module_impl,
+    create_recipe_impl, create_task_impl, delete_block_impl, delete_module_impl, delete_recipe_impl,
+    delete_task_impl, generate_blocks_impl, generate_one_block_impl, generate_today_blocks_impl,
+    get_pomodoro_state_impl, get_reflection_summary_impl, interrupt_timer_impl,
+    list_blocks_impl, list_modules_impl, list_recipes_impl, list_synced_events_impl,
+    list_tasks_impl, next_step_impl, pause_pomodoro_impl, pause_timer_impl, relocate_if_needed_impl,
+    resume_pomodoro_impl, resume_timer_impl, split_task_impl, start_block_timer_impl,
+    start_pomodoro_impl, sync_calendar_impl, update_module_impl, update_recipe_impl, update_task_impl,
+    AppState, apply_studio_template_to_today_impl, ApplyStudioResult, AuthenticateGoogleResponse,
+    CarryOverTaskResponse, PomodoroStateResponse,
     ReflectionSummaryResponse, SyncedEventSlotResponse, SyncCalendarResponse,
 };
-use domain::models::{Block, Recipe, Task};
+use domain::models::{Block, Module, Recipe, Task};
 use serde_json::Value;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -250,6 +251,54 @@ fn delete_recipe(state: tauri::State<'_, AppState>, recipe_id: String) -> Result
 }
 
 #[tauri::command]
+fn list_modules(state: tauri::State<'_, AppState>) -> Result<Vec<Module>, String> {
+    list_modules_impl(state.inner()).map_err(|error| state.command_error("list_modules", &error))
+}
+
+#[tauri::command]
+fn create_module(state: tauri::State<'_, AppState>, payload: Value) -> Result<Module, String> {
+    create_module_impl(state.inner(), payload)
+        .map_err(|error| state.command_error("create_module", &error))
+}
+
+#[tauri::command]
+fn update_module(
+    state: tauri::State<'_, AppState>,
+    module_id: String,
+    payload: Value,
+) -> Result<Module, String> {
+    update_module_impl(state.inner(), module_id, payload)
+        .map_err(|error| state.command_error("update_module", &error))
+}
+
+#[tauri::command]
+fn delete_module(state: tauri::State<'_, AppState>, module_id: String) -> Result<bool, String> {
+    delete_module_impl(state.inner(), module_id)
+        .map_err(|error| state.command_error("delete_module", &error))
+}
+
+#[tauri::command]
+async fn apply_studio_template_to_today(
+    state: tauri::State<'_, AppState>,
+    template_id: String,
+    date: String,
+    trigger_time: String,
+    conflict_policy: Option<String>,
+    account_id: Option<String>,
+) -> Result<ApplyStudioResult, String> {
+    apply_studio_template_to_today_impl(
+        state.inner(),
+        template_id,
+        date,
+        trigger_time,
+        conflict_policy,
+        account_id,
+    )
+    .await
+    .map_err(|error| state.command_error("apply_studio_template_to_today", &error))
+}
+
+#[tauri::command]
 fn create_task(
     state: tauri::State<'_, AppState>,
     title: String,
@@ -388,6 +437,11 @@ pub fn run() {
             create_recipe,
             update_recipe,
             delete_recipe,
+            list_modules,
+            create_module,
+            update_module,
+            delete_module,
+            apply_studio_template_to_today,
             start_pomodoro,
             start_block_timer,
             pause_pomodoro,
