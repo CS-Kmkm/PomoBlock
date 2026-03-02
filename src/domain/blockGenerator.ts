@@ -1,10 +1,35 @@
-﻿// @ts-nocheck
 import { createBlock, createPolicy } from "./models.js";
+import type { Block, Policy } from "./models.js";
 import { filterSlots, workWindowForDate } from "./policy.js";
 
-function toInterval(entity) {
-  const startValue = entity.startAt ?? entity.start ?? null;
-  const endValue = entity.endAt ?? entity.end ?? null;
+type Interval = {
+  start: Date;
+  end: Date;
+};
+
+type EventLike = {
+  startAt?: string;
+  endAt?: string;
+  start?: string;
+  end?: string;
+};
+
+type TimeSlot = {
+  startAt: string;
+  endAt: string;
+};
+
+type GenerateBlocksOptions = {
+  existingBlocks?: Block[];
+  source?: string;
+  sourceId?: string | null;
+  maxBlocks?: number;
+  idFactory?: () => string;
+};
+
+function toInterval(entity: EventLike | null | undefined): Interval | null {
+  const startValue = entity?.startAt ?? entity?.start ?? null;
+  const endValue = entity?.endAt ?? entity?.end ?? null;
   if (!startValue || !endValue) {
     return null;
   }
@@ -16,32 +41,49 @@ function toInterval(entity) {
   return { start, end };
 }
 
-function overlaps(a, b) {
+function overlaps(a: Interval, b: Interval): boolean {
   return a.start < b.end && b.start < a.end;
 }
 
-function mergeIntervals(intervals) {
+function mergeIntervals(intervals: Interval[]): Interval[] {
   if (intervals.length === 0) {
     return [];
   }
 
   const sorted = [...intervals].sort((a, b) => a.start.getTime() - b.start.getTime());
-  const merged = [sorted[0]];
+  const first = sorted[0];
+  if (!first) {
+    return [];
+  }
+  const merged: Interval[] = [{ start: new Date(first.start), end: new Date(first.end) }];
   for (let index = 1; index < sorted.length; index += 1) {
     const current = sorted[index];
+    if (!current) {
+      continue;
+    }
     const last = merged[merged.length - 1];
+    if (!last) {
+      merged.push({ start: new Date(current.start), end: new Date(current.end) });
+      continue;
+    }
     if (current.start <= last.end) {
       if (current.end > last.end) {
         last.end = current.end;
       }
     } else {
-      merged.push(current);
+      merged.push({ start: new Date(current.start), end: new Date(current.end) });
     }
   }
   return merged;
 }
 
-function createInstanceKey(source, sourceId, date, index, id) {
+function createInstanceKey(
+  source: string,
+  sourceId: string | null,
+  date: string,
+  index: number,
+  id: string
+): string {
   if (source === "manual") {
     return `man:${id}`;
   }
@@ -49,8 +91,8 @@ function createInstanceKey(source, sourceId, date, index, id) {
   return `${source}:${stableSourceId}:${date}:${index}`;
 }
 
-function buildBusyIntervals(events, windowStart, windowEnd) {
-  const intervals = [];
+function buildBusyIntervals(events: EventLike[], windowStart: Date, windowEnd: Date): Interval[] {
+  const intervals: Interval[] = [];
   for (const event of events) {
     const interval = toInterval(event);
     if (!interval) {
@@ -67,23 +109,25 @@ function buildBusyIntervals(events, windowStart, windowEnd) {
   return mergeIntervals(intervals);
 }
 
-function durationMinutes(start, end) {
+function durationMinutes(start: Date, end: Date): number {
   return Math.floor((end.getTime() - start.getTime()) / 60000);
 }
 
 export class BlockGenerator {
-  constructor(policyInput) {
+  private readonly policy: Policy;
+
+  constructor(policyInput: Partial<Policy>) {
     this.policy = createPolicy(policyInput);
   }
 
-  findFreeSlots(date, existingEvents = []) {
+  findFreeSlots(date: string, existingEvents: EventLike[] = []): TimeSlot[] {
     const { start: workStart, end: workEnd } = workWindowForDate(this.policy, date);
     if (workEnd <= workStart) {
       return [];
     }
 
     const busyIntervals = buildBusyIntervals(existingEvents, workStart, workEnd);
-    const rawSlots = [];
+    const rawSlots: TimeSlot[] = [];
     let cursor = new Date(workStart);
 
     for (const busy of busyIntervals) {
@@ -112,31 +156,33 @@ export class BlockGenerator {
     });
   }
 
-  generateBlocks(date, existingEvents = [], options = {}) {
+  generateBlocks(
+    date: string,
+    existingEvents: EventLike[] = [],
+    options: GenerateBlocksOptions = {}
+  ): Block[] {
     const existingBlocks = options.existingBlocks ?? [];
     const source = options.source ?? "routine";
     const sourceId = options.sourceId ?? null;
     const maxBlocks = options.maxBlocks ?? 100;
 
-    const blocks = [];
+    const blocks: Block[] = [];
     const freeSlots = this.findFreeSlots(date, existingEvents);
-    const takenIntervals = [
-      ...existingEvents.map(toInterval).filter(Boolean),
-      ...existingBlocks.map(toInterval).filter(Boolean),
-    ];
+    const existingEventIntervals = existingEvents
+      .map(toInterval)
+      .filter((interval): interval is Interval => interval !== null);
+    const existingBlockIntervals = existingBlocks
+      .map(toInterval)
+      .filter((interval): interval is Interval => interval !== null);
+    const takenIntervals: Interval[] = [...existingEventIntervals, ...existingBlockIntervals];
     let instanceIndex = 0;
 
     for (const slot of freeSlots) {
       let cursor = new Date(slot.startAt);
       const slotEnd = new Date(slot.endAt);
 
-      while (
-        cursor < slotEnd &&
-        blocks.length < maxBlocks
-      ) {
-        const endCandidate = new Date(
-          cursor.getTime() + this.policy.blockDurationMinutes * 60000
-        );
+      while (cursor < slotEnd && blocks.length < maxBlocks) {
+        const endCandidate = new Date(cursor.getTime() + this.policy.blockDurationMinutes * 60000);
         if (endCandidate > slotEnd) {
           break;
         }
@@ -144,12 +190,12 @@ export class BlockGenerator {
         const interval = { start: new Date(cursor), end: endCandidate };
         const collides = takenIntervals.some((busy) => overlaps(interval, busy));
         if (!collides) {
-          const id = options.idFactory ? options.idFactory() : undefined;
+          const id = options.idFactory ? options.idFactory() : null;
           const instance = createInstanceKey(source, sourceId, date, instanceIndex, id ?? "generated");
-          const duplicateInExisting = existingBlocks.some((b) => b.instance === instance);
+          const duplicateInExisting = existingBlocks.some((block) => block.instance === instance);
           if (!duplicateInExisting) {
             const block = createBlock({
-              id,
+              ...(id ? { id } : {}),
               instance,
               date,
               startAt: interval.start.toISOString(),
@@ -160,8 +206,7 @@ export class BlockGenerator {
               plannedPomodoros: Math.max(
                 1,
                 Math.floor(
-                  this.policy.blockDurationMinutes /
-                    (25 + this.policy.breakDurationMinutes)
+                  this.policy.blockDurationMinutes / (25 + this.policy.breakDurationMinutes)
                 )
               ),
             });
@@ -171,16 +216,14 @@ export class BlockGenerator {
           instanceIndex += 1;
         }
 
-        cursor = new Date(
-          endCandidate.getTime() + this.policy.minBlockGapMinutes * 60000
-        );
+        cursor = new Date(endCandidate.getTime() + this.policy.minBlockGapMinutes * 60000);
       }
     }
 
     return blocks;
   }
 
-  relocateBlock(block, existingEvents = []) {
+  relocateBlock(block: Block, existingEvents: EventLike[] = []): Block | null {
     const current = toInterval(block);
     if (!current) {
       return null;
@@ -215,10 +258,9 @@ export class BlockGenerator {
   }
 }
 
-export function intervalsOverlap(a, b) {
+export function intervalsOverlap(a: TimeSlot, b: TimeSlot): boolean {
   return overlaps(
     { start: new Date(a.startAt), end: new Date(a.endAt) },
     { start: new Date(b.startAt), end: new Date(b.endAt) }
   );
 }
-

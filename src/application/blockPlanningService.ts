@@ -1,7 +1,40 @@
-﻿// @ts-nocheck
 import { BlockGenerator } from "../domain/blockGenerator.js";
+import type { Block, Policy } from "../domain/models.js";
 
-function toInterval(entity) {
+type Interval = {
+  start: Date;
+  end: Date;
+};
+
+type EventLike = {
+  startAt?: string;
+  endAt?: string;
+  start?: string;
+  end?: string;
+};
+
+type BlockGenerationOptions = {
+  existingBlocks?: Block[];
+  source?: string;
+  sourceId?: string | null;
+  maxBlocks?: number;
+  idFactory?: () => string;
+};
+
+type StorageRepositoryPort = {
+  saveBlock(blockInput: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block;
+};
+
+type CalendarGateway = {
+  createDraftBlockEvent?: (block: Block) => string;
+  updateEvent?: (eventId: string, block: Block) => void;
+};
+
+type NotificationService = {
+  notify?: (type: string, payload: Record<string, unknown>) => void;
+};
+
+function toInterval(entity: EventLike | null | undefined): Interval | null {
   const startValue = entity?.startAt ?? entity?.start ?? null;
   const endValue = entity?.endAt ?? entity?.end ?? null;
   if (!startValue || !endValue) {
@@ -17,16 +50,26 @@ function toInterval(entity) {
   return { start, end };
 }
 
-function overlaps(left, right) {
+function overlaps(left: Interval, right: Interval): boolean {
   return left.start < right.end && right.start < left.end;
 }
 
 export class BlockPlanningService {
+  private readonly generator: BlockGenerator;
+  private readonly storageRepository: StorageRepositoryPort;
+  private readonly calendarGateway: CalendarGateway | null;
+  private readonly notificationService: NotificationService | null;
+
   constructor({
     policy,
     storageRepository,
     calendarGateway = null,
     notificationService = null,
+  }: {
+    policy: Partial<Policy>;
+    storageRepository: StorageRepositoryPort;
+    calendarGateway?: CalendarGateway | null;
+    notificationService?: NotificationService | null;
   }) {
     this.generator = new BlockGenerator(policy);
     this.storageRepository = storageRepository;
@@ -34,9 +77,9 @@ export class BlockPlanningService {
     this.notificationService = notificationService;
   }
 
-  planDay(date, existingEvents, options = {}) {
+  planDay(date: string, existingEvents: EventLike[], options: BlockGenerationOptions = {}): Block[] {
     const blocks = this.generator.generateBlocks(date, existingEvents, options);
-    const saved = [];
+    const saved: Block[] = [];
 
     for (const generatedBlock of blocks) {
       let block = this.storageRepository.saveBlock(generatedBlock);
@@ -54,7 +97,7 @@ export class BlockPlanningService {
     return saved;
   }
 
-  relocateIfNeeded(block, existingEvents) {
+  relocateIfNeeded(block: Block, existingEvents: EventLike[]): Block | null {
     const blockInterval = toInterval(block);
     if (!blockInterval) {
       return null;
@@ -86,4 +129,3 @@ export class BlockPlanningService {
     return saved;
   }
 }
-

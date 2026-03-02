@@ -1,36 +1,59 @@
-﻿// @ts-nocheck
-function assert(condition, message) {
+type JsonEntity = {
+  id: string;
+  [key: string]: unknown;
+};
+
+type JsonObject = Record<string, unknown>;
+
+type GitRepositoryPort = {
+  readFile(relativePath: string): string;
+  writeFile(relativePath: string, content: string): void;
+  listFiles(relativeDir: string): string[];
+  pull(): void;
+  commitAndPush(message: string, files: string[]): void;
+};
+
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
 }
 
-function parseJson(raw, relativePath) {
+function parseJson(raw: string, relativePath: string): unknown {
   try {
     return JSON.parse(raw);
   } catch (error) {
-    throw new Error(`invalid JSON in ${relativePath}: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`invalid JSON in ${relativePath}: ${message}`);
   }
 }
 
-function validateEntity(entity, label) {
+function validateEntity(entity: unknown, label: string): asserts entity is JsonEntity {
   assert(entity && typeof entity === "object", `${label} must be an object`);
-  assert(typeof entity.id === "string" && entity.id.trim().length > 0, `${label}.id is required`);
+  assert(
+    typeof (entity as { id?: unknown }).id === "string" && (entity as { id: string }).id.trim().length > 0,
+    `${label}.id is required`
+  );
 }
 
 export class RoutineManager {
-  constructor({ gitRepository }) {
+  private readonly gitRepository: GitRepositoryPort;
+  private readonly routinesDir: string;
+  private readonly templatesDir: string;
+  private readonly policyPath: string;
+
+  constructor({ gitRepository }: { gitRepository: GitRepositoryPort }) {
     this.gitRepository = gitRepository;
     this.routinesDir = ".pomblock/routines";
     this.templatesDir = ".pomblock/templates";
     this.policyPath = ".pomblock/policy.json";
   }
 
-  loadRoutines() {
-    return this.loadEntities(this.routinesDir);
+  loadRoutines<T extends JsonEntity = JsonEntity>(): T[] {
+    return this.loadEntities<T>(this.routinesDir);
   }
 
-  saveRoutine(routine) {
+  saveRoutine<T extends JsonEntity>(routine: T): T {
     validateEntity(routine, "routine");
     const filePath = `${this.routinesDir}/${routine.id}.json`;
     this.gitRepository.writeFile(filePath, `${JSON.stringify(routine, null, 2)}\n`);
@@ -38,11 +61,11 @@ export class RoutineManager {
     return routine;
   }
 
-  loadTemplates() {
-    return this.loadEntities(this.templatesDir);
+  loadTemplates<T extends JsonEntity = JsonEntity>(): T[] {
+    return this.loadEntities<T>(this.templatesDir);
   }
 
-  saveTemplate(template) {
+  saveTemplate<T extends JsonEntity>(template: T): T {
     validateEntity(template, "template");
     const filePath = `${this.templatesDir}/${template.id}.json`;
     this.gitRepository.writeFile(filePath, `${JSON.stringify(template, null, 2)}\n`);
@@ -50,23 +73,28 @@ export class RoutineManager {
     return template;
   }
 
-  savePolicy(policy) {
+  savePolicy<T extends JsonObject>(policy: T): T {
     assert(policy && typeof policy === "object", "policy must be an object");
     this.gitRepository.writeFile(this.policyPath, `${JSON.stringify(policy, null, 2)}\n`);
     this.gitRepository.commitAndPush("save policy", [this.policyPath]);
     return policy;
   }
 
-  loadPolicy() {
+  loadPolicy<T extends JsonObject = JsonObject>(): T | null {
     try {
       const raw = this.gitRepository.readFile(this.policyPath);
-      return parseJson(raw, this.policyPath);
+      const parsed = parseJson(raw, this.policyPath);
+      return parsed && typeof parsed === "object" ? (parsed as T) : null;
     } catch {
       return null;
     }
   }
 
-  syncWithGit() {
+  syncWithGit(): {
+    routines: JsonEntity[];
+    templates: JsonEntity[];
+    policy: JsonObject | null;
+  } {
     this.gitRepository.pull();
     return {
       routines: this.loadRoutines(),
@@ -75,17 +103,19 @@ export class RoutineManager {
     };
   }
 
-  loadEntities(relativeDir) {
+  private loadEntities<T extends JsonEntity = JsonEntity>(relativeDir: string): T[] {
     const fileNames = this.gitRepository
       .listFiles(relativeDir)
       .filter((fileName) => fileName.endsWith(".json"));
-    const entities = [];
+    const entities: T[] = [];
     for (const fileName of fileNames) {
       const fullPath = `${relativeDir}/${fileName}`;
       const raw = this.gitRepository.readFile(fullPath);
-      entities.push(parseJson(raw, fullPath));
+      const parsed = parseJson(raw, fullPath);
+      if (parsed && typeof parsed === "object") {
+        entities.push(parsed as T);
+      }
     }
     return entities;
   }
 }
-

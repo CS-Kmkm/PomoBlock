@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +13,7 @@ function createContext() {
   const dbPath = join(tempDir, "pomblock.sqlite");
   const storage = new LocalStorageRepository(dbPath);
   storage.initSchema();
-  const taskRepository = new TaskRepository(storage);
+  const taskRepository = new TaskRepository(storage as any);
   const taskManager = new TaskManager({
     taskRepository,
     storageRepository: storage,
@@ -23,12 +22,12 @@ function createContext() {
   return { tempDir, storage, taskRepository, taskManager };
 }
 
-function cleanupContext({ tempDir, storage }) {
+function cleanupContext({ tempDir, storage }: { tempDir: string; storage: LocalStorageRepository }) {
   storage.close();
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-function seedBlock(storage, { id, date, startAt, endAt }) {
+function seedBlock(storage: LocalStorageRepository, { id, date, startAt, endAt }: { id: string; date: string; startAt: string; endAt: string }) {
   storage.saveBlock(
     createBlock({
       id,
@@ -54,7 +53,7 @@ test("Feature: blocksched, Property 21: tasks are not pre-assigned before block 
       endAt: "2026-02-16T09:50:00.000Z",
     });
     const block = context.storage.loadBlockById("block-1");
-    assert.equal(block.taskId, null);
+    assert.equal(block?.taskId, null);
   } finally {
     cleanupContext(context);
   }
@@ -76,12 +75,12 @@ test("Feature: blocksched, Property 19/20: task assignment links task to block a
       context.taskManager.assignTaskToBlock(task.id, blockId);
 
       const block = context.storage.loadBlockById(blockId);
-      assert.equal(block.taskId, task.id);
-      assert.equal(block.taskRefs.includes(task.id), true);
+      assert.equal(block?.taskId, task.id);
+      assert.equal(block?.taskRefs.includes(task.id), true);
     }
 
     const logs = context.taskRepository.listTaskAuditLogs(500);
-    const selectedLogs = logs.filter((row) => row.eventType === "task_selected");
+    const selectedLogs = logs.filter((row: any) => row.eventType === "task_selected");
     assert.equal(selectedLogs.length >= 100, true);
   } finally {
     cleanupContext(context);
@@ -106,15 +105,16 @@ test("Feature: blocksched, Property 24/26: carry-over re-links task to next bloc
 
     const task = context.taskManager.createTask("Carry task", null, 3);
     context.taskManager.assignTaskToBlock(task.id, "block-from");
+    const nextBlock = context.storage.loadBlockById("block-next");
     const nextBlockId = context.taskManager.carryOverTask(task.id, "block-from", [
-      { ...context.storage.loadBlockById("block-next") },
+      { ...(nextBlock as any) },
     ]);
 
     assert.equal(nextBlockId, "block-next");
-    assert.equal(context.storage.loadBlockById("block-next").taskId, task.id);
+    assert.equal(context.storage.loadBlockById("block-next")?.taskId, task.id);
 
     const logs = context.taskRepository.listTaskAuditLogs();
-    assert.equal(logs.some((row) => row.eventType === "task_carried_over"), true);
+    assert.equal(logs.some((row: any) => row.eventType === "task_carried_over"), true);
   } finally {
     cleanupContext(context);
   }
@@ -127,16 +127,15 @@ test("Feature: blocksched, Property 25/26: task split creates children and logs 
     const children = context.taskManager.splitTask(parent.id, 4);
 
     assert.equal(children.length, 4);
-    assert.equal(children.every((child) => child.title.startsWith("Large task")), true);
-    assert.equal(children.every((child) => child.estimatedPomodoros === 2), true);
+    assert.equal(children.every((child: any) => child.title.startsWith("Large task")), true);
+    assert.equal(children.every((child: any) => child.estimatedPomodoros === 2), true);
 
     const refreshedParent = context.taskRepository.getById(parent.id);
-    assert.equal(refreshedParent.status, "deferred");
+    assert.equal(refreshedParent?.status, "deferred");
 
     const logs = context.taskRepository.listTaskAuditLogs();
-    assert.equal(logs.some((row) => row.eventType === "task_split"), true);
+    assert.equal(logs.some((row: any) => row.eventType === "task_split"), true);
   } finally {
     cleanupContext(context);
   }
 });
-

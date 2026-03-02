@@ -1,9 +1,31 @@
-﻿// @ts-nocheck
 import { createPolicy } from "./models.js";
+import type { Policy, PolicyOverride, WorkHours } from "./models.js";
 
-const FORMATTER_CACHE = new Map();
+type ZonedParts = {
+  weekday: string;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+};
 
-function getFormatter(timeZone) {
+type TimeSlot = {
+  startAt: string;
+  endAt: string;
+};
+
+type PolicyOverrideValue = Partial<Omit<Policy, "workHours">> & {
+  workHours?: Partial<WorkHours>;
+};
+
+type PolicyOverrideInput = Partial<Omit<PolicyOverride, "value">> & {
+  value?: PolicyOverrideValue;
+};
+
+const FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
+
+function getFormatter(timeZone: string): Intl.DateTimeFormat {
   const cacheKey = `en-US:${timeZone}`;
   let formatter = FORMATTER_CACHE.get(cacheKey);
   if (!formatter) {
@@ -22,47 +44,47 @@ function getFormatter(timeZone) {
   return formatter;
 }
 
-function zonedDateTimeParts(date, timeZone) {
+function zonedDateTimeParts(date: Date, timeZone: string): ZonedParts {
   const formatter = getFormatter(timeZone);
   const parts = formatter.formatToParts(date);
-  const byType = {};
+  const byType: Record<string, string> = {};
   for (const part of parts) {
     byType[part.type] = part.value;
   }
   return {
-    weekday: byType.weekday,
-    year: Number(byType.year),
-    month: Number(byType.month),
-    day: Number(byType.day),
-    hour: Number(byType.hour) % 24,
-    minute: Number(byType.minute),
+    weekday: byType.weekday ?? "",
+    year: Number(byType.year ?? 0),
+    month: Number(byType.month ?? 1),
+    day: Number(byType.day ?? 1),
+    hour: Number(byType.hour ?? 0) % 24,
+    minute: Number(byType.minute ?? 0),
   };
 }
 
-function timeToMinutes(timeString) {
-  const [hours, minutes] = timeString.split(":").map(Number);
+function timeToMinutes(timeString: string): number {
+  const [hours = 0, minutes = 0] = timeString.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
-function dateToMinuteOfDay(date, timeZone) {
+function dateToMinuteOfDay(date: Date, timeZone: string): number {
   const parts = zonedDateTimeParts(date, timeZone);
   return parts.hour * 60 + parts.minute;
 }
 
-function dayNameInTimezone(date, timeZone) {
+function dayNameInTimezone(date: Date, timeZone: string): string {
   return zonedDateTimeParts(date, timeZone).weekday;
 }
 
-function dateStringInTimezone(date, timeZone) {
+function dateStringInTimezone(date: Date, timeZone: string): string {
   const parts = zonedDateTimeParts(date, timeZone);
   return `${parts.year.toString().padStart(4, "0")}-${parts.month
     .toString()
     .padStart(2, "0")}-${parts.day.toString().padStart(2, "0")}`;
 }
 
-function zonedDateTimeToUtc(dateString, timeString, timeZone) {
-  const [year, month, day] = dateString.split("-").map(Number);
-  const [hour, minute] = timeString.split(":").map(Number);
+function zonedDateTimeToUtc(dateString: string, timeString: string, timeZone: string): Date {
+  const [year = 1970, month = 1, day = 1] = dateString.split("-").map(Number);
+  const [hour = 0, minute = 0] = timeString.split(":").map(Number);
   const targetAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
   let candidateUtc = targetAsUtc;
 
@@ -87,7 +109,7 @@ function zonedDateTimeToUtc(dateString, timeString, timeZone) {
   return new Date(candidateUtc);
 }
 
-function clonePolicy(policy) {
+function clonePolicy(policy: Policy): Policy {
   return {
     workHours: {
       start: policy.workHours.start,
@@ -101,7 +123,7 @@ function clonePolicy(policy) {
   };
 }
 
-function mergePolicy(basePolicy, overrideValue) {
+function mergePolicy(basePolicy: Policy, overrideValue: PolicyOverrideValue): Policy {
   const merged = clonePolicy(basePolicy);
 
   if (overrideValue.workHours) {
@@ -129,14 +151,14 @@ function mergePolicy(basePolicy, overrideValue) {
   return merged;
 }
 
-function blendNumber(baseValue, overrideValue, weight) {
+function blendNumber(baseValue: number, overrideValue: number | undefined, weight: number): number {
   if (typeof overrideValue !== "number") {
     return baseValue;
   }
   return Math.max(1, Math.round(baseValue * (1 - weight) + overrideValue * weight));
 }
 
-function isTemporaryOverrideActive(override, now) {
+function isTemporaryOverrideActive(override: PolicyOverrideInput, now: Date): boolean {
   if (override.mode !== "temporary") {
     return false;
   }
@@ -148,7 +170,7 @@ function isTemporaryOverrideActive(override, now) {
   return now >= from && now <= to;
 }
 
-export function isWithinWorkHours(policyInput, value) {
+export function isWithinWorkHours(policyInput: Partial<Policy>, value: string | Date): boolean {
   const policy = createPolicy(policyInput);
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -167,9 +189,9 @@ export function isWithinWorkHours(policyInput, value) {
   return minute >= workStart && minute < workEnd;
 }
 
-export function filterSlots(policyInput, slots) {
+export function filterSlots(policyInput: Partial<Policy>, slots: TimeSlot[]): TimeSlot[] {
   const policy = createPolicy(policyInput);
-  const filtered = [];
+  const filtered: TimeSlot[] = [];
 
   for (const slot of slots) {
     const slotStart = new Date(slot.startAt);
@@ -205,7 +227,11 @@ export function filterSlots(policyInput, slots) {
   return filtered;
 }
 
-export function applyPolicyOverride(basePolicyInput, override, nowInput = new Date()) {
+export function applyPolicyOverride(
+  basePolicyInput: Partial<Policy>,
+  override: PolicyOverrideInput | null | undefined,
+  nowInput: string | Date = new Date()
+): Policy {
   const basePolicy = createPolicy(basePolicyInput);
   const now = new Date(nowInput);
   if (!override || override.mode === "none") {
@@ -216,7 +242,8 @@ export function applyPolicyOverride(basePolicyInput, override, nowInput = new Da
     return basePolicy;
   }
 
-  const merged = mergePolicy(basePolicy, override.value ?? {});
+  const overrideValue = override.value ?? {};
+  const merged = mergePolicy(basePolicy, overrideValue);
   if (override.mode === "hard" || override.mode === "temporary") {
     return createPolicy(merged);
   }
@@ -235,25 +262,25 @@ export function applyPolicyOverride(basePolicyInput, override, nowInput = new Da
   );
   blended.minBlockGapMinutes = Math.max(
     0,
-    Math.round(
-      basePolicy.minBlockGapMinutes * (1 - weight) + merged.minBlockGapMinutes * weight
-    )
+    Math.round(basePolicy.minBlockGapMinutes * (1 - weight) + merged.minBlockGapMinutes * weight)
   );
-  if (override.value?.workHours) {
+  if (overrideValue.workHours) {
     blended.workHours = merged.workHours;
   }
-  if (typeof override.value?.timezone === "string") {
+  if (typeof overrideValue.timezone === "string") {
     blended.timezone = merged.timezone;
   }
 
   return createPolicy(blended);
 }
 
-export function workWindowForDate(policyInput, dateString) {
+export function workWindowForDate(policyInput: Partial<Policy>, dateString: string): {
+  start: Date;
+  end: Date;
+} {
   const policy = createPolicy(policyInput);
   const start = zonedDateTimeToUtc(dateString, policy.workHours.start, policy.timezone);
   const end = zonedDateTimeToUtc(dateString, policy.workHours.end, policy.timezone);
 
   return { start, end };
 }
-

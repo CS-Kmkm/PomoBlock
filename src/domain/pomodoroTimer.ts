@@ -1,21 +1,39 @@
-﻿// @ts-nocheck
 import { randomUUID } from "node:crypto";
+import type { PomodoroLog } from "./models.js";
 
-function assert(condition, message) {
+type Clock = {
+  now(): Date;
+};
+
+type PomodoroState = {
+  currentBlockId: string | null;
+  currentTaskId: string | null;
+  phase: "idle" | "focus" | "break" | "paused";
+  remainingSeconds: number;
+  startTime: string | null;
+};
+
+type ActivePhase = "focus" | "break";
+
+type PomodoroLogRepositoryPort = {
+  save(logInput: Partial<PomodoroLog> & Pick<PomodoroLog, "blockId" | "startTime">): PomodoroLog;
+};
+
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
 }
 
-function validateId(value, fieldName) {
+function validateId(value: string, fieldName: string): void {
   assert(typeof value === "string" && value.trim().length > 0, `${fieldName} is required`);
 }
 
-function nowIso(clock) {
+function nowIso(clock: Clock): string {
   return clock.now().toISOString();
 }
 
-function cloneState(state) {
+function cloneState(state: PomodoroState): PomodoroState {
   return {
     currentBlockId: state.currentBlockId,
     currentTaskId: state.currentTaskId,
@@ -26,11 +44,24 @@ function cloneState(state) {
 }
 
 export class PomodoroTimer {
+  private readonly logRepository: PomodoroLogRepositoryPort;
+  private readonly focusSeconds: number;
+  private readonly breakSeconds: number;
+  private readonly clock: Clock;
+  private pausedPhase: ActivePhase | null;
+  private activeLog: PomodoroLog | null;
+  private state: PomodoroState;
+
   constructor({
     logRepository,
     focusSeconds = 25 * 60,
     breakSeconds = 5 * 60,
     clock = { now: () => new Date() },
+  }: {
+    logRepository: PomodoroLogRepositoryPort;
+    focusSeconds?: number;
+    breakSeconds?: number;
+    clock?: Clock;
   }) {
     assert(logRepository, "logRepository is required");
     assert(Number.isInteger(focusSeconds) && focusSeconds > 0, "focusSeconds must be > 0");
@@ -51,7 +82,7 @@ export class PomodoroTimer {
     };
   }
 
-  start(blockId, taskId = null) {
+  start(blockId: string, taskId: string | null = null): PomodoroState {
     validateId(blockId, "blockId");
     if (taskId !== null) {
       validateId(taskId, "taskId");
@@ -78,20 +109,18 @@ export class PomodoroTimer {
     return this.getState();
   }
 
-  pause(reason = null) {
-    assert(
-      this.state.phase === "focus" || this.state.phase === "break",
-      "timer is not running"
-    );
+  pause(reason: string | null = null): PomodoroState {
+    assert(this.state.phase === "focus" || this.state.phase === "break", "timer is not running");
     this.endActiveLog({ interruptionReason: reason ?? "paused" });
     this.pausedPhase = this.state.phase;
     this.state.phase = "paused";
     return this.getState();
   }
 
-  resume() {
+  resume(): PomodoroState {
     assert(this.state.phase === "paused", "timer is not paused");
     assert(this.pausedPhase !== null, "paused phase is missing");
+    assert(this.state.currentBlockId !== null, "block id is missing");
 
     this.state.phase = this.pausedPhase;
     this.pausedPhase = null;
@@ -106,7 +135,7 @@ export class PomodoroTimer {
     return this.getState();
   }
 
-  tick(seconds = 1) {
+  tick(seconds = 1): PomodoroState {
     assert(Number.isInteger(seconds) && seconds > 0, "seconds must be a positive integer");
     if (this.state.phase !== "focus" && this.state.phase !== "break") {
       return this.getState();
@@ -121,6 +150,7 @@ export class PomodoroTimer {
       this.endActiveLog();
       this.state.phase = "break";
       this.state.remainingSeconds = this.breakSeconds;
+      assert(this.state.currentBlockId !== null, "block id is missing");
       this.activeLog = this.logRepository.save({
         id: randomUUID(),
         blockId: this.state.currentBlockId,
@@ -136,7 +166,7 @@ export class PomodoroTimer {
     return this.getState();
   }
 
-  complete() {
+  complete(): PomodoroState {
     if (this.state.phase === "idle") {
       return this.getState();
     }
@@ -146,11 +176,11 @@ export class PomodoroTimer {
     return this.getState();
   }
 
-  getState() {
+  getState(): PomodoroState {
     return cloneState(this.state);
   }
 
-  endActiveLog({ interruptionReason = null } = {}) {
+  private endActiveLog({ interruptionReason = null }: { interruptionReason?: string | null } = {}): void {
     if (!this.activeLog) {
       return;
     }
@@ -162,7 +192,7 @@ export class PomodoroTimer {
     this.activeLog = null;
   }
 
-  resetToIdle() {
+  private resetToIdle(): void {
     this.state = {
       currentBlockId: null,
       currentTaskId: null,
@@ -174,4 +204,3 @@ export class PomodoroTimer {
     this.activeLog = null;
   }
 }
-

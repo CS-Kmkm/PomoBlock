@@ -1,35 +1,39 @@
-﻿// @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createPomodoroLog } from "../src/domain/models.js";
 import { PomodoroTimer } from "../src/domain/pomodoroTimer.js";
+import type { PomodoroLog } from "../src/domain/models.js";
 
 class FakeClock {
+  private current: Date;
+
   constructor(now = "2026-02-16T09:00:00.000Z") {
     this.current = new Date(now);
   }
 
-  now() {
+  now(): Date {
     return new Date(this.current);
   }
 
-  advance(seconds) {
+  advance(seconds: number): void {
     this.current = new Date(this.current.getTime() + seconds * 1000);
   }
 }
 
 class MemoryPomodoroLogRepository {
+  private readonly logs: Map<string, PomodoroLog>;
+
   constructor() {
-    this.logs = new Map();
+    this.logs = new Map<string, PomodoroLog>();
   }
 
-  save(logInput) {
+  save(logInput: Partial<PomodoroLog> & Pick<PomodoroLog, "blockId" | "startTime">): PomodoroLog {
     const log = createPomodoroLog(logInput);
     this.logs.set(log.id, log);
     return log;
   }
 
-  load(startAt, endAt) {
+  load(startAt: string, endAt: string): PomodoroLog[] {
     const from = new Date(startAt).getTime();
     const to = new Date(endAt).getTime();
     return [...this.logs.values()]
@@ -40,7 +44,7 @@ class MemoryPomodoroLogRepository {
       .sort((left, right) => left.startTime.localeCompare(right.startTime));
   }
 
-  all() {
+  all(): PomodoroLog[] {
     return [...this.logs.values()];
   }
 }
@@ -110,6 +114,9 @@ test("Feature: blocksched, Property 17: interruption reason and time are logged 
       .all()
       .find((log) => log.phase === "focus" && log.interruptionReason === "incoming_meeting");
     assert.notEqual(interrupted, undefined);
+    if (!interrupted) {
+      continue;
+    }
     assert.notEqual(interrupted.endTime, null);
   }
 });
@@ -150,4 +157,3 @@ test("Feature: blocksched, Property 18: complete or interrupted sessions are per
     assert.equal(timer.getState().phase, "idle");
   }
 });
-

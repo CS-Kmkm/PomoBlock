@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-export const DEFAULT_CONFIGS = Object.freeze({
+﻿export const DEFAULT_CONFIGS = Object.freeze({
   "app.json": {
     schema: 1,
     appName: "PomBlock",
@@ -119,4 +118,5 @@ export const DEFAULT_CONFIGS = Object.freeze({
     value: {},
   },
 });
+
 

@@ -1,5 +1,44 @@
-﻿// @ts-nocheck
-function toIsoDateTime(value) {
+import type { Block } from "../domain/models.js";
+
+type DateValue = {
+  date?: string;
+  dateTime?: string;
+};
+
+type RemoteEventInput = {
+  id?: string;
+  eventId?: string;
+  start?: string | DateValue;
+  end?: string | DateValue;
+  startAt?: string;
+  endAt?: string;
+  deleted?: unknown;
+};
+
+type RemoteEvent = {
+  id: string;
+  startAt: string;
+  endAt: string;
+  deleted: boolean;
+};
+
+type SyncResult = {
+  added: Block[];
+  updated: Block[];
+  deleted: string[];
+};
+
+type StorageRepositoryPort = {
+  loadAllBlocks(): Block[];
+  saveBlock(blockInput: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block;
+  deleteBlock(blockId: string): void;
+};
+
+type NotificationService = {
+  notify?: (type: string, payload: Record<string, unknown>) => void;
+};
+
+function toIsoDateTime(value: unknown): string | null {
   if (!value) {
     return null;
   }
@@ -9,13 +48,14 @@ function toIsoDateTime(value) {
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
   }
 
-  if (typeof value === "object") {
-    if (typeof value.dateTime === "string") {
-      const parsed = new Date(value.dateTime);
+  if (typeof value === "object" && value !== null) {
+    const record = value as DateValue;
+    if (typeof record.dateTime === "string") {
+      const parsed = new Date(record.dateTime);
       return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
     }
-    if (typeof value.date === "string") {
-      const parsed = new Date(`${value.date}T00:00:00.000Z`);
+    if (typeof record.date === "string") {
+      const parsed = new Date(`${record.date}T00:00:00.000Z`);
       return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
     }
   }
@@ -23,7 +63,7 @@ function toIsoDateTime(value) {
   return null;
 }
 
-function normalizeRemoteEvent(event) {
+function normalizeRemoteEvent(event: RemoteEventInput): RemoteEvent | null {
   const id = event.id ?? event.eventId ?? null;
   const startAt = toIsoDateTime(event.startAt ?? event.start);
   const endAt = toIsoDateTime(event.endAt ?? event.end);
@@ -40,20 +80,37 @@ function normalizeRemoteEvent(event) {
 }
 
 export class ExternalEditService {
-  constructor({ storageRepository, notificationService = null }) {
+  private readonly storageRepository: StorageRepositoryPort;
+  private readonly notificationService: NotificationService | null;
+
+  constructor({
+    storageRepository,
+    notificationService = null,
+  }: {
+    storageRepository: StorageRepositoryPort;
+    notificationService?: NotificationService | null;
+  }) {
     this.storageRepository = storageRepository;
     this.notificationService = notificationService;
   }
 
-  syncExternalChanges(remoteEventsInput = []) {
-    const remoteEvents = remoteEventsInput.map(normalizeRemoteEvent).filter(Boolean);
+  syncExternalChanges(remoteEventsInput: RemoteEventInput[] = []): SyncResult {
+    const remoteEvents = remoteEventsInput
+      .map(normalizeRemoteEvent)
+      .filter((event): event is RemoteEvent => event !== null);
     const localBlocks = this.storageRepository
       .loadAllBlocks()
       .filter((block) => block.calendarEventId !== null);
-    const localByEventId = new Map(localBlocks.map((block) => [block.calendarEventId, block]));
+    const localByEventId = new Map<string, Block>(
+      localBlocks
+        .map((block) =>
+          block.calendarEventId ? ([block.calendarEventId, block] as const) : null
+        )
+        .filter((entry): entry is readonly [string, Block] => entry !== null)
+    );
     const remoteByEventId = new Map(remoteEvents.map((event) => [event.id, event]));
 
-    const result = {
+    const result: SyncResult = {
       added: [],
       updated: [],
       deleted: [],
@@ -65,7 +122,10 @@ export class ExternalEditService {
         if (localBlock) {
           this.storageRepository.deleteBlock(localBlock.id);
           result.deleted.push(localBlock.id);
-          this.notify("external_block_deleted", { blockId: localBlock.id, eventId: remoteEvent.id });
+          this.notify("external_block_deleted", {
+            blockId: localBlock.id,
+            eventId: remoteEvent.id,
+          });
         }
         continue;
       }
@@ -106,12 +166,16 @@ export class ExternalEditService {
     }
 
     for (const localBlock of localBlocks) {
-      if (!remoteByEventId.has(localBlock.calendarEventId)) {
+      const eventId = localBlock.calendarEventId;
+      if (!eventId) {
+        continue;
+      }
+      if (!remoteByEventId.has(eventId)) {
         this.storageRepository.deleteBlock(localBlock.id);
         result.deleted.push(localBlock.id);
         this.notify("external_block_deleted", {
           blockId: localBlock.id,
-          eventId: localBlock.calendarEventId,
+          eventId,
         });
       }
     }
@@ -119,8 +183,7 @@ export class ExternalEditService {
     return result;
   }
 
-  notify(type, payload) {
+  notify(type: string, payload: Record<string, unknown>): void {
     this.notificationService?.notify?.(type, payload);
   }
 }
-

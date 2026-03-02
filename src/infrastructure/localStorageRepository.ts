@@ -1,20 +1,86 @@
-﻿// @ts-nocheck
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { createBlock, createPomodoroLog, createTask } from "../domain/models.js";
+import type { Block, PomodoroLog, Task } from "../domain/models.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const SCHEMA_SQL = readFileSync(join(__dirname, "sql", "schema.sql"), "utf8");
 
-function toIso(value) {
+type BlockRow = {
+  id: string;
+  instance: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  type: Block["type"];
+  firmness: Block["firmness"];
+  planned_pomodoros: number;
+  status: Block["status"];
+  source: string;
+  source_id: string | null;
+  task_refs: string | null;
+  calendar_event_id: string | null;
+  task_id: string | null;
+  created_at: string;
+};
+
+type TaskRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  estimated_pomodoros: number | null;
+  completed_pomodoros: number;
+  status: Task["status"];
+  created_at: string;
+};
+
+type PomodoroLogRow = {
+  id: string;
+  block_id: string;
+  task_id: string | null;
+  start_time: string;
+  end_time: string | null;
+  phase: PomodoroLog["phase"];
+  interruption_reason: string | null;
+};
+
+type SyncStateRow = {
+  sync_token: string | null;
+  last_sync_time: string;
+};
+
+type SuppressionRow = {
+  instance: string;
+  suppressed_at: string;
+  reason: string | null;
+};
+
+type AuditLogRow = {
+  id: number;
+  event_type: string;
+  payload_json: string | null;
+  created_at: string;
+};
+
+type DeleteTaskBlockRow = {
+  id: string;
+  task_refs: string | null;
+};
+
+type SyncStateInput = {
+  syncToken?: string | null;
+  lastSyncTime?: string | Date | null;
+};
+
+function toIso(value: string | Date): string {
   return new Date(value).toISOString();
 }
 
-function removeTaskRef(taskRefsJson, taskId) {
-  const refs = JSON.parse(taskRefsJson ?? "[]");
+function removeTaskRef(taskRefsJson: string | null, taskId: string): string {
+  const refs: unknown = JSON.parse(taskRefsJson ?? "[]");
   if (!Array.isArray(refs)) {
     return "[]";
   }
@@ -22,20 +88,22 @@ function removeTaskRef(taskRefsJson, taskId) {
 }
 
 export class LocalStorageRepository {
-  constructor(databasePath) {
+  private readonly db: DatabaseSync;
+
+  constructor(databasePath: string) {
     this.db = new DatabaseSync(databasePath);
     this.db.exec("PRAGMA foreign_keys = ON;");
   }
 
-  initSchema() {
+  initSchema(): void {
     this.db.exec(SCHEMA_SQL);
   }
 
-  close() {
+  close(): void {
     this.db.close();
   }
 
-  saveBlock(blockInput) {
+  saveBlock(blockInput: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block {
     const block = createBlock(blockInput);
     const statement = this.db.prepare(`
       INSERT INTO blocks (
@@ -81,83 +149,29 @@ export class LocalStorageRepository {
     return block;
   }
 
-  loadBlocks(date) {
-    const statement = this.db.prepare(
-      `SELECT * FROM blocks WHERE date = ? ORDER BY start_time ASC`
-    );
-    const rows = statement.all(date);
-    return rows.map((row) =>
-      createBlock({
-        id: row.id,
-        instance: row.instance,
-        date: row.date,
-        startAt: row.start_time,
-        endAt: row.end_time,
-        type: row.type,
-        firmness: row.firmness,
-        plannedPomodoros: row.planned_pomodoros,
-        status: row.status,
-        source: row.source,
-        sourceId: row.source_id,
-        taskRefs: JSON.parse(row.task_refs ?? "[]"),
-        calendarEventId: row.calendar_event_id,
-        taskId: row.task_id,
-        createdAt: row.created_at,
-      })
-    );
+  loadBlocks(date: string): Block[] {
+    const statement = this.db.prepare(`SELECT * FROM blocks WHERE date = ? ORDER BY start_time ASC`);
+    const rows = statement.all(date) as BlockRow[];
+    return rows.map((row) => this.mapBlockRow(row));
   }
 
-  loadAllBlocks() {
+  loadAllBlocks(): Block[] {
     const rows = this.db
       .prepare(`SELECT * FROM blocks ORDER BY date ASC, start_time ASC`)
-      .all();
-    return rows.map((row) =>
-      createBlock({
-        id: row.id,
-        instance: row.instance,
-        date: row.date,
-        startAt: row.start_time,
-        endAt: row.end_time,
-        type: row.type,
-        firmness: row.firmness,
-        plannedPomodoros: row.planned_pomodoros,
-        status: row.status,
-        source: row.source,
-        sourceId: row.source_id,
-        taskRefs: JSON.parse(row.task_refs ?? "[]"),
-        calendarEventId: row.calendar_event_id,
-        taskId: row.task_id,
-        createdAt: row.created_at,
-      })
-    );
+      .all() as BlockRow[];
+    return rows.map((row) => this.mapBlockRow(row));
   }
 
-  loadBlockById(blockId) {
-    const row = this.db.prepare(`SELECT * FROM blocks WHERE id = ?`).get(blockId);
+  loadBlockById(blockId: string): Block | null {
+    const row = this.db.prepare(`SELECT * FROM blocks WHERE id = ?`).get(blockId) as BlockRow | undefined;
     if (!row) {
       return null;
     }
 
-    return createBlock({
-      id: row.id,
-      instance: row.instance,
-      date: row.date,
-      startAt: row.start_time,
-      endAt: row.end_time,
-      type: row.type,
-      firmness: row.firmness,
-      plannedPomodoros: row.planned_pomodoros,
-      status: row.status,
-      source: row.source,
-      sourceId: row.source_id,
-      taskRefs: JSON.parse(row.task_refs ?? "[]"),
-      calendarEventId: row.calendar_event_id,
-      taskId: row.task_id,
-      createdAt: row.created_at,
-    });
+    return this.mapBlockRow(row);
   }
 
-  saveTask(taskInput) {
+  saveTask(taskInput: Partial<Task> & Pick<Task, "title">): Task {
     const task = createTask(taskInput);
     const statement = this.db.prepare(`
       INSERT INTO tasks (
@@ -184,9 +198,9 @@ export class LocalStorageRepository {
     return task;
   }
 
-  loadTasks() {
+  loadTasks(): Task[] {
     const statement = this.db.prepare(`SELECT * FROM tasks ORDER BY created_at ASC`);
-    const rows = statement.all();
+    const rows = statement.all() as TaskRow[];
     return rows.map((row) =>
       createTask({
         id: row.id,
@@ -200,7 +214,7 @@ export class LocalStorageRepository {
     );
   }
 
-  savePomodoroLog(logInput) {
+  savePomodoroLog(logInput: Partial<PomodoroLog> & Pick<PomodoroLog, "blockId" | "startTime">): PomodoroLog {
     const log = createPomodoroLog(logInput);
     const statement = this.db.prepare(`
       INSERT INTO pomodoro_logs (
@@ -228,13 +242,13 @@ export class LocalStorageRepository {
     return log;
   }
 
-  loadPomodoroLogs(startAt, endAt) {
+  loadPomodoroLogs(startAt: string | Date, endAt: string | Date): PomodoroLog[] {
     const statement = this.db.prepare(`
       SELECT * FROM pomodoro_logs
       WHERE start_time >= ? AND start_time <= ?
       ORDER BY start_time ASC
     `);
-    const rows = statement.all(toIso(startAt), toIso(endAt));
+    const rows = statement.all(toIso(startAt), toIso(endAt)) as PomodoroLogRow[];
     return rows.map((row) =>
       createPomodoroLog({
         id: row.id,
@@ -248,7 +262,7 @@ export class LocalStorageRepository {
     );
   }
 
-  saveSyncState(state) {
+  saveSyncState(state: SyncStateInput): void {
     const statement = this.db.prepare(`
       INSERT INTO sync_state (id, sync_token, last_sync_time)
       VALUES (1, ?, ?)
@@ -259,10 +273,10 @@ export class LocalStorageRepository {
     statement.run(state.syncToken ?? null, toIso(state.lastSyncTime ?? new Date()));
   }
 
-  loadSyncState() {
+  loadSyncState(): { syncToken: string | null; lastSyncTime: string } | null {
     const row = this.db
       .prepare(`SELECT sync_token, last_sync_time FROM sync_state WHERE id = 1`)
-      .get();
+      .get() as SyncStateRow | undefined;
 
     if (!row) {
       return null;
@@ -273,7 +287,7 @@ export class LocalStorageRepository {
     };
   }
 
-  saveSuppression(instance, reason = null) {
+  saveSuppression(instance: string, reason: string | null = null): void {
     const statement = this.db.prepare(`
       INSERT INTO suppressions (instance, suppressed_at, reason)
       VALUES (?, ?, ?)
@@ -284,15 +298,15 @@ export class LocalStorageRepository {
     statement.run(instance, new Date().toISOString(), reason);
   }
 
-  removeSuppression(instance) {
+  removeSuppression(instance: string): void {
     this.db.prepare(`DELETE FROM suppressions WHERE instance = ?`).run(instance);
   }
 
-  loadSuppressions() {
-    return this.db.prepare(`SELECT * FROM suppressions ORDER BY suppressed_at ASC`).all();
+  loadSuppressions(): SuppressionRow[] {
+    return this.db.prepare(`SELECT * FROM suppressions ORDER BY suppressed_at ASC`).all() as SuppressionRow[];
   }
 
-  appendAuditLog(eventType, payload) {
+  appendAuditLog(eventType: string, payload: Record<string, unknown>): void {
     this.db
       .prepare(`
       INSERT INTO audit_logs (event_type, payload_json, created_at)
@@ -301,35 +315,35 @@ export class LocalStorageRepository {
       .run(eventType, JSON.stringify(payload ?? {}), new Date().toISOString());
   }
 
-  loadAuditLogs(limit = 100) {
+  loadAuditLogs(limit = 100): AuditLogRow[] {
     return this.db
       .prepare(`
       SELECT * FROM audit_logs
       ORDER BY id DESC
       LIMIT ?
     `)
-      .all(limit);
+      .all(limit) as AuditLogRow[];
   }
 
-  deletePomodoroLog(logId) {
+  deletePomodoroLog(logId: string): void {
     this.db.prepare(`DELETE FROM pomodoro_logs WHERE id = ?`).run(logId);
   }
 
-  clearPomodoroLogs() {
+  clearPomodoroLogs(): void {
     this.db.prepare(`DELETE FROM pomodoro_logs`).run();
   }
 
-  deleteBlock(blockId) {
+  deleteBlock(blockId: string): void {
     this.db.prepare(`DELETE FROM pomodoro_logs WHERE block_id = ?`).run(blockId);
     this.db.prepare(`DELETE FROM blocks WHERE id = ?`).run(blockId);
   }
 
-  deleteTask(taskId) {
+  deleteTask(taskId: string): void {
     this.db.prepare(`DELETE FROM pomodoro_logs WHERE task_id = ?`).run(taskId);
 
     const relatedBlocks = this.db
       .prepare(`SELECT id, task_refs FROM blocks WHERE task_id = ? OR task_refs LIKE ?`)
-      .all(taskId, `%${taskId}%`);
+      .all(taskId, `%${taskId}%`) as DeleteTaskBlockRow[];
     for (const row of relatedBlocks) {
       this.db
         .prepare(`
@@ -344,16 +358,35 @@ export class LocalStorageRepository {
     this.db.prepare(`DELETE FROM tasks WHERE id = ?`).run(taskId);
   }
 
-  clearSyncState() {
+  clearSyncState(): void {
     this.db.prepare(`DELETE FROM sync_state WHERE id = 1`).run();
   }
 
-  clearSuppressions() {
+  clearSuppressions(): void {
     this.db.prepare(`DELETE FROM suppressions`).run();
   }
 
-  clearAuditLogs() {
+  clearAuditLogs(): void {
     this.db.prepare(`DELETE FROM audit_logs`).run();
   }
-}
 
+  private mapBlockRow(row: BlockRow): Block {
+    return createBlock({
+      id: row.id,
+      instance: row.instance,
+      date: row.date,
+      startAt: row.start_time,
+      endAt: row.end_time,
+      type: row.type,
+      firmness: row.firmness,
+      plannedPomodoros: row.planned_pomodoros,
+      status: row.status,
+      source: row.source,
+      sourceId: row.source_id,
+      taskRefs: JSON.parse(row.task_refs ?? "[]") as string[],
+      calendarEventId: row.calendar_event_id,
+      taskId: row.task_id,
+      createdAt: row.created_at,
+    });
+  }
+}

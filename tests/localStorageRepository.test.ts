@@ -35,7 +35,7 @@ test("LocalStorageRepository can save and load blocks, tasks, sync state, suppre
     syncToken: "sync-token-1",
     lastSyncTime: "2026-02-16T00:00:00.000Z",
   });
-  repository.saveSuppression(block.instance, "user deleted block" as any);
+  repository.saveSuppression(block.instance, "user deleted block");
 
   const loadedBlocks = repository.loadBlocks("2026-02-16");
   const loadedTasks = repository.loadTasks();
@@ -43,12 +43,27 @@ test("LocalStorageRepository can save and load blocks, tasks, sync state, suppre
   const loadedSuppressions = repository.loadSuppressions();
 
   assert.equal(loadedBlocks.length, 1);
-  assert.equal(loadedBlocks[0].id, "block-1");
+  const firstBlock = loadedBlocks[0];
+  assert.notEqual(firstBlock, undefined);
+  if (!firstBlock) {
+    throw new Error("missing block");
+  }
+  assert.equal(firstBlock.id, "block-1");
   assert.equal(loadedTasks.length, 1);
-  assert.equal(loadedTasks[0].id, "task-1");
+  const firstTask = loadedTasks[0];
+  assert.notEqual(firstTask, undefined);
+  if (!firstTask) {
+    throw new Error("missing task");
+  }
+  assert.equal(firstTask.id, "task-1");
   assert.equal(loadedSyncState?.syncToken, "sync-token-1");
   assert.equal(loadedSuppressions.length, 1);
-  assert.equal(loadedSuppressions[0].instance, block.instance);
+  const firstSuppression = loadedSuppressions[0];
+  assert.notEqual(firstSuppression, undefined);
+  if (!firstSuppression) {
+    throw new Error("missing suppression");
+  }
+  assert.equal(firstSuppression.instance, block.instance);
 
   repository.close();
   rmSync(tempDir, { recursive: true, force: true });

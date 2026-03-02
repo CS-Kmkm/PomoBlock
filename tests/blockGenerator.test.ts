@@ -1,8 +1,13 @@
-﻿// @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
 import { BlockGenerator } from "../src/domain/blockGenerator.js";
-import { createPolicy } from "../src/domain/models.js";
+import { createBlock, createPolicy } from "../src/domain/models.js";
+import type { Block } from "../src/domain/models.js";
+
+type TimeRange = {
+  startAt: string;
+  endAt: string;
+};
 
 const POLICY = createPolicy({
   workHours: {
@@ -15,12 +20,12 @@ const POLICY = createPolicy({
   minBlockGapMinutes: 0,
 });
 
-function overlaps(a, b) {
+function overlaps(a: TimeRange, b: TimeRange): boolean {
   return new Date(a.startAt) < new Date(b.endAt) && new Date(b.startAt) < new Date(a.endAt);
 }
 
-function randomEvents(date, count) {
-  const events = [];
+function randomEvents(date: string, count: number): TimeRange[] {
+  const events: TimeRange[] = [];
   for (let index = 0; index < count; index += 1) {
     const startMinute = 540 + Math.floor(Math.random() * 500);
     const duration = 15 + Math.floor(Math.random() * 90);
@@ -67,8 +72,18 @@ test("Feature: blocksched, Property 8: generated blocks do not overlap existing 
       }
     }
     for (let i = 0; i < blocks.length; i += 1) {
+      const left = blocks[i];
+      assert.notEqual(left, undefined);
+      if (!left) {
+        continue;
+      }
       for (let j = i + 1; j < blocks.length; j += 1) {
-        assert.equal(overlaps(blocks[i], blocks[j]), false);
+        const right = blocks[j];
+        assert.notEqual(right, undefined);
+        if (!right) {
+          continue;
+        }
+        assert.equal(overlaps(left, right), false);
       }
     }
   }
@@ -100,8 +115,8 @@ test("Feature: blocksched, Property 11: generation is prevented for overlapping 
 
   for (let run = 0; run < 100; run += 1) {
     const existingEvents = randomEvents(date, Math.floor(Math.random() * 6));
-    const existingBlocks = [
-      {
+    const existingBlocks: Block[] = [
+      createBlock({
         id: `existing-${run}`,
         instance: `rtn:rtn_focus:${date}:0`,
         date,
@@ -113,8 +128,13 @@ test("Feature: blocksched, Property 11: generation is prevented for overlapping 
         source: "routine",
         sourceId: "rtn_focus",
         plannedPomodoros: 2,
-      },
+      }),
     ];
+    const existing = existingBlocks[0];
+    assert.notEqual(existing, undefined);
+    if (!existing) {
+      continue;
+    }
 
     const generated = generator.generateBlocks(date, existingEvents, {
       source: "routine",
@@ -124,11 +144,7 @@ test("Feature: blocksched, Property 11: generation is prevented for overlapping 
     });
 
     for (const block of generated) {
-      assert.equal(
-        overlaps(block, existingBlocks[0]),
-        false,
-        "newly generated block must not overlap existing block"
-      );
+      assert.equal(overlaps(block, existing), false, "newly generated block must not overlap existing block");
       for (const event of existingEvents) {
         assert.equal(overlaps(block, event), false);
       }
@@ -147,13 +163,21 @@ test("Feature: blocksched, auto generation fills work window with 60-minute bloc
   assert.equal(blocks.length, 9);
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index];
+    assert.notEqual(block, undefined);
+    if (!block) {
+      continue;
+    }
     const start = new Date(block.startAt);
     const end = new Date(block.endAt);
     assert.equal((end.getTime() - start.getTime()) / 60000, 60);
     assert.equal(block.plannedPomodoros, 2);
     if (index > 0) {
-      assert.equal(new Date(blocks[index - 1].endAt).getTime(), start.getTime());
+      const prev = blocks[index - 1];
+      assert.notEqual(prev, undefined);
+      if (!prev) {
+        continue;
+      }
+      assert.equal(new Date(prev.endAt).getTime(), start.getTime());
     }
   }
 });
-

@@ -1,8 +1,8 @@
-﻿type PomodoroLogLike = Record<string, unknown>;
+import type { PomodoroLog } from "../domain/models.js";
 
 type PomodoroLogStoragePort = {
-  savePomodoroLog(logInput: PomodoroLogLike): unknown;
-  loadPomodoroLogs(startAt?: string, endAt?: string): unknown;
+  savePomodoroLog(logInput: Partial<PomodoroLog> & Pick<PomodoroLog, "blockId" | "startTime">): PomodoroLog;
+  loadPomodoroLogs(startAt: string, endAt: string): PomodoroLog[];
 };
 
 export class PomodoroLogRepository {
@@ -12,11 +12,11 @@ export class PomodoroLogRepository {
     this.storageRepository = storageRepository;
   }
 
-  save(logInput: PomodoroLogLike): unknown {
+  save(logInput: Partial<PomodoroLog> & Pick<PomodoroLog, "blockId" | "startTime">): PomodoroLog {
     return this.storageRepository.savePomodoroLog(logInput);
   }
 
-  load(startAt?: string, endAt?: string): unknown {
+  load(startAt: string, endAt: string): PomodoroLog[] {
     return this.storageRepository.loadPomodoroLogs(startAt, endAt);
   }
 }

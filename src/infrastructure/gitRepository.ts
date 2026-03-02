@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 import {
   copyFileSync,
   existsSync,
@@ -10,13 +9,19 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-function assert(condition, message) {
+type GitHistoryEntry = {
+  message: string;
+  files: string[];
+  createdAt: string;
+};
+
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
 }
 
-function normalizeRelativePath(relativePath) {
+function normalizeRelativePath(relativePath: string): string {
   assert(typeof relativePath === "string" && relativePath.trim().length > 0, "path is required");
   const normalized = relativePath.replace(/\\/g, "/").replace(/^\.\/+/, "");
   assert(!normalized.startsWith("/"), `absolute path is not allowed: ${relativePath}`);
@@ -24,7 +29,7 @@ function normalizeRelativePath(relativePath) {
   return normalized;
 }
 
-function isSensitivePath(relativePath) {
+function isSensitivePath(relativePath: string): boolean {
   const normalized = normalizeRelativePath(relativePath).toLowerCase();
   return (
     normalized.includes("oauth") ||
@@ -35,17 +40,17 @@ function isSensitivePath(relativePath) {
   );
 }
 
-function ensureParentDir(filePath) {
+function ensureParentDir(filePath: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
 }
 
-function walkFiles(baseDir, currentDir = "") {
+function walkFiles(baseDir: string, currentDir = ""): string[] {
   const root = currentDir ? join(baseDir, currentDir) : baseDir;
   if (!existsSync(root)) {
     return [];
   }
 
-  const files = [];
+  const files: string[] = [];
   for (const entry of readdirSync(root)) {
     const relative = currentDir ? `${currentDir}/${entry}` : entry;
     const fullPath = join(baseDir, relative);
@@ -60,7 +65,12 @@ function walkFiles(baseDir, currentDir = "") {
 }
 
 export class GitRepository {
-  constructor(repoPath) {
+  private readonly repoPath: string;
+  private readonly metaDir: string;
+  private readonly remoteDir: string;
+  private readonly historyPath: string;
+
+  constructor(repoPath: string) {
     this.repoPath = resolve(repoPath);
     this.metaDir = join(this.repoPath, ".pomblock");
     this.remoteDir = join(this.metaDir, "_remote");
@@ -68,11 +78,11 @@ export class GitRepository {
     this.ensureInitialized();
   }
 
-  static init(repoPath) {
+  static init(repoPath: string): GitRepository {
     return new GitRepository(repoPath);
   }
 
-  ensureInitialized() {
+  ensureInitialized(): void {
     mkdirSync(this.repoPath, { recursive: true });
     mkdirSync(this.metaDir, { recursive: true });
     mkdirSync(this.remoteDir, { recursive: true });
@@ -81,7 +91,7 @@ export class GitRepository {
     }
   }
 
-  pull() {
+  pull(): void {
     const remoteFiles = walkFiles(this.remoteDir);
     for (const relativePath of remoteFiles) {
       const sourcePath = join(this.remoteDir, relativePath);
@@ -91,7 +101,7 @@ export class GitRepository {
     }
   }
 
-  commitAndPush(message, files) {
+  commitAndPush(message: string, files: string[]): void {
     assert(typeof message === "string" && message.trim().length > 0, "message is required");
     assert(Array.isArray(files) && files.length > 0, "files are required");
 
@@ -122,32 +132,31 @@ export class GitRepository {
     writeFileSync(this.historyPath, `${JSON.stringify(history, null, 2)}\n`, "utf8");
   }
 
-  readFile(relativePath) {
+  readFile(relativePath: string): string {
     const normalized = normalizeRelativePath(relativePath);
     return readFileSync(join(this.repoPath, normalized), "utf8");
   }
 
-  writeFile(relativePath, content) {
+  writeFile(relativePath: string, content: string): void {
     const normalized = normalizeRelativePath(relativePath);
     const destinationPath = join(this.repoPath, normalized);
     ensureParentDir(destinationPath);
     writeFileSync(destinationPath, content, "utf8");
   }
 
-  writeRemoteFile(relativePath, content) {
+  writeRemoteFile(relativePath: string, content: string): void {
     const normalized = normalizeRelativePath(relativePath);
     const destinationPath = join(this.remoteDir, normalized);
     ensureParentDir(destinationPath);
     writeFileSync(destinationPath, content, "utf8");
   }
 
-  listFiles(relativeDir) {
+  listFiles(relativeDir: string): string[] {
     const normalizedDir = normalizeRelativePath(relativeDir);
     return walkFiles(join(this.repoPath, normalizedDir));
   }
 
-  readHistory() {
-    return JSON.parse(readFileSync(this.historyPath, "utf8"));
+  readHistory(): GitHistoryEntry[] {
+    return JSON.parse(readFileSync(this.historyPath, "utf8")) as GitHistoryEntry[];
   }
 }
-

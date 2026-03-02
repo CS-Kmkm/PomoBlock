@@ -1,32 +1,33 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { BlockOperationsService } from "../src/application/blockOperationsService.js";
 import { createBlock } from "../src/domain/models.js";
 
 class MemoryStorageRepository {
+  private readonly blocks: Map<string, any>;
+
   constructor() {
     this.blocks = new Map();
   }
 
-  saveBlock(input) {
+  saveBlock(input: any): any {
     const block = createBlock(input);
     this.blocks.set(block.id, block);
     return block;
   }
 
-  loadBlockById(blockId) {
+  loadBlockById(blockId: string): any {
     return this.blocks.get(blockId) ?? null;
   }
 
-  deleteBlock(blockId) {
+  deleteBlock(blockId: string): void {
     this.blocks.delete(blockId);
   }
 }
 
 test("Feature: blocksched, Property 12: approving block updates firmness and calendar event", () => {
   const storage = new MemoryStorageRepository();
-  const updates = [];
+  const updates: Array<{ eventId: string; block: any }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -56,13 +57,13 @@ test("Feature: blocksched, Property 12: approving block updates firmness and cal
   assert.equal(updates.length, 100);
   for (const block of approved) {
     assert.equal(block.firmness, "soft");
-    assert.equal(storage.loadBlockById(block.id).firmness, "soft");
+    assert.equal(storage.loadBlockById(block.id)?.firmness, "soft");
   }
 });
 
 test("Feature: blocksched, Property 13: deleting block is reflected in calendar", () => {
   const storage = new MemoryStorageRepository();
-  const deletedEventIds = [];
+  const deletedEventIds: string[] = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -93,7 +94,7 @@ test("Feature: blocksched, Property 13: deleting block is reflected in calendar"
 
 test("Feature: blocksched, Property 14: adjusting block time updates calendar event time", () => {
   const storage = new MemoryStorageRepository();
-  const updates = [];
+  const updates: Array<{ eventId: string; block: any }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -124,8 +125,7 @@ test("Feature: blocksched, Property 14: adjusting block time updates calendar ev
 
   assert.equal(updated.startAt, "2026-02-16T14:00:00.000Z");
   assert.equal(updated.endAt, "2026-02-16T14:50:00.000Z");
-  assert.equal(storage.loadBlockById("block-adjust").startAt, "2026-02-16T14:00:00.000Z");
+  assert.equal(storage.loadBlockById("block-adjust")?.startAt, "2026-02-16T14:00:00.000Z");
   assert.equal(updates.length, 1);
-  assert.equal(updates[0].eventId, "event-adjust");
+  assert.equal(updates[0]?.eventId, "event-adjust");
 });
-

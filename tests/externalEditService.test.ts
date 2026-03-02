@@ -1,41 +1,48 @@
-﻿// @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ExternalEditService } from "../src/application/externalEditService.js";
 import { createBlock } from "../src/domain/models.js";
+import type { Block } from "../src/domain/models.js";
+
+type Notification = {
+  type: string;
+  payload: Record<string, unknown>;
+};
 
 class MemoryStorageRepository {
+  private readonly blocks: Map<string, Block>;
+
   constructor() {
-    this.blocks = new Map();
+    this.blocks = new Map<string, Block>();
   }
 
-  saveBlock(input) {
+  saveBlock(input: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block {
     const block = createBlock(input);
     this.blocks.set(block.id, block);
     return block;
   }
 
-  loadAllBlocks() {
+  loadAllBlocks(): Block[] {
     return [...this.blocks.values()];
   }
 
-  loadBlockById(blockId) {
+  loadBlockById(blockId: string): Block | null {
     return this.blocks.get(blockId) ?? null;
   }
 
-  deleteBlock(blockId) {
+  deleteBlock(blockId: string): void {
     this.blocks.delete(blockId);
   }
 }
 
 test("Feature: blocksched, Property 22: newly added calendar events are detected on sync", () => {
   for (let run = 0; run < 100; run += 1) {
-    const notifications = [];
+    const notifications: Notification[] = [];
     const storage = new MemoryStorageRepository();
     const service = new ExternalEditService({
       storageRepository: storage,
       notificationService: {
-        notify(type, payload) {
+        notify(type: string, payload: Record<string, unknown>): void {
           notifications.push({ type, payload });
         },
       },
@@ -54,18 +61,23 @@ test("Feature: blocksched, Property 22: newly added calendar events are detected
     assert.equal(result.added.length, 1);
     assert.equal(result.updated.length, 0);
     assert.equal(result.deleted.length, 0);
-    assert.equal(result.added[0].calendarEventId, remoteEventId);
+    const added = result.added[0];
+    assert.notEqual(added, undefined);
+    if (!added) {
+      continue;
+    }
+    assert.equal(added.calendarEventId, remoteEventId);
     assert.equal(notifications.some((note) => note.type === "external_event_added"), true);
   }
 });
 
 test("Feature: blocksched, Property 31: external edits are detected and user is notified", () => {
-  const notifications = [];
+  const notifications: Notification[] = [];
   const storage = new MemoryStorageRepository();
   const service = new ExternalEditService({
     storageRepository: storage,
     notificationService: {
-      notify(type, payload) {
+      notify(type: string, payload: Record<string, unknown>): void {
         notifications.push({ type, payload });
       },
     },
@@ -114,6 +126,10 @@ test("Feature: blocksched, Property 31: external edits are detected and user is 
   assert.equal(result.deleted.includes(localDeleted.id), true);
 
   const refreshed = storage.loadBlockById(localUpdated.id);
+  assert.notEqual(refreshed, null);
+  if (!refreshed) {
+    return;
+  }
   assert.equal(refreshed.startAt, "2026-02-16T10:00:00.000Z");
   assert.equal(storage.loadAllBlocks().some((block) => block.calendarEventId === "event-added"), true);
   assert.equal(storage.loadBlockById(localDeleted.id), null);
@@ -122,4 +138,3 @@ test("Feature: blocksched, Property 31: external edits are detected and user is 
   assert.equal(notifications.some((note) => note.type === "external_block_updated"), true);
   assert.equal(notifications.some((note) => note.type === "external_block_deleted"), true);
 });
-

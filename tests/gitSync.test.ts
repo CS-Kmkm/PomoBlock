@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -7,14 +6,20 @@ import { tmpdir } from "node:os";
 import { RoutineManager } from "../src/application/routineManager.js";
 import { GitRepository } from "../src/infrastructure/gitRepository.js";
 
-function createContext() {
+type TestContext = {
+  tempDir: string;
+  repository: GitRepository;
+  routineManager: RoutineManager;
+};
+
+function createContext(): TestContext {
   const tempDir = mkdtempSync(join(tmpdir(), "pomblock-git-sync-"));
   const repository = GitRepository.init(tempDir);
   const routineManager = new RoutineManager({ gitRepository: repository });
   return { tempDir, repository, routineManager };
 }
 
-function cleanupContext({ tempDir }) {
+function cleanupContext({ tempDir }: TestContext): void {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
@@ -114,4 +119,5 @@ test("Feature: blocksched, Property 28: remote git updates are reflected after s
     cleanupContext(context);
   }
 });
+
 

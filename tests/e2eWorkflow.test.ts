@@ -1,4 +1,3 @@
-﻿// @ts-nocheck
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -14,22 +13,40 @@ import { PomodoroTimer } from "../src/domain/pomodoroTimer.js";
 import { LocalStorageRepository } from "../src/infrastructure/localStorageRepository.js";
 import { PomodoroLogRepository } from "../src/infrastructure/pomodoroLogRepository.js";
 import { TaskRepository } from "../src/infrastructure/taskRepository.js";
+import type { Block, PomodoroLog } from "../src/domain/models.js";
 
-class FakeClock {
-  constructor(now) {
+type Notification = {
+  type: string;
+  payload: Record<string, unknown>;
+};
+
+type Context = {
+  tempDir: string;
+  storageRepository: LocalStorageRepository;
+};
+
+type Clock = {
+  now(): Date;
+  advance(seconds: number): void;
+};
+
+class FakeClock implements Clock {
+  private current: Date;
+
+  constructor(now: string) {
     this.current = new Date(now);
   }
 
-  now() {
+  now(): Date {
     return new Date(this.current);
   }
 
-  advance(seconds) {
+  advance(seconds: number): void {
     this.current = new Date(this.current.getTime() + seconds * 1000);
   }
 }
 
-function createContext() {
+function createContext(): Context {
   const tempDir = mkdtempSync(join(tmpdir(), "pomblock-e2e-"));
   const dbPath = join(tempDir, "pomblock.sqlite");
   const storageRepository = new LocalStorageRepository(dbPath);
@@ -41,7 +58,7 @@ function createContext() {
   };
 }
 
-function cleanupContext({ tempDir, storageRepository }) {
+function cleanupContext({ tempDir, storageRepository }: Context): void {
   storageRepository.close();
   rmSync(tempDir, { recursive: true, force: true });
 }
@@ -50,10 +67,10 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
   const context = createContext();
   try {
     const date = "2026-02-16";
-    const notifications = [];
+    const notifications: Notification[] = [];
 
     const authGateway = {
-      authenticate() {
+      authenticate(): { status: string; accessToken: string } {
         return {
           status: "authenticated",
           accessToken: "token-e2e",
@@ -67,7 +84,7 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     const syncService = new ExternalEditService({
       storageRepository: context.storageRepository,
       notificationService: {
-        notify(type, payload) {
+        notify(type: string, payload: Record<string, unknown>): void {
           notifications.push({ type, payload });
         },
       },
@@ -95,20 +112,20 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
       minBlockGapMinutes: 0,
     });
 
-    const createdDraftEvents = [];
-    const updatedEvents = [];
+    const createdDraftEvents: Array<{ eventId: string; blockId: string }> = [];
+    const updatedEvents: Array<{ eventId: string; block: Block }> = [];
     const blockPlanningService = new BlockPlanningService({
       policy,
       storageRepository: context.storageRepository,
       calendarGateway: {
-        createDraftBlockEvent(block) {
+        createDraftBlockEvent(block: Block): string {
           const eventId = `generated-${createdDraftEvents.length + 1}`;
           createdDraftEvents.push({ eventId, blockId: block.id });
           return eventId;
         },
       },
       notificationService: {
-        notify(type, payload) {
+        notify(type: string, payload: Record<string, unknown>): void {
           notifications.push({ type, payload });
         },
       },
@@ -131,18 +148,29 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     assert.equal(createdDraftEvents.length, generatedBlocks.length);
     assert.equal(generatedBlocks.every((block) => block.firmness === "draft"), true);
 
+    const firstGenerated = generatedBlocks[0];
+    assert.notEqual(firstGenerated, undefined);
+    if (!firstGenerated) {
+      return;
+    }
+
     const blockOperationsService = new BlockOperationsService({
       storageRepository: context.storageRepository,
       calendarGateway: {
-        updateEvent(eventId, block) {
+        updateEvent(eventId: string, block: Block): void {
           updatedEvents.push({ eventId, block });
         },
       },
     });
 
-    const approvedBlocks = blockOperationsService.approveBlocks([generatedBlocks[0].id]);
+    const approvedBlocks = blockOperationsService.approveBlocks([firstGenerated.id]);
     assert.equal(approvedBlocks.length, 1);
-    assert.equal(approvedBlocks[0].firmness, "soft");
+    const approved = approvedBlocks[0];
+    assert.notEqual(approved, undefined);
+    if (!approved) {
+      return;
+    }
+    assert.equal(approved.firmness, "soft");
     assert.equal(updatedEvents.length, 1);
 
     const taskRepository = new TaskRepository(context.storageRepository);
@@ -151,9 +179,13 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
       storageRepository: context.storageRepository,
     });
     const task = taskManager.createTask("End-to-end task", "task for workflow test", 1);
-    taskManager.assignTaskToBlock(task.id, approvedBlocks[0].id);
+    taskManager.assignTaskToBlock(task.id, approved.id);
 
-    const assignedBlock = context.storageRepository.loadBlockById(approvedBlocks[0].id);
+    const assignedBlock = context.storageRepository.loadBlockById(approved.id);
+    assert.notEqual(assignedBlock, null);
+    if (!assignedBlock) {
+      return;
+    }
     assert.equal(assignedBlock.taskId, task.id);
 
     const clock = new FakeClock("2026-02-16T10:00:00.000Z");
@@ -179,7 +211,11 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     assert.equal(completed.phase, "idle");
 
     const reflectionService = new ReflectionService({
-      pomodoroLogRepository,
+      pomodoroLogRepository: {
+        load(startAt: string, endAt: string): Array<PomodoroLog & Record<string, unknown>> {
+          return pomodoroLogRepository.load(startAt, endAt) as Array<PomodoroLog & Record<string, unknown>>;
+        },
+      },
     });
     const summary = reflectionService.aggregate(
       "2026-02-16T00:00:00.000Z",
@@ -195,4 +231,3 @@ test("Feature: blocksched, Task 23.1: end-to-end workflow covers auth, sync, blo
     cleanupContext(context);
   }
 });
-

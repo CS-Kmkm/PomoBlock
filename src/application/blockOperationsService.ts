@@ -1,19 +1,40 @@
-﻿// @ts-nocheck
-function assert(condition, message) {
+import type { Block } from "../domain/models.js";
+
+type StorageRepositoryPort = {
+  loadBlockById(blockId: string): Block | null;
+  saveBlock(blockInput: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block;
+  deleteBlock(blockId: string): void;
+};
+
+type CalendarGateway = {
+  updateEvent?: (eventId: string, block: Block) => void;
+  deleteEvent?: (eventId: string) => void;
+};
+
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
     throw new Error(message);
   }
 }
 
 export class BlockOperationsService {
-  constructor({ storageRepository, calendarGateway = null }) {
+  private readonly storageRepository: StorageRepositoryPort;
+  private readonly calendarGateway: CalendarGateway | null;
+
+  constructor({
+    storageRepository,
+    calendarGateway = null,
+  }: {
+    storageRepository: StorageRepositoryPort;
+    calendarGateway?: CalendarGateway | null;
+  }) {
     this.storageRepository = storageRepository;
     this.calendarGateway = calendarGateway;
   }
 
-  approveBlocks(blockIds) {
+  approveBlocks(blockIds: string[]): Block[] {
     assert(Array.isArray(blockIds), "blockIds must be an array");
-    const approved = [];
+    const approved: Block[] = [];
     for (const blockId of blockIds) {
       const block = this.storageRepository.loadBlockById(blockId);
       if (!block) {
@@ -32,7 +53,7 @@ export class BlockOperationsService {
     return approved;
   }
 
-  deleteBlock(blockId) {
+  deleteBlock(blockId: string): boolean {
     const block = this.storageRepository.loadBlockById(blockId);
     if (!block) {
       return false;
@@ -45,7 +66,7 @@ export class BlockOperationsService {
     return true;
   }
 
-  adjustBlockTime(blockId, startAt, endAt) {
+  adjustBlockTime(blockId: string, startAt: string, endAt: string): Block {
     const block = this.storageRepository.loadBlockById(blockId);
     assert(block, `block not found: ${blockId}`);
 
@@ -60,4 +81,3 @@ export class BlockOperationsService {
     return updated;
   }
 }
-
