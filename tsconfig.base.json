@@ -6,7 +6,10 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "strict": false,
-    "noImplicitAny": false,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   }

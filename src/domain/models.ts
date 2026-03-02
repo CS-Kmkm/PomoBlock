@@ -78,6 +78,25 @@ export interface PomodoroState {
   currentCycle: number;
 }
 
+export interface Routine {
+  id: string;
+  name: string;
+  rrule: string;
+  default: Record<string, unknown>;
+  exceptions: unknown[];
+}
+
+export type RoutineInput = Partial<Routine> & Pick<Routine, "id" | "name" | "rrule">;
+
+export interface Template {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  defaultTasks: unknown[];
+}
+
+export type TemplateInput = Partial<Template> & Pick<Template, "id" | "name" | "durationMinutes">;
+
 const BLOCK_TYPES = ["deep", "shallow", "admin", "learning"];
 const FIRMNESS_VALUES = ["draft", "soft", "hard"];
 const BLOCK_STATUS_VALUES = ["planned", "running", "done", "partial", "skipped"];
@@ -291,7 +310,7 @@ export function createPomodoroLog(
   return log;
 }
 
-export function createRoutine(input) {
+export function createRoutine(input: RoutineInput): Routine {
   assert(typeof input === "object" && input !== null, "routine input is required");
   validateNonEmptyString(input.id, "routine.id");
   validateNonEmptyString(input.name, "routine.name");
@@ -306,7 +325,7 @@ export function createRoutine(input) {
   };
 }
 
-export function createTemplate(input) {
+export function createTemplate(input: TemplateInput): Template {
   assert(typeof input === "object" && input !== null, "template input is required");
   validateNonEmptyString(input.id, "template.id");
   validateNonEmptyString(input.name, "template.name");
