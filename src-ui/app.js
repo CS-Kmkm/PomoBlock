@@ -3856,6 +3856,7 @@ function renderRoutines() {
   studio.lastApplyResult = typeof studio.lastApplyResult === "string" ? studio.lastApplyResult : "";
   studio.moduleEditor = studio.moduleEditor && typeof studio.moduleEditor === "object" ? studio.moduleEditor : null;
   studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
+  studio.entryEditorEntryId = typeof studio.entryEditorEntryId === "string" ? studio.entryEditorEntryId : "";
 
   const normalizeModule = (module, index) => {
     const id = String(module?.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
@@ -4332,62 +4333,9 @@ function renderRoutines() {
                         <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
                         <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="down" ${index === studio.canvasEntries.length - 1 ? "disabled" : ""}>↓</button>
                         <button type="button" class="rs-icon-btn is-danger" data-studio-remove="${escapeHtml(entry.entryId)}">×</button>
+                        <button type="button" class="rs-icon-btn" title="詳細設定" data-studio-entry-settings="${escapeHtml(entry.entryId)}">&#9881;</button>
                       </div>
                     </header>
-                    <details class="rs-canvas-details" ${studio.selectedEntryId === entry.entryId ? "open" : ""}>
-                      <summary>詳細設定</summary>
-                      <div class="rs-entry-grid">
-                        <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${escapeHtml(entry.title)}" /></label>
-                        <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${escapeHtml(entry.entryId)}" type="number" min="1" value="${Math.max(1, Number(entry.durationMinutes) || 1)}" /></label>
-                        <label class="rs-field">タイプ
-                          <select data-studio-entry-field="stepType" data-studio-entry-id="${escapeHtml(entry.entryId)}">
-                            <option value="micro" ${entry.stepType === "micro" ? "selected" : ""}>micro</option>
-                            <option value="pomodoro" ${entry.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
-                            <option value="free" ${entry.stepType === "free" ? "selected" : ""}>free</option>
-                          </select>
-                        </label>
-                        <label class="rs-field">モジュール
-                          <select data-studio-entry-field="moduleId" data-studio-entry-id="${escapeHtml(entry.entryId)}">
-                            <option value="">なし</option>
-                            ${studio.modules
-                              .map(
-                                (module) =>
-                                  `<option value="${escapeHtml(module.id)}" ${module.id === entry.moduleId ? "selected" : ""}>${escapeHtml(module.name)}</option>`
-                              )
-                              .join("")}
-                          </select>
-                        </label>
-                        <label class="rs-field">超過時
-                          <select data-studio-entry-field="overrunPolicy" data-studio-entry-id="${escapeHtml(entry.entryId)}">
-                            <option value="wait" ${entry.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
-                            <option value="notify_and_next" ${entry.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
-                          </select>
-                        </label>
-                        <label class="rs-field rs-field-full">チェックリスト
-                          <textarea class="rs-textarea" data-studio-entry-field="checklist" data-studio-entry-id="${escapeHtml(entry.entryId)}">${escapeHtml((entry.checklist || []).join("\n"))}</textarea>
-                        </label>
-                        <label class="rs-field rs-field-full">ノート
-                          <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${escapeHtml(entry.entryId)}">${escapeHtml(entry.note || "")}</textarea>
-                        </label>
-                        <fieldset class="rs-entry-checks rs-field-full">
-                          <legend>実行ヒント</legend>
-                          <label><input type="checkbox" data-studio-entry-hint="allowSkip" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.allowSkip ? "checked" : ""} />スキップ可</label>
-                          <label><input type="checkbox" data-studio-entry-hint="mustCompleteChecklist" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.mustCompleteChecklist ? "checked" : ""} />完了必須</label>
-                          <label><input type="checkbox" data-studio-entry-hint="autoAdvance" data-studio-entry-id="${escapeHtml(entry.entryId)}" ${entry.executionHints?.autoAdvance ? "checked" : ""} />自動進行</label>
-                        </fieldset>
-                        ${
-                          entry.stepType === "pomodoro"
-                            ? `<div class="rs-inline-fields rs-field-full">
-                                <label class="rs-field">集中(秒)<input type="number" min="60" data-studio-entry-pomodoro="focusSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(60, Number(entry.pomodoro?.focusSeconds) || 1500)}" /></label>
-                                <label class="rs-field">休憩(秒)<input type="number" min="60" data-studio-entry-pomodoro="breakSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(60, Number(entry.pomodoro?.breakSeconds) || 300)}" /></label>
-                                <label class="rs-field">サイクル<input type="number" min="1" data-studio-entry-pomodoro="cycles" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(1, Number(entry.pomodoro?.cycles) || 1)}" /></label>
-                                <label class="rs-field">長休憩(秒)<input type="number" min="0" data-studio-entry-pomodoro="longBreakSeconds" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(0, Number(entry.pomodoro?.longBreakSeconds) || 0)}" /></label>
-                                <label class="rs-field">頻度<input type="number" min="0" data-studio-entry-pomodoro="longBreakEvery" data-studio-entry-id="${escapeHtml(entry.entryId)}" value="${Math.max(0, Number(entry.pomodoro?.longBreakEvery) || 0)}" /></label>
-                              </div>`
-                            : ""
-                        }
-                      </div>
-                    </details>
                   </article>
                 `
                       )
@@ -4450,6 +4398,67 @@ function renderRoutines() {
           </footer>
         </aside>
       </div>
+      ${studio.entryEditorEntryId ? (() => {
+        const editEntry = studio.canvasEntries.find((e) => e.entryId === studio.entryEditorEntryId);
+        if (!editEntry) return "";
+        const eid = escapeHtml(editEntry.entryId);
+        return `
+        <div class="rs-modal-overlay" id="entry-editor-overlay">
+          <div class="rs-modal rs-modal--wide" role="dialog" aria-modal="true" aria-labelledby="entry-editor-title">
+            <header class="rs-modal-head">
+              <h4 class="rs-modal-title" id="entry-editor-title">ステップ詳細設定 — ${escapeHtml(editEntry.title)}</h4>
+              <button type="button" class="rs-modal-close" id="studio-entry-editor-close" aria-label="閉じる">&#10005;</button>
+            </header>
+            <div class="rs-entry-grid">
+              <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${eid}" value="${escapeHtml(editEntry.title)}" /></label>
+              <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${eid}" type="number" min="1" value="${Math.max(1, Number(editEntry.durationMinutes) || 1)}" /></label>
+              <label class="rs-field">タイプ
+                <select data-studio-entry-field="stepType" data-studio-entry-id="${eid}">
+                  <option value="micro" ${editEntry.stepType === "micro" ? "selected" : ""}>micro</option>
+                  <option value="pomodoro" ${editEntry.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
+                  <option value="free" ${editEntry.stepType === "free" ? "selected" : ""}>free</option>
+                </select>
+              </label>
+              <label class="rs-field">モジュール
+                <select data-studio-entry-field="moduleId" data-studio-entry-id="${eid}">
+                  <option value="">なし</option>
+                  ${studio.modules.map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === editEntry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
+                </select>
+              </label>
+              <label class="rs-field">超過時
+                <select data-studio-entry-field="overrunPolicy" data-studio-entry-id="${eid}">
+                  <option value="wait" ${editEntry.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
+                  <option value="notify_and_next" ${editEntry.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
+                </select>
+              </label>
+              <label class="rs-field rs-field-full">チェックリスト
+                <textarea class="rs-textarea" data-studio-entry-field="checklist" data-studio-entry-id="${eid}">${escapeHtml((editEntry.checklist || []).join("\n"))}</textarea>
+              </label>
+              <label class="rs-field rs-field-full">ノート
+                <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${eid}">${escapeHtml(editEntry.note || "")}</textarea>
+              </label>
+              <fieldset class="rs-entry-checks rs-field-full">
+                <legend>実行ヒント</legend>
+                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="allowSkip" data-studio-entry-id="${eid}" ${editEntry.executionHints?.allowSkip ? "checked" : ""} /><span><strong>スキップ可能</strong><span class="rs-hint-desc">このステップを手動でスキップできるようにする</span></span></label>
+                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="mustCompleteChecklist" data-studio-entry-id="${eid}" ${editEntry.executionHints?.mustCompleteChecklist ? "checked" : ""} /><span><strong>チェックリスト完了必須</strong><span class="rs-hint-desc">チェックリストをすべて済ませないと次へ進めない</span></span></label>
+                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="autoAdvance" data-studio-entry-id="${eid}" ${editEntry.executionHints?.autoAdvance ? "checked" : ""} /><span><strong>タイマー終了後に自動で次へ進む</strong><span class="rs-hint-desc">タイマーが切れたら確認なしに次のステップへ自動移動する</span></span></label>
+              </fieldset>
+              ${editEntry.stepType === "pomodoro" ? `
+              <div class="rs-inline-fields rs-field-full">
+                <label class="rs-field">集中(秒)<input type="number" min="60" data-studio-entry-pomodoro="focusSeconds" data-studio-entry-id="${eid}" value="${Math.max(60, Number(editEntry.pomodoro?.focusSeconds) || 1500)}" /></label>
+                <label class="rs-field">休憩(秒)<input type="number" min="60" data-studio-entry-pomodoro="breakSeconds" data-studio-entry-id="${eid}" value="${Math.max(60, Number(editEntry.pomodoro?.breakSeconds) || 300)}" /></label>
+                <label class="rs-field">サイクル<input type="number" min="1" data-studio-entry-pomodoro="cycles" data-studio-entry-id="${eid}" value="${Math.max(1, Number(editEntry.pomodoro?.cycles) || 1)}" /></label>
+                <label class="rs-field">長休憩(秒)<input type="number" min="0" data-studio-entry-pomodoro="longBreakSeconds" data-studio-entry-id="${eid}" value="${Math.max(0, Number(editEntry.pomodoro?.longBreakSeconds) || 0)}" /></label>
+                <label class="rs-field">頻度<input type="number" min="0" data-studio-entry-pomodoro="longBreakEvery" data-studio-entry-id="${eid}" value="${Math.max(0, Number(editEntry.pomodoro?.longBreakEvery) || 0)}" /></label>
+              </div>` : ""}
+            </div>
+            <div class="rs-modal-actions">
+              <button type="button" id="studio-entry-editor-close-btn" class="rs-btn rs-btn-primary">閉じる</button>
+            </div>
+          </div>
+        </div>
+      `;
+      })() : ""}
       ${studio.moduleEditor ? `
         <div class="rs-modal-overlay" id="module-editor-overlay">
           <div class="rs-modal" role="dialog" aria-modal="true">
@@ -4492,9 +4501,9 @@ function renderRoutines() {
               </div>` : ""}
             <fieldset class="rs-entry-checks">
               <legend>実行ヒント</legend>
-              <label><input id="studio-module-allow-skip" type="checkbox" ${studio.moduleEditor.executionHints.allowSkip ? "checked" : ""} />スキップ可</label>
-              <label><input id="studio-module-must-checklist" type="checkbox" ${studio.moduleEditor.executionHints.mustCompleteChecklist ? "checked" : ""} />完了必須</label>
-              <label><input id="studio-module-auto-advance" type="checkbox" ${studio.moduleEditor.executionHints.autoAdvance ? "checked" : ""} />自動進行</label>
+              <label class="rs-hint-row"><input id="studio-module-allow-skip" type="checkbox" ${studio.moduleEditor.executionHints.allowSkip ? "checked" : ""} /><span><strong>スキップ可能</strong><span class="rs-hint-desc">このステップを手動でスキップできるようにする</span></span></label>
+              <label class="rs-hint-row"><input id="studio-module-must-checklist" type="checkbox" ${studio.moduleEditor.executionHints.mustCompleteChecklist ? "checked" : ""} /><span><strong>チェックリスト完了必須</strong><span class="rs-hint-desc">チェックリストをすべて済ませないと次へ進めない</span></span></label>
+              <label class="rs-hint-row"><input id="studio-module-auto-advance" type="checkbox" ${studio.moduleEditor.executionHints.autoAdvance ? "checked" : ""} /><span><strong>タイマー終了後に自動で次へ進む</strong><span class="rs-hint-desc">タイマーが切れたら確認なしに次のステップへ自動移動する</span></span></label>
             </fieldset>
             <div class="rs-modal-actions">
               <button type="button" id="studio-module-save" class="rs-btn rs-btn-primary">保存</button>
@@ -4671,6 +4680,20 @@ function renderRoutines() {
       rerender();
     }
   });
+  document.getElementById("entry-editor-overlay")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) {
+      studio.entryEditorEntryId = "";
+      rerender();
+    }
+  });
+  document.getElementById("studio-entry-editor-close")?.addEventListener("click", () => {
+    studio.entryEditorEntryId = "";
+    rerender();
+  });
+  document.getElementById("studio-entry-editor-close-btn")?.addEventListener("click", () => {
+    studio.entryEditorEntryId = "";
+    rerender();
+  });
   document.getElementById("studio-module-save")?.addEventListener("click", async () => {
     await runUiAction(async () => {
       const moduleName = readField("studio-module-name").trim();
@@ -4804,6 +4827,14 @@ function renderRoutines() {
       const entryId = /** @type {HTMLElement} */ (node).dataset.studioSelectEntry || "";
       if (!entryId) return;
       studio.selectedEntryId = entryId;
+      rerender();
+    });
+  });
+  appRoot.querySelectorAll("[data-studio-entry-settings]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const entryId = /** @type {HTMLElement} */ (node).dataset.studioEntrySettings || "";
+      if (!entryId) return;
+      studio.entryEditorEntryId = entryId;
       rerender();
     });
   });
