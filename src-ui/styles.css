@@ -1296,6 +1296,31 @@ p {
   border-top: 1px solid var(--line);
 }
 
+.rs-modal-close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rs-modal-close:hover {
+  background: var(--surface-hover, rgba(255,255,255,0.06));
+  color: var(--text);
+}
+
+.rs-modal--wide {
+  width: min(700px, 96vw);
+}
+
 .routine-studio-toolbar {
   display: flex;
   align-items: flex-start;
@@ -1750,8 +1775,9 @@ p {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px 10px;
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .rs-entry-checks legend {
@@ -1763,9 +1789,40 @@ p {
 .rs-entry-checks label {
   font-size: 0.82rem;
   color: var(--ink);
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.rs-hint-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.rs-hint-row input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.rs-hint-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rs-hint-row strong {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rs-hint-desc {
+  font-size: 0.74rem;
+  color: var(--muted);
+  font-weight: 400;
+  line-height: 1.4;
 }
 
 .rs-canvas-connector {
