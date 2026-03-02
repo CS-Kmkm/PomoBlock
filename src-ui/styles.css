@@ -1376,6 +1376,76 @@ p {
   border-color: rgba(157, 47, 43, 0.35) !important;
 }
 
+
+.rs-subnav {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.rs-subnav-tab {
+  padding: 6px 16px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: color 0.15s, background 0.15s;
+}
+
+.rs-subnav-tab:hover {
+  background: var(--surface-2, #f0f4f0);
+  color: var(--text);
+}
+
+.rs-subnav-tab.is-active {
+  background: var(--surface, #fff);
+  color: var(--text);
+  border-color: var(--line);
+  border-bottom-color: var(--surface, #fff);
+  font-weight: 600;
+}
+
+.rs-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.rs-schedule-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: 480px;
+}
+
+.rs-schedule-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.rs-schedule-props {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rs-schedule-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .routine-studio-layout {
   min-height: 0;
   display: grid;
