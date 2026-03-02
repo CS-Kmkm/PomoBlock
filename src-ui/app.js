@@ -3798,37 +3798,11 @@ function renderRoutines() {
     uiState.routineStudio = {};
   }
   const studio = uiState.routineStudio;
-  const safeStepTypes = new Set(["micro", "pomodoro", "free"]);
-  const safeOverrunPolicies = new Set(["wait", "notify_and_next"]);
-  const normalizeStepType = (value) => {
-    const candidate = String(value || "micro").trim().toLowerCase();
-    return safeStepTypes.has(candidate) ? candidate : "micro";
-  };
-  const normalizeOverrunPolicy = (value) => {
-    const candidate = String(value || "wait").trim().toLowerCase();
-    return safeOverrunPolicies.has(candidate) ? candidate : "wait";
-  };
-  const normalizeExecutionHints = (value) => ({
-    allowSkip: Boolean(value?.allowSkip ?? value?.allow_skip ?? true),
-    mustCompleteChecklist: Boolean(
-      value?.mustCompleteChecklist ?? value?.must_complete_checklist ?? false
-    ),
-    autoAdvance: Boolean(value?.autoAdvance ?? value?.auto_advance ?? true),
-  });
-  const normalizePomodoro = (value, fallbackMinutes = 25) => ({
-    focusSeconds: Math.max(
-      60,
-      Number(value?.focusSeconds || value?.focus_seconds || Math.max(60, Math.round(fallbackMinutes * 60)))
-    ),
-    breakSeconds: Math.max(60, Number(value?.breakSeconds || value?.break_seconds || 300)),
-    cycles: Math.max(1, Number(value?.cycles || 1)),
-    longBreakSeconds: Math.max(0, Number(value?.longBreakSeconds || value?.long_break_seconds || 0)),
-    longBreakEvery: Math.max(0, Number(value?.longBreakEvery || value?.long_break_every || 0)),
-  });
+
 
   studio.assetsLoaded = Boolean(studio.assetsLoaded);
   studio.assetsLoading = Boolean(studio.assetsLoading);
-  studio.activeTab = studio.activeTab === "templates" ? "templates" : "modules";
+  studio.subPage = ["editor", "schedule"].includes(studio.subPage) ? studio.subPage : "editor";
   studio.search = typeof studio.search === "string" ? studio.search : "";
   studio.draftName =
     typeof studio.draftName === "string" && studio.draftName.trim() ? studio.draftName : "Routine Draft";
@@ -3841,18 +3815,12 @@ function renderRoutines() {
   studio.context =
     typeof studio.context === "string" && studio.context.trim() ? studio.context : routineStudioContexts[0];
   studio.autoStart = Boolean(studio.autoStart);
-  studio.macroTargetMinutes = Number.isFinite(Number(studio.macroTargetMinutes))
-    ? Number(studio.macroTargetMinutes)
-    : 30;
   studio.modules = Array.isArray(studio.modules) ? studio.modules : [];
   studio.canvasEntries = Array.isArray(studio.canvasEntries) ? studio.canvasEntries : [];
   studio.history = Array.isArray(studio.history) ? studio.history : [];
   studio.historyIndex = Number.isInteger(studio.historyIndex) ? studio.historyIndex : -1;
   studio.dragInsertIndex = Number.isInteger(studio.dragInsertIndex) ? studio.dragInsertIndex : -1;
   studio.selectedEntryId = typeof studio.selectedEntryId === "string" ? studio.selectedEntryId : "";
-  studio.hiddenTemplateCount = Number.isFinite(Number(studio.hiddenTemplateCount))
-    ? Number(studio.hiddenTemplateCount)
-    : 0;
   studio.lastApplyResult = typeof studio.lastApplyResult === "string" ? studio.lastApplyResult : "";
   studio.moduleEditor = studio.moduleEditor && typeof studio.moduleEditor === "object" ? studio.moduleEditor : null;
   studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
@@ -3860,14 +3828,6 @@ function renderRoutines() {
 
   const normalizeModule = (module, index) => {
     const id = String(module?.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
-    const pomodoro = module?.pomodoro && typeof module.pomodoro === "object" ? module.pomodoro : null;
-    const executionHints =
-      module?.executionHints && typeof module.executionHints === "object"
-        ? module.executionHints
-        : module?.execution_hints && typeof module.execution_hints === "object"
-      ? module.execution_hints
-      : null;
-    const stepType = normalizeStepType(module?.stepType || module?.step_type || "micro");
     const durationMinutes = Math.max(1, Number(module?.durationMinutes || module?.duration_minutes || 1));
     return {
       id,
@@ -3876,15 +3836,9 @@ function renderRoutines() {
       description: String(module?.description || ""),
       icon: String(module?.icon || "module"),
       durationMinutes,
-      stepType,
-      checklist: Array.isArray(module?.checklist) ? module.checklist.map(String).filter(Boolean) : [],
-      overrunPolicy: normalizeOverrunPolicy(module?.overrunPolicy || module?.overrun_policy || "wait"),
-      pomodoro: stepType === "pomodoro" ? normalizePomodoro(pomodoro, durationMinutes) : null,
-      executionHints: normalizeExecutionHints(executionHints),
     };
   };
   const normalizeEntry = (entry, index) => {
-    const stepType = normalizeStepType(entry?.stepType || entry?.step_type || entry?.type || "micro");
     const durationMinutes = Math.max(
       1,
       Number(entry?.durationMinutes || entry?.duration_minutes || 5)
@@ -3897,35 +3851,17 @@ function renderRoutines() {
       title: String(entry?.title || `Step ${index + 1}`),
       subtitle: String(entry?.subtitle || ""),
       durationMinutes,
-      stepType,
-      checklist: Array.isArray(entry?.checklist) ? entry.checklist.map(String).filter(Boolean) : [],
       note: String(entry?.note || ""),
-      overrunPolicy: normalizeOverrunPolicy(entry?.overrunPolicy || entry?.overrun_policy || "wait"),
-      executionHints: normalizeExecutionHints(entry?.executionHints || entry?.execution_hints),
-      pomodoro: stepType === "pomodoro" ? normalizePomodoro(entry?.pomodoro, durationMinutes) : null,
     };
   };
-  const parseChecklistText = (value) =>
-    String(value || "")
-      .split(/\r?\n/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-  const normalizeModuleEditor = (editor) => {
-    const stepType = normalizeStepType(editor?.stepType || editor?.step_type || "micro");
-    return {
-      id: String(editor?.id || ""),
-      name: String(editor?.name || ""),
-      category: String(editor?.category || "General"),
-      description: String(editor?.description || ""),
-      icon: String(editor?.icon || "module"),
-      durationMinutes: Math.max(1, Number(editor?.durationMinutes || editor?.duration_minutes || 5)),
-      stepType,
-      overrunPolicy: normalizeOverrunPolicy(editor?.overrunPolicy || editor?.overrun_policy || "wait"),
-      checklistText: String(editor?.checklistText || ""),
-      executionHints: normalizeExecutionHints(editor?.executionHints || editor?.execution_hints),
-      pomodoro: normalizePomodoro(editor?.pomodoro, Number(editor?.durationMinutes || 25)),
-    };
-  };
+  const normalizeModuleEditor = (editor) => ({
+    id: String(editor?.id || ""),
+    name: String(editor?.name || ""),
+    category: String(editor?.category || "General"),
+    description: String(editor?.description || ""),
+    icon: String(editor?.icon || "module"),
+    durationMinutes: Math.max(1, Number(editor?.durationMinutes || editor?.duration_minutes || 5)),
+  });
   const createEmptyModuleEditor = () =>
     normalizeModuleEditor({
       id: "",
@@ -3934,11 +3870,6 @@ function renderRoutines() {
       description: "",
       icon: "module",
       durationMinutes: 5,
-      stepType: "micro",
-      overrunPolicy: "wait",
-      checklistText: "",
-      executionHints: { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
-      pomodoro: normalizePomodoro(null, 25),
     });
   studio.modules = studio.modules.map(normalizeModule);
   studio.canvasEntries = studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index));
@@ -3950,7 +3881,7 @@ function renderRoutines() {
         <header class="routine-studio-toolbar">
           <div>
             <h2>Routine Studio</h2>
-            <p>モジュールとテンプレートを読み込み中...</p>
+            <p>モジュールを読み込み中...</p>
           </div>
         </header>
       </section>
@@ -3974,66 +3905,39 @@ function renderRoutines() {
 
   const moduleToEntry = (module) =>
     normalizeEntry({
-      entryId: nextRoutineStudioEntryId(),
       sourceKind: "module",
       sourceId: module.id,
       moduleId: module.id,
       title: module.name,
-      subtitle: module.description || module.category || "Module",
+      subtitle: module.description || module.category || "",
       durationMinutes: Math.max(1, Number(module.durationMinutes) || 5),
-      stepType: module.stepType || "micro",
-      checklist: Array.isArray(module.checklist) ? module.checklist.map(String).filter(Boolean) : [],
       note: "",
-      overrunPolicy: module.overrunPolicy || "wait",
-      executionHints: normalizeExecutionHints(module.executionHints),
-      pomodoro: module.stepType === "pomodoro" ? normalizePomodoro(module.pomodoro, module.durationMinutes) : null,
     });
   const recipeToEntries = (recipe) => {
     const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
-    const autoDriveMode = String(recipe?.auto_drive_mode || recipe?.autoDriveMode || "manual");
     if (steps.length === 0) {
       return [
-        {
-          entryId: nextRoutineStudioEntryId(),
+        normalizeEntry({
           sourceKind: "template",
           sourceId: recipe?.id || "",
-          moduleId: "",
-          title: recipe?.name || recipe?.id || "Template Step",
-          subtitle: "Imported template",
+          title: recipe?.name || recipe?.id || "ステップ",
+          subtitle: "複合モジュール",
           durationMinutes: 5,
-          stepType: "micro",
-          checklist: [],
           note: "",
-          overrunPolicy: "wait",
-          executionHints: { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
-          pomodoro: null,
-          autoDriveMode,
-        },
+        }),
       ];
     }
-    return steps.map((step, index) => {
-      const stepType = String(step?.type || step?.step_type || "micro");
-      const pomodoro = step?.pomodoro || {};
-      const executionHints = step?.executionHints || step?.execution_hints || {};
-      return normalizeEntry({
-        entryId: nextRoutineStudioEntryId(),
+    return steps.map((step, index) =>
+      normalizeEntry({
         sourceKind: "template",
         sourceId: recipe?.id || "",
         moduleId: String(step?.moduleId || step?.module_id || ""),
         title: String(step?.title || `Step ${index + 1}`),
-        subtitle: recipe?.name || recipe?.id || "Template",
+        subtitle: recipe?.name || recipe?.id || "複合モジュール",
         durationMinutes: routineStudioStepDurationMinutes(step),
-        stepType,
-        checklist: Array.isArray(step?.checklist)
-          ? step.checklist.map(String).filter(Boolean)
-          : [],
         note: String(step?.note || ""),
-        overrunPolicy: String(step?.overrunPolicy || step?.overrun_policy || "wait"),
-        executionHints: normalizeExecutionHints(executionHints),
-        pomodoro: stepType === "pomodoro" ? normalizePomodoro(pomodoro, routineStudioStepDurationMinutes(step)) : null,
-        autoDriveMode,
-      });
-    });
+      })
+    );
   };
   const syncFromRecipe = (recipe) => {
     if (!recipe) return;
@@ -4142,262 +4046,176 @@ function renderRoutines() {
     if (!searchNeedle) return true;
     return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
   });
-  const allStudioRecipes = recipes.filter((recipe) => isRoutineStudioRecipe(recipe));
-  studio.hiddenTemplateCount = Math.max(0, recipes.length - allStudioRecipes.length);
-  const templateAssets = allStudioRecipes
+  const complexModuleAssets = recipes
+    .filter((recipe) => isRoutineStudioRecipe(recipe))
     .map((recipe) => {
       const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
       const totalMinutes = steps.reduce((sum, step) => sum + routineStudioStepDurationMinutes(step), 0);
       return {
         id: String(recipe.id || ""),
         name: String(recipe.name || recipe.id || "Untitled"),
-        autoDriveMode: String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual"),
         stepCount: steps.length,
         totalMinutes,
       };
     })
-    .filter((template) => {
+    .filter((cm) => {
       if (!searchNeedle) return true;
-      return `${template.id} ${template.name} ${template.autoDriveMode}`.toLowerCase().includes(searchNeedle);
+      return cm.name.toLowerCase().includes(searchNeedle);
     });
   const totalMinutes = studio.canvasEntries.reduce((sum, entry) => sum + (Number(entry.durationMinutes) || 0), 0);
-  const targetMinutes = Math.max(15, Number(studio.macroTargetMinutes) || 30);
-  const fitPercent = Math.min(100, Math.round((totalMinutes / targetMinutes) * 100));
-  const macroFits = totalMinutes > 0 && totalMinutes <= targetMinutes;
-  const macroMessage =
-    totalMinutes === 0
-      ? "キャンバスが空です。"
-      : macroFits
-      ? `${targetMinutes}分の枠に収まります。`
-      : `目標（${targetMinutes}分）を${totalMinutes - targetMinutes}分オーバーしています。`;
-  const dateKey = uiState.dashboardDate || isoDate(new Date());
-  const triggerStart = new Date(`${dateKey}T${studio.triggerTime || "09:00"}:00`);
-  const triggerStartMs = triggerStart.getTime();
-  const triggerEndMs = triggerStartMs + totalMinutes * 60000;
-  const overlaps = (leftStart, leftEnd, rightStart, rightEnd) => leftStart < rightEnd && rightStart < leftEnd;
-  const conflictItems = [];
-  if (totalMinutes > 0 && Number.isFinite(triggerStartMs) && Number.isFinite(triggerEndMs)) {
-    uiState.blocks
-      .filter((block) => String(block?.date || "") === dateKey)
-      .forEach((block) => {
-        const startMs = new Date(block.start_at).getTime();
-        const endMs = new Date(block.end_at).getTime();
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
-        if (!overlaps(triggerStartMs, triggerEndMs, startMs, endMs)) return;
-        conflictItems.push({
-          kind: "block",
-          title: blockTitle(block) || "Scheduled Block",
-          startMs,
-          endMs,
-        });
-      });
-    uiState.calendarEvents.forEach((event) => {
-      const startMs = new Date(event.start_at).getTime();
-      const endMs = new Date(event.end_at).getTime();
-      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
-      if (!overlaps(triggerStartMs, triggerEndMs, startMs, endMs)) return;
-      conflictItems.push({
-        kind: "event",
-        title: String(event.title || "Calendar Event"),
-        startMs,
-        endMs,
-      });
-    });
-    conflictItems.sort((left, right) => left.startMs - right.startMs);
-  }
-  const conflictCount = conflictItems.length;
-  const conflictMessage =
-    totalMinutes <= 0
-      ? "モジュールを追加すると競合チェックできます。"
-      : conflictCount === 0
-      ? "競合するスケジュールはありません。"
-      : `${conflictCount}件の競合が検出されました。`;
 
   appRoot.innerHTML = `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
         <div>
           <h2>Routine Studio</h2>
-          <p>部品（モジュール）を選んで、組み立てる（キャンバス）、保存する（テンプレート）。</p>
+          <p>モジュールを選んで組み立て、ルーティンを作る。</p>
         </div>
         <div class="rs-toolbar-actions">
           <button type="button" id="studio-refresh-recipes" class="rs-btn rs-btn-secondary">アセット更新</button>
           <button type="button" id="studio-new-module" class="rs-btn rs-btn-secondary">モジュールを追加</button>
         </div>
       </header>
-      <div class="routine-studio-layout">
-        <aside class="rs-library">
-          <div class="rs-tabs">
-            <button type="button" class="rs-tab ${studio.activeTab === "modules" ? "is-active" : ""}" data-studio-tab="modules">モジュール</button>
-            <button type="button" class="rs-tab ${studio.activeTab === "templates" ? "is-active" : ""}" data-studio-tab="templates">テンプレート</button>
-          </div>
-          <div class="rs-search-wrap">
-            <input id="studio-search-input" type="search" placeholder="アセットを検索..." value="${escapeHtml(studio.search)}" />
-            ${
-              studio.activeTab === "templates" && studio.hiddenTemplateCount > 0
-                ? `<p class="small rs-legacy-note">${studio.hiddenTemplateCount}件の旧テンプレートが非表示です。</p>`
-                : ""
-            }
-          </div>
-          <div class="rs-assets">
-            ${
-              studio.activeTab === "modules"
-                ? (() => {
-                    const grouped = moduleAssets.reduce((accumulator, module) => {
-                      const category = String(module.category || "General");
-                      if (!accumulator[category]) accumulator[category] = [];
-                      accumulator[category].push(module);
-                      return accumulator;
-                    }, {});
-                    const categories = Object.keys(grouped).sort((left, right) => left.localeCompare(right));
-                    if (categories.length === 0) {
-                      return '<p class="small">モジュールが見つかりません。</p>';
-                    }
-                    return categories
-                      .map(
-                        (category) => `
-                        <section class="rs-asset-group">
-                          <h4 class="rs-asset-group-title">${escapeHtml(category)}</h4>
-                          ${grouped[category]
-                            .map(
-                              (module) => `
-                            <article class="rs-asset-card" draggable="true" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}">
-                              <div class="rs-asset-head">
-                                <p class="rs-asset-title">${escapeHtml(module.name)}</p>
-                                <span class="rs-asset-duration">${module.durationMinutes}m</span>
-                              </div>
-                              <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
-                              <div class="rs-asset-actions">
-                                <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">追加</button>
-                                <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
-                                <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#10005;</button>
-                              </div>
-                            </article>
-                          `
-                            )
-                            .join("")}
-                        </section>
-                      `
-                      )
-                      .join("");
-                  })()
-                : templateAssets
-                    .map(
-                      (template) => `
-                <article class="rs-asset-card" draggable="true" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(template.id)}">
-                  <div class="rs-asset-head">
-                    <p class="rs-asset-title">${escapeHtml(template.name)}</p>
-                    <span class="rs-asset-duration">${template.totalMinutes}m</span>
-                  </div>
-                  <p class="rs-asset-subtitle">${template.stepCount} ステップ • ${escapeHtml(template.autoDriveMode)}</p>
-                  <div class="rs-asset-actions">
-                    <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(template.id)}">挿入</button>
-                    <button type="button" class="rs-btn rs-btn-ghost" data-studio-load-template="${escapeHtml(template.id)}">読込</button>
-                  </div>
-                </article>
-              `
-                    )
-                    .join("")
-            }
-          </div>
-        </aside>
-        <section class="rs-canvas">
-          <header class="rs-canvas-head">
-            <div>
-              <h3>ルーティンキャンバス</h3>
-              <p>モジュールをドラッグして追加</p>
-            </div>
-            <div class="rs-history-actions">
-              <button type="button" id="studio-undo" class="rs-btn rs-btn-ghost" ${studio.historyIndex <= 0 ? "disabled" : ""}>元に戻す</button>
-              <button type="button" id="studio-redo" class="rs-btn rs-btn-ghost" ${studio.historyIndex >= studio.history.length - 1 ? "disabled" : ""}>やり直す</button>
-            </div>
-          </header>
-          <div class="rs-canvas-body">
-            <div id="routine-studio-dropzone" class="rs-dropzone">
-              ${
-                studio.canvasEntries.length === 0
-                  ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
-                  : studio.canvasEntries
-                      .map(
-                        (entry, index) => `
-                  <article class="rs-canvas-card ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(entry.entryId)}" draggable="true" data-studio-canvas-entry="${escapeHtml(entry.entryId)}">
-                    <header class="rs-canvas-card-head">
-                      <span class="rs-drag-handle" aria-hidden="true" title="ドラッグして並び順を変更">&#x2807;</span>
-                      <button type="button" class="rs-canvas-index" data-studio-select-entry="${escapeHtml(entry.entryId)}">${index + 1}</button>
-                      <div class="rs-canvas-meta">
-                        <p class="rs-canvas-title">${escapeHtml(entry.title || `Step ${index + 1}`)}</p>
-                        <p class="rs-canvas-subtitle">${escapeHtml(entry.subtitle || "")}</p>
-                      </div>
-                      <span class="rs-canvas-duration">${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
-                      <div class="rs-canvas-actions">
-                        <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
-                        <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="down" ${index === studio.canvasEntries.length - 1 ? "disabled" : ""}>↓</button>
-                        <button type="button" class="rs-icon-btn is-danger" data-studio-remove="${escapeHtml(entry.entryId)}">×</button>
-                        <button type="button" class="rs-icon-btn" title="詳細設定" data-studio-entry-settings="${escapeHtml(entry.entryId)}">&#9881;</button>
-                      </div>
-                    </header>
-                  </article>
-                `
-                      )
-                      .join('<div class="rs-canvas-connector" aria-hidden="true"></div>')
-              }
-            </div>
-          </div>
-        </section>
-        <aside class="rs-intel">
-          <header class="rs-intel-head">
-            <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
-            <p class="small">編集済み</p>
-            <div class="rs-total">${totalMinutes}<span> min</span></div>
-            <div class="bar-track"><div class="bar-fill rs-total-fill" style="width:${fitPercent}%"></div></div>
-          </header>
-          <div class="rs-intel-body">
-            <section class="rs-health">
-              <h4>ルーティン診断</h4>
-              <article class="rs-health-card ${macroFits ? "is-ok" : "is-warn"}"><p class="rs-health-title">時間フィット</p><p class="small">${escapeHtml(macroMessage)}</p></article>
-              <article class="rs-health-card ${conflictCount === 0 ? "is-ok" : "is-warn"}">
-                <p class="rs-health-title">スケジュール競合</p>
-                <p class="small">${escapeHtml(conflictMessage)}</p>
-                ${
-                  conflictItems.length > 0
-                    ? `<ul class="rs-conflict-list">${conflictItems
-                        .slice(0, 4)
-                        .map(
-                          (item) =>
-                            `<li>${escapeHtml(item.title)} (${formatHHmm(new Date(item.startMs).toISOString())}-${formatHHmm(new Date(item.endMs).toISOString())})</li>`
-                        )
-                        .join("")}</ul>`
-                    : ""
-                }
-              </article>
-            </section>
-            <details class="rs-properties" open>
-              <summary class="rs-properties-summary">プロパティ</summary>
-              <label class="rs-field">テンプレートID<input id="studio-template-id" value="${escapeHtml(studio.templateId)}" /></label>
-              <label class="rs-field">ルーティン名<input id="studio-draft-name" value="${escapeHtml(studio.draftName)}" /></label>
-              <label class="rs-field">コンテキスト<select id="studio-context">${routineStudioContexts
-                .map((context) => `<option value="${escapeHtml(context)}" ${context === studio.context ? "selected" : ""}>${escapeHtml(context)}</option>`)
-                .join("")}</select></label>
-              <label class="rs-field">開始時刻<input id="studio-trigger-time" type="time" value="${escapeHtml(studio.triggerTime)}" /></label>
-              <label class="rs-field">目標時間<select id="studio-macro-target">${routineStudioMacroTargets
-                .map((minutes) => `<option value="${minutes}" ${minutes === targetMinutes ? "selected" : ""}>${minutes} 分</option>`)
-                .join("")}</select></label>
-              <label class="rs-field rs-toggle" for="studio-auto-start"><span>次のモジュールを自動開始</span><input id="studio-auto-start" type="checkbox" ${studio.autoStart ? "checked" : ""} /></label>
-              ${
-                studio.lastApplyResult
-                  ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>`
-                  : ""
-              }
-            </details>
-          </div>
-          <footer class="rs-intel-actions">
-            <button type="button" id="studio-save-template" class="rs-btn rs-btn-primary">テンプレートとして保存</button>
-            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-secondary">今日に適用</button>
-            <button type="button" id="studio-delete-template" class="rs-btn rs-btn-ghost rs-danger-btn" ${studio.templateId ? "" : "disabled"}>テンプレートを削除</button>
-            <button type="button" id="studio-clear-canvas" class="rs-btn rs-btn-ghost">キャンバスをリセット</button>
+      <nav class="rs-subnav">
+        <button type="button" class="rs-subnav-tab ${studio.subPage === "editor" ? "is-active" : ""}" data-studio-subpage="editor">ルーティン編集</button>
+        <button type="button" class="rs-subnav-tab ${studio.subPage === "schedule" ? "is-active" : ""}" data-studio-subpage="schedule">定型予定化</button>
+      </nav>
+      ${studio.subPage === "schedule" ? `
+        <div class="rs-schedule-page">
+          <section class="rs-schedule-props">
+            <h3 class="rs-schedule-title">${escapeHtml(studio.draftName)}</h3>
+            <p class="small">保存済みのルーティンを今日のスケジュールに適用します。</p>
+            <label class="rs-field">開始時刻<input id="studio-trigger-time" type="time" value="${escapeHtml(studio.triggerTime)}" /></label>
+            ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
+          </section>
+          <footer class="rs-schedule-actions">
+            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary">今日に適用</button>
           </footer>
-        </aside>
-      </div>
+        </div>
+      ` : `
+        <div class="routine-studio-layout">
+          <aside class="rs-library">
+            <div class="rs-search-wrap">
+              <input id="studio-search-input" type="search" placeholder="モジュールを検索..." value="${escapeHtml(studio.search)}" />
+            </div>
+            <div class="rs-assets">
+              ${(() => {
+                const grouped = moduleAssets.reduce((acc, m) => {
+                  const cat = String(m.category || "General");
+                  if (!acc[cat]) acc[cat] = [];
+                  acc[cat].push(m);
+                  return acc;
+                }, {});
+                const cats = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+                const modParts = cats.length === 0 ? "" : cats.map((cat) => `
+                  <section class="rs-asset-group">
+                    <h4 class="rs-asset-group-title">${escapeHtml(cat)}</h4>
+                    ${grouped[cat].map((module) => `
+                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}">
+                        <div class="rs-asset-head">
+                          <p class="rs-asset-title">${escapeHtml(module.name)}</p>
+                          <span class="rs-asset-duration">${module.durationMinutes}m</span>
+                        </div>
+                        <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
+                        <div class="rs-asset-actions">
+                          <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">追加</button>
+                          <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
+                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#10005;</button>
+                        </div>
+                      </article>
+                    `).join("")}
+                  </section>
+                `).join("");
+                const cmParts = complexModuleAssets.length === 0 ? "" : `
+                  <section class="rs-asset-group">
+                    <h4 class="rs-asset-group-title">複合モジュール</h4>
+                    ${complexModuleAssets.map((cm) => `
+                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}">
+                        <div class="rs-asset-head">
+                          <p class="rs-asset-title">${escapeHtml(cm.name)}<span class="rs-badge">複合</span></p>
+                          <span class="rs-asset-duration">${cm.totalMinutes}m</span>
+                        </div>
+                        <p class="rs-asset-subtitle">${cm.stepCount} ステップ</p>
+                        <div class="rs-asset-actions">
+                          <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">追加</button>
+                          <button type="button" class="rs-btn rs-btn-ghost" data-studio-load-template="${escapeHtml(cm.id)}">読込</button>
+                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#10005;</button>
+                        </div>
+                      </article>
+                    `).join("")}
+                  </section>
+                `;
+                if (!modParts && !cmParts) return '<p class="small">モジュールが見つかりません。</p>';
+                return modParts + cmParts;
+              })()}
+            </div>
+          </aside>
+          <section class="rs-canvas">
+            <header class="rs-canvas-head">
+              <div>
+                <h3>ルーティンキャンバス</h3>
+                <p>モジュールをドラッグして追加</p>
+              </div>
+              <div class="rs-history-actions">
+                <button type="button" id="studio-undo" class="rs-btn rs-btn-ghost" ${studio.historyIndex <= 0 ? "disabled" : ""}>元に戻す</button>
+                <button type="button" id="studio-redo" class="rs-btn rs-btn-ghost" ${studio.historyIndex >= studio.history.length - 1 ? "disabled" : ""}>やり直す</button>
+              </div>
+            </header>
+            <div class="rs-canvas-body">
+              <div id="routine-studio-dropzone" class="rs-dropzone">
+                ${
+                  studio.canvasEntries.length === 0
+                    ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
+                    : studio.canvasEntries
+                        .map(
+                          (entry, index) => `
+                    <article class="rs-canvas-card ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(entry.entryId)}" draggable="true" data-studio-canvas-entry="${escapeHtml(entry.entryId)}">
+                      <header class="rs-canvas-card-head">
+                        <span class="rs-drag-handle" aria-hidden="true" title="ドラッグして並び順を変更">&#x2807;</span>
+                        <button type="button" class="rs-canvas-index" data-studio-select-entry="${escapeHtml(entry.entryId)}">${index + 1}</button>
+                        <div class="rs-canvas-meta">
+                          <p class="rs-canvas-title">${escapeHtml(entry.title || `Step ${index + 1}`)}</p>
+                          <p class="rs-canvas-subtitle">${escapeHtml(entry.subtitle || "")}</p>
+                        </div>
+                        <span class="rs-canvas-duration">${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
+                        <div class="rs-canvas-actions">
+                          <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
+                          <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="down" ${index === studio.canvasEntries.length - 1 ? "disabled" : ""}>↓</button>
+                          <button type="button" class="rs-icon-btn is-danger" data-studio-remove="${escapeHtml(entry.entryId)}">×</button>
+                          <button type="button" class="rs-icon-btn" title="詳細設定" data-studio-entry-settings="${escapeHtml(entry.entryId)}">&#9881;</button>
+                        </div>
+                      </header>
+                    </article>
+                  `
+                        )
+                        .join('<div class="rs-canvas-connector" aria-hidden="true"></div>')
+                }
+              </div>
+            </div>
+          </section>
+          <aside class="rs-intel">
+            <header class="rs-intel-head">
+              <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
+              <p class="small">編集済み</p>
+              <div class="rs-total">${totalMinutes}<span> min</span></div>
+            </header>
+            <div class="rs-intel-body">
+              <details class="rs-properties" open>
+                <summary class="rs-properties-summary">プロパティ</summary>
+                <label class="rs-field">ルーティン名<input id="studio-draft-name" value="${escapeHtml(studio.draftName)}" /></label>
+                <label class="rs-field">コンテキスト<select id="studio-context">${routineStudioContexts
+                  .map((ctx) => `<option value="${escapeHtml(ctx)}" ${ctx === studio.context ? "selected" : ""}>${escapeHtml(ctx)}</option>`)
+                  .join("")}</select></label>
+                <label class="rs-field rs-toggle" for="studio-auto-start"><span>タイマー自動開始</span><input id="studio-auto-start" type="checkbox" ${studio.autoStart ? "checked" : ""} /></label>
+              </details>
+            </div>
+            <footer class="rs-intel-actions">
+              <button type="button" id="studio-save-template" class="rs-btn rs-btn-primary">保存</button>
+              <button type="button" id="studio-clear-canvas" class="rs-btn rs-btn-ghost">キャンバスをリセット</button>
+            </footer>
+          </aside>
+        </div>
+      `}
       ${studio.entryEditorEntryId ? (() => {
         const editEntry = studio.canvasEntries.find((e) => e.entryId === studio.entryEditorEntryId);
         if (!editEntry) return "";
@@ -4412,52 +4230,22 @@ function renderRoutines() {
             <div class="rs-entry-grid">
               <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${eid}" value="${escapeHtml(editEntry.title)}" /></label>
               <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${eid}" type="number" min="1" value="${Math.max(1, Number(editEntry.durationMinutes) || 1)}" /></label>
-              <label class="rs-field">タイプ
-                <select data-studio-entry-field="stepType" data-studio-entry-id="${eid}">
-                  <option value="micro" ${editEntry.stepType === "micro" ? "selected" : ""}>micro</option>
-                  <option value="pomodoro" ${editEntry.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
-                  <option value="free" ${editEntry.stepType === "free" ? "selected" : ""}>free</option>
-                </select>
-              </label>
               <label class="rs-field">モジュール
                 <select data-studio-entry-field="moduleId" data-studio-entry-id="${eid}">
                   <option value="">なし</option>
                   ${studio.modules.map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === editEntry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
                 </select>
               </label>
-              <label class="rs-field">超過時
-                <select data-studio-entry-field="overrunPolicy" data-studio-entry-id="${eid}">
-                  <option value="wait" ${editEntry.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
-                  <option value="notify_and_next" ${editEntry.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
-                </select>
-              </label>
-              <label class="rs-field rs-field-full">チェックリスト
-                <textarea class="rs-textarea" data-studio-entry-field="checklist" data-studio-entry-id="${eid}">${escapeHtml((editEntry.checklist || []).join("\n"))}</textarea>
-              </label>
               <label class="rs-field rs-field-full">ノート
                 <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${eid}">${escapeHtml(editEntry.note || "")}</textarea>
               </label>
-              <fieldset class="rs-entry-checks rs-field-full">
-                <legend>実行ヒント</legend>
-                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="allowSkip" data-studio-entry-id="${eid}" ${editEntry.executionHints?.allowSkip ? "checked" : ""} /><span><strong>スキップ可能</strong><span class="rs-hint-desc">このステップを手動でスキップできるようにする</span></span></label>
-                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="mustCompleteChecklist" data-studio-entry-id="${eid}" ${editEntry.executionHints?.mustCompleteChecklist ? "checked" : ""} /><span><strong>チェックリスト完了必須</strong><span class="rs-hint-desc">チェックリストをすべて済ませないと次へ進めない</span></span></label>
-                <label class="rs-hint-row"><input type="checkbox" data-studio-entry-hint="autoAdvance" data-studio-entry-id="${eid}" ${editEntry.executionHints?.autoAdvance ? "checked" : ""} /><span><strong>タイマー終了後に自動で次へ進む</strong><span class="rs-hint-desc">タイマーが切れたら確認なしに次のステップへ自動移動する</span></span></label>
-              </fieldset>
-              ${editEntry.stepType === "pomodoro" ? `
-              <div class="rs-inline-fields rs-field-full">
-                <label class="rs-field">集中(秒)<input type="number" min="60" data-studio-entry-pomodoro="focusSeconds" data-studio-entry-id="${eid}" value="${Math.max(60, Number(editEntry.pomodoro?.focusSeconds) || 1500)}" /></label>
-                <label class="rs-field">休憩(秒)<input type="number" min="60" data-studio-entry-pomodoro="breakSeconds" data-studio-entry-id="${eid}" value="${Math.max(60, Number(editEntry.pomodoro?.breakSeconds) || 300)}" /></label>
-                <label class="rs-field">サイクル<input type="number" min="1" data-studio-entry-pomodoro="cycles" data-studio-entry-id="${eid}" value="${Math.max(1, Number(editEntry.pomodoro?.cycles) || 1)}" /></label>
-                <label class="rs-field">長休憩(秒)<input type="number" min="0" data-studio-entry-pomodoro="longBreakSeconds" data-studio-entry-id="${eid}" value="${Math.max(0, Number(editEntry.pomodoro?.longBreakSeconds) || 0)}" /></label>
-                <label class="rs-field">頻度<input type="number" min="0" data-studio-entry-pomodoro="longBreakEvery" data-studio-entry-id="${eid}" value="${Math.max(0, Number(editEntry.pomodoro?.longBreakEvery) || 0)}" /></label>
-              </div>` : ""}
             </div>
             <div class="rs-modal-actions">
               <button type="button" id="studio-entry-editor-close-btn" class="rs-btn rs-btn-primary">閉じる</button>
             </div>
           </div>
         </div>
-      `;
+        `;
       })() : ""}
       ${studio.moduleEditor ? `
         <div class="rs-modal-overlay" id="module-editor-overlay">
@@ -4472,39 +4260,9 @@ function renderRoutines() {
             <div class="rs-inline-fields">
               <label class="rs-field">カテゴリ<input id="studio-module-category" value="${escapeHtml(studio.moduleEditor.category)}" /></label>
               <label class="rs-field">分<input id="studio-module-duration" type="number" min="1" value="${Math.max(1, Number(studio.moduleEditor.durationMinutes) || 1)}" /></label>
-              <label class="rs-field">タイプ
-                <select id="studio-module-step-type">
-                  <option value="micro" ${studio.moduleEditor.stepType === "micro" ? "selected" : ""}>micro</option>
-                  <option value="pomodoro" ${studio.moduleEditor.stepType === "pomodoro" ? "selected" : ""}>pomodoro</option>
-                  <option value="free" ${studio.moduleEditor.stepType === "free" ? "selected" : ""}>free</option>
-                </select>
-              </label>
-            </div>
-            <div class="rs-inline-fields">
-              <label class="rs-field">超過時
-                <select id="studio-module-overrun">
-                  <option value="wait" ${studio.moduleEditor.overrunPolicy === "wait" ? "selected" : ""}>wait</option>
-                  <option value="notify_and_next" ${studio.moduleEditor.overrunPolicy === "notify_and_next" ? "selected" : ""}>notify_and_next</option>
-                </select>
-              </label>
-              <label class="rs-field">アイコン<input id="studio-module-icon" value="${escapeHtml(studio.moduleEditor.icon)}" /></label>
             </div>
             <label class="rs-field">説明<input id="studio-module-description" value="${escapeHtml(studio.moduleEditor.description)}" /></label>
-            <label class="rs-field">チェックリスト<textarea id="studio-module-checklist" class="rs-textarea">${escapeHtml(studio.moduleEditor.checklistText)}</textarea></label>
-            ${studio.moduleEditor.stepType === "pomodoro" ? `
-              <div class="rs-inline-fields">
-                <label class="rs-field">集中(秒)<input id="studio-module-focus" type="number" min="60" value="${Math.max(60, Number(studio.moduleEditor.pomodoro.focusSeconds) || 1500)}" /></label>
-                <label class="rs-field">休憩(秒)<input id="studio-module-break" type="number" min="60" value="${Math.max(60, Number(studio.moduleEditor.pomodoro.breakSeconds) || 300)}" /></label>
-                <label class="rs-field">サイクル<input id="studio-module-cycles" type="number" min="1" value="${Math.max(1, Number(studio.moduleEditor.pomodoro.cycles) || 1)}" /></label>
-                <label class="rs-field">長休憩(秒)<input id="studio-module-long-break" type="number" min="0" value="${Math.max(0, Number(studio.moduleEditor.pomodoro.longBreakSeconds) || 0)}" /></label>
-                <label class="rs-field">頻度<input id="studio-module-long-every" type="number" min="0" value="${Math.max(0, Number(studio.moduleEditor.pomodoro.longBreakEvery) || 0)}" /></label>
-              </div>` : ""}
-            <fieldset class="rs-entry-checks">
-              <legend>実行ヒント</legend>
-              <label class="rs-hint-row"><input id="studio-module-allow-skip" type="checkbox" ${studio.moduleEditor.executionHints.allowSkip ? "checked" : ""} /><span><strong>スキップ可能</strong><span class="rs-hint-desc">このステップを手動でスキップできるようにする</span></span></label>
-              <label class="rs-hint-row"><input id="studio-module-must-checklist" type="checkbox" ${studio.moduleEditor.executionHints.mustCompleteChecklist ? "checked" : ""} /><span><strong>チェックリスト完了必須</strong><span class="rs-hint-desc">チェックリストをすべて済ませないと次へ進めない</span></span></label>
-              <label class="rs-hint-row"><input id="studio-module-auto-advance" type="checkbox" ${studio.moduleEditor.executionHints.autoAdvance ? "checked" : ""} /><span><strong>タイマー終了後に自動で次へ進む</strong><span class="rs-hint-desc">タイマーが切れたら確認なしに次のステップへ自動移動する</span></span></label>
-            </fieldset>
+            <label class="rs-field">アイコン<input id="studio-module-icon" value="${escapeHtml(studio.moduleEditor.icon)}" /></label>
             <div class="rs-modal-actions">
               <button type="button" id="studio-module-save" class="rs-btn rs-btn-primary">保存</button>
               <button type="button" id="studio-module-cancel" class="rs-btn rs-btn-ghost">キャンセル</button>
@@ -4525,16 +4283,12 @@ function renderRoutines() {
     const id = slugBase.startsWith("rcp-") ? slugBase : `rcp-${slugBase}`;
     studio.templateId = id;
     const steps = studio.canvasEntries.map((entry, index) => {
-      const stepType = normalizeStepType(entry.stepType || "micro");
       const durationSeconds = Math.max(60, Math.round((Number(entry.durationMinutes) || 1) * 60));
       const step = {
         id: `step-${index + 1}`,
-        type: stepType,
+        type: "micro",
         title: String(entry.title || `Step ${index + 1}`),
         durationSeconds,
-        overrunPolicy: normalizeOverrunPolicy(entry.overrunPolicy || "wait"),
-        checklist: Array.isArray(entry.checklist) ? entry.checklist.map(String).filter(Boolean) : [],
-        executionHints: normalizeExecutionHints(entry.executionHints),
       };
       const moduleId = String(entry.moduleId || "").trim();
       if (moduleId) {
@@ -4543,15 +4297,6 @@ function renderRoutines() {
       const note = String(entry.note || "").trim();
       if (note) {
         step.note = note;
-      }
-      if (stepType === "pomodoro") {
-        step.pomodoro = {
-          focusSeconds: Math.max(60, Number(entry.pomodoro?.focusSeconds) || 1500),
-          breakSeconds: Math.max(60, Number(entry.pomodoro?.breakSeconds) || 300),
-          cycles: Math.max(1, Number(entry.pomodoro?.cycles) || 1),
-          longBreakSeconds: Math.max(0, Number(entry.pomodoro?.longBreakSeconds) || 0),
-          longBreakEvery: Math.max(0, Number(entry.pomodoro?.longBreakEvery) || 0),
-        };
       }
       return step;
     });
@@ -4592,10 +4337,7 @@ function renderRoutines() {
       return;
     }
     studio.editingModuleId = module.id;
-    studio.moduleEditor = normalizeModuleEditor({
-      ...module,
-      checklistText: (Array.isArray(module.checklist) ? module.checklist : []).join("\n"),
-    });
+    studio.moduleEditor = normalizeModuleEditor({ ...module });
   };
   const updateEntry = (entryId, updater) => {
     const index = studio.canvasEntries.findIndex((entry) => entry.entryId === entryId);
@@ -4656,16 +4398,7 @@ function renderRoutines() {
     });
   });
   document.getElementById("studio-new-module")?.addEventListener("click", () => {
-    studio.activeTab = "modules";
     openModuleEditor(null);
-    rerender();
-  });
-  document.getElementById("studio-module-step-type")?.addEventListener("change", (event) => {
-    if (!studio.moduleEditor) return;
-    studio.moduleEditor = normalizeModuleEditor({
-      ...studio.moduleEditor,
-      stepType: /** @type {HTMLSelectElement} */ (event.currentTarget).value,
-    });
     rerender();
   });
   document.getElementById("studio-module-cancel")?.addEventListener("click", () => {
@@ -4700,35 +4433,13 @@ function renderRoutines() {
       const rawId = readField("studio-module-id").trim();
       const moduleId =
         studio.editingModuleId || rawId || `mod-${routineStudioSlug(moduleName || "module") || "module"}`;
-      const stepType = normalizeStepType(readField("studio-module-step-type"));
       const payload = {
         id: moduleId,
         name: moduleName || moduleId,
         category: readField("studio-module-category").trim() || "General",
         description: readField("studio-module-description").trim(),
         icon: readField("studio-module-icon").trim() || "module",
-        stepType,
         durationMinutes: Math.max(1, Number(readField("studio-module-duration") || "1")),
-        checklist: parseChecklistText(readField("studio-module-checklist")),
-        overrunPolicy: normalizeOverrunPolicy(readField("studio-module-overrun") || "wait"),
-        executionHints: {
-          allowSkip: readChecked("studio-module-allow-skip"),
-          mustCompleteChecklist: readChecked("studio-module-must-checklist"),
-          autoAdvance: readChecked("studio-module-auto-advance"),
-        },
-        pomodoro:
-          stepType === "pomodoro"
-            ? normalizePomodoro(
-                {
-                  focusSeconds: Number(readField("studio-module-focus") || "1500"),
-                  breakSeconds: Number(readField("studio-module-break") || "300"),
-                  cycles: Number(readField("studio-module-cycles") || "1"),
-                  longBreakSeconds: Number(readField("studio-module-long-break") || "0"),
-                  longBreakEvery: Number(readField("studio-module-long-every") || "0"),
-                },
-                Number(readField("studio-module-duration") || "25")
-              )
-            : null,
       };
       if (studio.editingModuleId) {
         await safeInvoke("update_module", { module_id: studio.editingModuleId, payload });
@@ -4743,10 +4454,10 @@ function renderRoutines() {
       rerender();
     });
   });
-  appRoot.querySelectorAll("[data-studio-tab]").forEach((node) => {
+  appRoot.querySelectorAll("[data-studio-subpage]").forEach((node) => {
     node.addEventListener("click", () => {
-      const tab = /** @type {HTMLElement} */ (node).dataset.studioTab;
-      studio.activeTab = tab === "templates" ? "templates" : "modules";
+      const page = /** @type {HTMLElement} */ (node).dataset.studioSubpage || "";
+      studio.subPage = page === "schedule" ? "schedule" : "editor";
       rerender();
     });
   });
@@ -4852,61 +4563,11 @@ function renderRoutines() {
           entry.title = String(value || "").trim() || entry.title;
         } else if (field === "durationMinutes") {
           entry.durationMinutes = Math.max(1, Number(value || "1"));
-          if (entry.stepType === "pomodoro") {
-            entry.pomodoro = normalizePomodoro(entry.pomodoro, entry.durationMinutes);
-          }
-        } else if (field === "stepType") {
-          entry.stepType = normalizeStepType(value);
-          entry.pomodoro =
-            entry.stepType === "pomodoro"
-              ? normalizePomodoro(entry.pomodoro, entry.durationMinutes)
-              : null;
         } else if (field === "moduleId") {
           entry.moduleId = String(value || "").trim();
-        } else if (field === "overrunPolicy") {
-          entry.overrunPolicy = normalizeOverrunPolicy(value);
-        } else if (field === "checklist") {
-          entry.checklist = parseChecklistText(value);
         } else if (field === "note") {
           entry.note = String(value || "");
         }
-        return entry;
-      });
-      if (changed) rerender();
-    });
-  });
-  appRoot.querySelectorAll("[data-studio-entry-hint]").forEach((node) => {
-    node.addEventListener("change", (event) => {
-      const input = /** @type {HTMLInputElement} */ (event.currentTarget);
-      const entryId = input.dataset.studioEntryId || "";
-      const hint = input.dataset.studioEntryHint || "";
-      if (!entryId || !hint) return;
-      const changed = updateEntry(entryId, (entry) => {
-        const hints = normalizeExecutionHints(entry.executionHints);
-        if (hint === "allowSkip") hints.allowSkip = input.checked;
-        if (hint === "mustCompleteChecklist") hints.mustCompleteChecklist = input.checked;
-        if (hint === "autoAdvance") hints.autoAdvance = input.checked;
-        entry.executionHints = hints;
-        return entry;
-      });
-      if (changed) rerender();
-    });
-  });
-  appRoot.querySelectorAll("[data-studio-entry-pomodoro]").forEach((node) => {
-    node.addEventListener("change", (event) => {
-      const input = /** @type {HTMLInputElement} */ (event.currentTarget);
-      const entryId = input.dataset.studioEntryId || "";
-      const field = input.dataset.studioEntryPomodoro || "";
-      if (!entryId || !field) return;
-      const changed = updateEntry(entryId, (entry) => {
-        const pomodoro = normalizePomodoro(entry.pomodoro, entry.durationMinutes);
-        const value = Number(input.value || "0");
-        if (field === "focusSeconds") pomodoro.focusSeconds = Math.max(60, value || 60);
-        if (field === "breakSeconds") pomodoro.breakSeconds = Math.max(60, value || 60);
-        if (field === "cycles") pomodoro.cycles = Math.max(1, value || 1);
-        if (field === "longBreakSeconds") pomodoro.longBreakSeconds = Math.max(0, value || 0);
-        if (field === "longBreakEvery") pomodoro.longBreakEvery = Math.max(0, value || 0);
-        entry.pomodoro = pomodoro;
         return entry;
       });
       if (changed) rerender();
@@ -5057,9 +4718,6 @@ function renderRoutines() {
     });
   });
 
-  document.getElementById("studio-template-id")?.addEventListener("input", (event) => {
-    studio.templateId = /** @type {HTMLInputElement} */ (event.currentTarget).value || "";
-  });
   document.getElementById("studio-draft-name")?.addEventListener("input", (event) => {
     studio.draftName = /** @type {HTMLInputElement} */ (event.currentTarget).value || "Routine Draft";
     const titleNode = appRoot.querySelector("[data-studio-title]");
@@ -5070,10 +4728,6 @@ function renderRoutines() {
   });
   document.getElementById("studio-trigger-time")?.addEventListener("change", (event) => {
     studio.triggerTime = /** @type {HTMLInputElement} */ (event.currentTarget).value || "09:00";
-    rerender();
-  });
-  document.getElementById("studio-macro-target")?.addEventListener("change", (event) => {
-    studio.macroTargetMinutes = Number(/** @type {HTMLSelectElement} */ (event.currentTarget).value || "30");
     rerender();
   });
   document.getElementById("studio-auto-start")?.addEventListener("change", (event) => {
@@ -5109,22 +4763,20 @@ function renderRoutines() {
       rerender();
     });
   });
-  document.getElementById("studio-delete-template")?.addEventListener("click", async () => {
-    await runUiAction(async () => {
-      const recipeId = String(studio.templateId || "").trim();
-      if (!recipeId) {
-        setStatus("template id is required");
-        return;
-      }
-      const deleted = await safeInvoke("delete_recipe", { recipe_id: recipeId });
-      if (!deleted) {
-        setStatus(`template not found: ${recipeId}`);
-        return;
-      }
-      uiState.recipes = await safeInvoke("list_recipes", {});
-      studio.lastApplyResult = "";
-      setStatus(`template deleted: ${recipeId}`);
-      rerender();
+  appRoot.querySelectorAll("[data-studio-recipe-delete]").forEach((node) => {
+    node.addEventListener("click", async () => {
+      const recipeId = /** @type {HTMLElement} */ (node).dataset.studioRecipeDelete || "";
+      if (!recipeId) return;
+      await runUiAction(async () => {
+        const deleted = await safeInvoke("delete_recipe", { recipe_id: recipeId });
+        if (!deleted) {
+          setStatus(`recipe not found: ${recipeId}`);
+          return;
+        }
+        uiState.recipes = await safeInvoke("list_recipes", {});
+        setStatus(`recipe deleted: ${recipeId}`);
+        rerender();
+      });
     });
   });
   document.getElementById("studio-clear-canvas")?.addEventListener("click", () => {
