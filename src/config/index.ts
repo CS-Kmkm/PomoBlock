@@ -1,5 +1,5 @@
-﻿// @ts-nocheck
-export * from "./defaults.js";
+﻿export * from "./defaults.js";
 export * from "./loader.js";
 export * from "./paths.js";
+
 

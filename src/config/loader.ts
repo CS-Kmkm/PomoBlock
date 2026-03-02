@@ -1,27 +1,30 @@
-﻿// @ts-nocheck
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_CONFIGS } from "./defaults.js";
 
-function parseJsonFile(filePath) {
+type ConfigDocument = { schema: number; [key: string]: unknown };
+export type ConfigBundle = Readonly<Record<string, ConfigDocument>>;
+
+function parseJsonFile(filePath: string): ConfigDocument {
   const raw = readFileSync(filePath, "utf8");
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw) as ConfigDocument;
   } catch (error) {
-    throw new Error(`Invalid JSON in ${filePath}: ${error.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid JSON in ${filePath}: ${message}`);
   }
 }
 
-function validateConfigShape(fileName, config) {
+function validateConfigShape(fileName: string, config: unknown): asserts config is ConfigDocument {
   if (!config || typeof config !== "object") {
     throw new Error(`${fileName} must be a JSON object`);
   }
-  if (config.schema !== 1) {
+  if ((config as ConfigDocument).schema !== 1) {
     throw new Error(`${fileName} schema must be 1`);
   }
 }
 
-export function ensureDefaultConfigFiles(configDir) {
+export function ensureDefaultConfigFiles(configDir: string): void {
   mkdirSync(configDir, { recursive: true });
   for (const [fileName, defaultValue] of Object.entries(DEFAULT_CONFIGS)) {
     const filePath = join(configDir, fileName);
@@ -31,8 +34,8 @@ export function ensureDefaultConfigFiles(configDir) {
   }
 }
 
-export function loadConfigBundle(configDir) {
-  const bundle = {};
+export function loadConfigBundle(configDir: string): ConfigBundle {
+  const bundle: Record<string, ConfigDocument> = {};
   for (const fileName of Object.keys(DEFAULT_CONFIGS)) {
     const filePath = join(configDir, fileName);
     if (!existsSync(filePath)) {
@@ -44,4 +47,3 @@ export function loadConfigBundle(configDir) {
   }
   return Object.freeze(bundle);
 }
-

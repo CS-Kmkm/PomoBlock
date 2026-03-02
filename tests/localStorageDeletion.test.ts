@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -46,7 +45,7 @@ test("Feature: blocksched, Property 30: deleted local data is fully removed", ()
     syncToken: "sync-token",
     lastSyncTime: "2026-02-16T00:00:00.000Z",
   });
-  repository.saveSuppression(block.instance, "deleted by user");
+  repository.saveSuppression(block.instance, "deleted by user" as any);
   repository.appendAuditLog("task_selected", { taskId: task.id, blockId: block.id });
 
   repository.deletePomodoroLog("log-1");
@@ -66,8 +65,8 @@ test("Feature: blocksched, Property 30: deleted local data is fully removed", ()
   repository.deleteTask(task.id);
   assert.equal(repository.loadTasks().length, 0);
   const blockAfterTaskDelete = repository.loadBlockById(block.id);
-  assert.equal(blockAfterTaskDelete.taskId, null);
-  assert.equal(blockAfterTaskDelete.taskRefs.includes(task.id), false);
+  assert.equal(blockAfterTaskDelete?.taskId, null);
+  assert.equal(blockAfterTaskDelete?.taskRefs.includes(task.id), false);
   assert.equal(
     repository.loadPomodoroLogs("2026-02-16T00:00:00.000Z", "2026-02-16T23:59:59.000Z").length,
     0
@@ -88,4 +87,3 @@ test("Feature: blocksched, Property 30: deleted local data is fully removed", ()
   repository.close();
   rmSync(tempDir, { recursive: true, force: true });
 });
-

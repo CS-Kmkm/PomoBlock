@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -36,7 +35,7 @@ test("LocalStorageRepository can save and load blocks, tasks, sync state, suppre
     syncToken: "sync-token-1",
     lastSyncTime: "2026-02-16T00:00:00.000Z",
   });
-  repository.saveSuppression(block.instance, "user deleted block");
+  repository.saveSuppression(block.instance, "user deleted block" as any);
 
   const loadedBlocks = repository.loadBlocks("2026-02-16");
   const loadedTasks = repository.loadTasks();
@@ -54,4 +53,5 @@ test("LocalStorageRepository can save and load blocks, tasks, sync state, suppre
   repository.close();
   rmSync(tempDir, { recursive: true, force: true });
 });
+
 

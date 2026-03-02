@@ -1,14 +1,37 @@
-﻿// @ts-nocheck
-function toTimestamp(value) {
+﻿type ReflectionLog = {
+  interruptionReason: string | null;
+  phase: string;
+  endTime: string | null;
+  startTime: string;
+  [key: string]: unknown;
+};
+
+type PomodoroLogRepositoryPort = {
+  load(startAt: string, endAt: string): ReflectionLog[];
+};
+
+type ReflectionAggregate = {
+  startAt: string;
+  endAt: string;
+  completedCount: number;
+  interruptedCount: number;
+  totalWorkSeconds: number;
+  totalWorkMinutes: number;
+  logs: ReflectionLog[];
+};
+
+function toTimestamp(value: string): number {
   return new Date(value).getTime();
 }
 
 export class ReflectionService {
-  constructor({ pomodoroLogRepository }) {
+  private readonly pomodoroLogRepository: PomodoroLogRepositoryPort;
+
+  constructor({ pomodoroLogRepository }: { pomodoroLogRepository: PomodoroLogRepositoryPort }) {
     this.pomodoroLogRepository = pomodoroLogRepository;
   }
 
-  aggregate(startAt, endAt) {
+  aggregate(startAt: string, endAt: string): ReflectionAggregate {
     const logs = this.pomodoroLogRepository.load(startAt, endAt);
     let completedCount = 0;
     let interruptedCount = 0;
@@ -44,8 +67,7 @@ export class ReflectionService {
     };
   }
 
-  getLogs(startAt, endAt) {
+  getLogs(startAt: string, endAt: string): ReflectionLog[] {
     return this.pomodoroLogRepository.load(startAt, endAt);
   }
 }
-

@@ -1,14 +1,25 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { ReflectionService } from "../src/application/reflectionService.js";
 
+type MemoryLog = {
+  id: string;
+  blockId: string;
+  taskId: string;
+  phase: "focus" | "break";
+  startTime: string;
+  endTime: string | null;
+  interruptionReason: string | null;
+};
+
 class MemoryPomodoroLogRepository {
-  constructor(logs) {
+  private readonly logs: MemoryLog[];
+
+  constructor(logs: MemoryLog[]) {
     this.logs = logs;
   }
 
-  load(startAt, endAt) {
+  load(startAt: string, endAt: string): MemoryLog[] {
     const from = new Date(startAt).getTime();
     const to = new Date(endAt).getTime();
     return this.logs.filter((log) => {
@@ -25,13 +36,13 @@ test("Feature: blocksched, Property 32: reflection aggregates match underlying l
   for (let run = 0; run < 100; run += 1) {
     const base = Date.parse("2026-02-16T08:00:00.000Z");
     const size = 1 + Math.floor(Math.random() * 40);
-    const logs = [];
+    const logs: MemoryLog[] = [];
     let expectedCompleted = 0;
     let expectedInterrupted = 0;
     let expectedTotalSeconds = 0;
 
     for (let index = 0; index < size; index += 1) {
-      const phase = Math.random() < 0.7 ? "focus" : "break";
+      const phase: "focus" | "break" = Math.random() < 0.7 ? "focus" : "break";
       const start = new Date(base + index * 1800_000);
       const durationSeconds = 300 + Math.floor(Math.random() * 1800);
       const hasEnd = Math.random() < 0.95;
@@ -39,7 +50,7 @@ test("Feature: blocksched, Property 32: reflection aggregates match underlying l
       const interruptionReason = hasInterruption ? "interrupted" : null;
       const end = hasEnd ? new Date(start.getTime() + durationSeconds * 1000) : null;
 
-      const log = {
+      const log: MemoryLog = {
         id: `log-${run}-${index}`,
         blockId: `block-${run}`,
         taskId: `task-${run}`,
@@ -72,4 +83,3 @@ test("Feature: blocksched, Property 32: reflection aggregates match underlying l
     assert.equal(aggregated.logs.length, logs.length);
   }
 });
-

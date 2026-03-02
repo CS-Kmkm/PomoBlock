@@ -1,8 +1,7 @@
-﻿// @ts-nocheck
-import { bootstrapWorkspace } from "./application/bootstrap.js";
-import { resolveWorkspacePaths } from "./config/paths.js";
+﻿import { bootstrapWorkspace } from "./application/bootstrap.js";
+import { resolveWorkspacePaths, type WorkspacePaths } from "./config/paths.js";
 
-function printStatus(paths) {
+function printStatus(paths: WorkspacePaths): void {
   process.stdout.write(`workspace: ${paths.workspaceRoot}\n`);
   process.stdout.write(`configDir: ${paths.configDir}\n`);
   process.stdout.write(`stateDir: ${paths.stateDir}\n`);
@@ -10,12 +9,12 @@ function printStatus(paths) {
   process.stdout.write(`database: ${paths.databasePath}\n`);
 }
 
-function run() {
+function run(): void {
   const command = process.argv[2] ?? "init";
   const workspaceRoot = process.argv[3];
 
   if (command === "init") {
-    const result = bootstrapWorkspace({ workspaceRoot });
+    const result = bootstrapWorkspace(workspaceRoot ? { workspaceRoot } : {});
     process.stdout.write("PomBlock bootstrap completed.\n");
     printStatus(result.paths);
     return;
@@ -30,4 +29,3 @@ function run() {
 }
 
 run();
-

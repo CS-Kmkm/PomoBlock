@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { createPolicy, createPolicyOverride } from "../src/domain/models.js";
 import {
@@ -93,4 +92,5 @@ test("workWindowForDate converts work hours with timezone offset", () => {
   assert.equal(window.start.toISOString(), "2026-02-16T00:00:00.000Z");
   assert.equal(window.end.toISOString(), "2026-02-16T09:00:00.000Z");
 });
+
 

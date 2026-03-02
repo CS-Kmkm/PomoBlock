@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -38,13 +37,19 @@ test("PomodoroLogRepository persists and loads pomodoro logs via local storage",
     endTime: "2026-02-16T09:25:00.000Z",
   });
 
-  const logs = repository.load("2026-02-16T00:00:00.000Z", "2026-02-16T23:59:59.000Z");
+  const logs = repository.load("2026-02-16T00:00:00.000Z", "2026-02-16T23:59:59.000Z") as Array<{
+    id: string;
+    phase: string;
+    endTime: string | null;
+  }>;
+  const firstLog = logs[0];
   assert.equal(logs.length, 1);
-  assert.equal(logs[0].id, "log-1");
-  assert.equal(logs[0].phase, "focus");
-  assert.equal(logs[0].endTime, "2026-02-16T09:25:00.000Z");
+  assert.equal(firstLog?.id, "log-1");
+  assert.equal(firstLog?.phase, "focus");
+  assert.equal(firstLog?.endTime, "2026-02-16T09:25:00.000Z");
 
   storage.close();
   rmSync(tempDir, { recursive: true, force: true });
 });
+
 

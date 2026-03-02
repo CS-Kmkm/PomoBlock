@@ -1,20 +1,34 @@
-﻿// @ts-nocheck
-import { mkdirSync } from "node:fs";
-import { ensureDefaultConfigFiles, loadConfigBundle, resolveWorkspacePaths } from "../config/index.js";
+﻿import { mkdirSync } from "node:fs";
+import {
+  ensureDefaultConfigFiles,
+  loadConfigBundle,
+  resolveWorkspacePaths,
+  type WorkspacePaths,
+} from "../config/index.js";
 import { LocalStorageRepository } from "../infrastructure/localStorageRepository.js";
 
-export function bootstrapWorkspace(options = {}) {
+type BootstrapOptions = {
+  workspaceRoot?: string;
+};
+
+type BootstrapResult = {
+  paths: WorkspacePaths;
+  config: unknown;
+};
+
+export function bootstrapWorkspace(options: BootstrapOptions = {}): BootstrapResult {
   const paths = resolveWorkspacePaths(options.workspaceRoot);
   mkdirSync(paths.stateDir, { recursive: true });
   mkdirSync(paths.logsDir, { recursive: true });
 
   ensureDefaultConfigFiles(paths.configDir);
   const config = loadConfigBundle(paths.configDir);
+  const schema = (config as { app?: { schema?: unknown } }).app?.schema ?? null;
 
   const repository = new LocalStorageRepository(paths.databasePath);
   repository.initSchema();
   repository.appendAuditLog("bootstrap", {
-    schema: config.app.schema,
+    schema,
     initializedAt: new Date().toISOString(),
   });
   repository.close();
@@ -24,4 +38,3 @@ export function bootstrapWorkspace(options = {}) {
     config,
   };
 }
-

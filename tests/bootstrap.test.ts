@@ -1,5 +1,4 @@
-﻿// @ts-nocheck
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +8,11 @@ import { bootstrapWorkspace } from "../src/application/bootstrap.js";
 test("bootstrapWorkspace initializes config, state, logs, and sqlite schema", () => {
   const root = mkdtempSync(join(tmpdir(), "pomblock-bootstrap-"));
   const result = bootstrapWorkspace({ workspaceRoot: root });
+  const config = result.config as {
+    app: { schema: number };
+    policies: { schema: number };
+    modules: { schema: number };
+  };
 
   assert.equal(existsSync(join(root, "config", "app.json")), true);
   assert.equal(existsSync(join(root, "config", "calendars.json")), true);
@@ -16,10 +20,11 @@ test("bootstrapWorkspace initializes config, state, logs, and sqlite schema", ()
   assert.equal(existsSync(join(root, "state")), true);
   assert.equal(existsSync(join(root, "logs")), true);
   assert.equal(existsSync(join(root, "state", "pomblock.sqlite")), true);
-  assert.equal(result.config.app.schema, 1);
-  assert.equal(result.config.policies.schema, 1);
-  assert.equal(result.config.modules.schema, 1);
+  assert.equal(config.app.schema, 1);
+  assert.equal(config.policies.schema, 1);
+  assert.equal(config.modules.schema, 1);
 
   rmSync(root, { recursive: true, force: true });
 });
+
 
