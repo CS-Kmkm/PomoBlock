@@ -1,4 +1,4 @@
-use crate::domain::models::{Block, BlockType, Firmness};
+use crate::domain::models::{AutoDriveMode, Block, BlockContents, Firmness};
 use crate::infrastructure::error::InfraError;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -6,11 +6,12 @@ use std::collections::HashMap;
 const KEY_BLOCK_ID: &str = "bs_block_id";
 const KEY_INSTANCE: &str = "bs_instance";
 const KEY_DATE: &str = "bs_date";
-const KEY_BLOCK_TYPE: &str = "bs_block_type";
 const KEY_FIRMNESS: &str = "bs_firmness";
 const KEY_SOURCE: &str = "bs_source";
 const KEY_SOURCE_ID: &str = "bs_source_id";
 const KEY_PLANNED_POMODOROS: &str = "bs_planned_pomodoros";
+const KEY_RECIPE_ID: &str = "bs_recipe_id";
+const KEY_AUTO_DRIVE_MODE: &str = "bs_auto_drive_mode";
 const KEY_VERSION: &str = "bs_v";
 const KEY_APP: &str = "bs_app";
 const KEY_KIND: &str = "bs_kind";
@@ -55,10 +56,6 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
     private.insert(KEY_INSTANCE.to_string(), block.instance.clone());
     private.insert(KEY_DATE.to_string(), block.date.clone());
     private.insert(
-        KEY_BLOCK_TYPE.to_string(),
-        block_type_to_string(&block.block_type).to_string(),
-    );
-    private.insert(
         KEY_FIRMNESS.to_string(),
         firmness_to_string(&block.firmness).to_string(),
     );
@@ -66,6 +63,11 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
     private.insert(
         KEY_PLANNED_POMODOROS.to_string(),
         block.planned_pomodoros.to_string(),
+    );
+    private.insert(KEY_RECIPE_ID.to_string(), block.recipe_id.clone());
+    private.insert(
+        KEY_AUTO_DRIVE_MODE.to_string(),
+        auto_drive_mode_to_string(&block.auto_drive_mode).to_string(),
     );
     private.insert(KEY_VERSION.to_string(), "1".to_string());
     private.insert(KEY_APP.to_string(), "blocksched".to_string());
@@ -138,13 +140,6 @@ pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, 
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| start_at.date_naive().to_string());
 
-    let block_type = private
-        .get(KEY_BLOCK_TYPE)
-        .map(String::as_str)
-        .map(parse_block_type)
-        .transpose()?
-        .unwrap_or(BlockType::Deep);
-
     let firmness = private
         .get(KEY_FIRMNESS)
         .map(String::as_str)
@@ -171,6 +166,18 @@ pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, 
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
+    let recipe_id = private
+        .get(KEY_RECIPE_ID)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "rcp-default".to_string());
+    let auto_drive_mode = private
+        .get(KEY_AUTO_DRIVE_MODE)
+        .map(String::as_str)
+        .map(parse_auto_drive_mode)
+        .transpose()?
+        .unwrap_or(AutoDriveMode::Manual);
 
     Ok(Some(Block {
         id: block_id,
@@ -178,11 +185,13 @@ pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, 
         date,
         start_at,
         end_at,
-        block_type,
         firmness,
         planned_pomodoros,
         source,
         source_id,
+        recipe_id,
+        auto_drive_mode,
+        contents: BlockContents::default(),
     }))
 }
 
@@ -194,18 +203,6 @@ fn parse_rfc3339_utc(value: &str, field_name: &str) -> Result<DateTime<Utc>, Inf
                 "invalid calendar event {field_name} '{value}': {error}"
             ))
         })
-}
-
-fn parse_block_type(value: &str) -> Result<BlockType, InfraError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "deep" => Ok(BlockType::Deep),
-        "shallow" => Ok(BlockType::Shallow),
-        "admin" => Ok(BlockType::Admin),
-        "learning" => Ok(BlockType::Learning),
-        other => Err(InfraError::OAuth(format!(
-            "invalid bs_block_type value: {other}"
-        ))),
-    }
 }
 
 fn parse_firmness(value: &str) -> Result<Firmness, InfraError> {
@@ -230,20 +227,30 @@ fn parse_positive_i32(value: &str) -> Result<i32, InfraError> {
     Ok(parsed)
 }
 
-fn block_type_to_string(value: &BlockType) -> &'static str {
-    match value {
-        BlockType::Deep => "deep",
-        BlockType::Shallow => "shallow",
-        BlockType::Admin => "admin",
-        BlockType::Learning => "learning",
-    }
-}
-
 fn firmness_to_string(value: &Firmness) -> &'static str {
     match value {
         Firmness::Draft => "draft",
         Firmness::Soft => "soft",
         Firmness::Hard => "hard",
+    }
+}
+
+fn parse_auto_drive_mode(value: &str) -> Result<AutoDriveMode, InfraError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "manual" => Ok(AutoDriveMode::Manual),
+        "auto" => Ok(AutoDriveMode::Auto),
+        "auto-silent" | "auto_silent" => Ok(AutoDriveMode::AutoSilent),
+        other => Err(InfraError::OAuth(format!(
+            "invalid bs_auto_drive_mode value: {other}"
+        ))),
+    }
+}
+
+fn auto_drive_mode_to_string(value: &AutoDriveMode) -> &'static str {
+    match value {
+        AutoDriveMode::Manual => "manual",
+        AutoDriveMode::Auto => "auto",
+        AutoDriveMode::AutoSilent => "auto-silent",
     }
 }
 
@@ -262,11 +269,13 @@ mod tests {
             end_at: DateTime::parse_from_rfc3339("2026-02-16T01:00:00Z")
                 .expect("valid datetime")
                 .with_timezone(&Utc),
-            block_type: BlockType::Deep,
             firmness: Firmness::Draft,
             planned_pomodoros: 2,
             source: "routine".to_string(),
             source_id: Some("routine-abc".to_string()),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
         }
     }
 
@@ -283,11 +292,12 @@ mod tests {
         assert_eq!(decoded.date, block.date);
         assert_eq!(decoded.start_at, block.start_at);
         assert_eq!(decoded.end_at, block.end_at);
-        assert_eq!(decoded.block_type, block.block_type);
         assert_eq!(decoded.firmness, block.firmness);
         assert_eq!(decoded.planned_pomodoros, block.planned_pomodoros);
         assert_eq!(decoded.source, block.source);
         assert_eq!(decoded.source_id, block.source_id);
+        assert_eq!(decoded.recipe_id, block.recipe_id);
+        assert_eq!(decoded.auto_drive_mode, block.auto_drive_mode);
     }
 
     #[test]

@@ -11,11 +11,13 @@ test("bootstrapWorkspace initializes config, state, logs, and sqlite schema", ()
 
   assert.equal(existsSync(join(root, "config", "app.json")), true);
   assert.equal(existsSync(join(root, "config", "calendars.json")), true);
+  assert.equal(existsSync(join(root, "config", "modules.json")), true);
   assert.equal(existsSync(join(root, "state")), true);
   assert.equal(existsSync(join(root, "logs")), true);
   assert.equal(existsSync(join(root, "state", "pomblock.sqlite")), true);
   assert.equal(result.config.app.schema, 1);
   assert.equal(result.config.policies.schema, 1);
+  assert.equal(result.config.modules.schema, 1);
 
   rmSync(root, { recursive: true, force: true });
 });

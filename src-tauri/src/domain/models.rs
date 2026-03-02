@@ -11,21 +11,227 @@ pub enum Firmness {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum BlockType {
-    Deep,
-    Shallow,
-    Admin,
-    Learning,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum BlockStatus {
     Planned,
     Running,
     Done,
     Partial,
     Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum AutoDriveMode {
+    #[default]
+    Manual,
+    Auto,
+    AutoSilent,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipeStepType {
+    Pomodoro,
+    Micro,
+    Free,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OverrunPolicy {
+    NotifyAndNext,
+    Wait,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecipePomodoroConfig {
+    pub focus_seconds: u32,
+    pub break_seconds: u32,
+    pub cycles: u32,
+    pub long_break_seconds: Option<u32>,
+    pub long_break_every: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionHints {
+    #[serde(default)]
+    pub allow_skip: bool,
+    #[serde(default)]
+    pub must_complete_checklist: bool,
+    #[serde(default)]
+    pub auto_advance: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecipeStudioMeta {
+    pub version: u8,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecipeStep {
+    pub id: String,
+    pub step_type: RecipeStepType,
+    pub title: String,
+    pub duration_seconds: u32,
+    pub pomodoro: Option<RecipePomodoroConfig>,
+    pub overrun_policy: Option<OverrunPolicy>,
+    pub module_id: Option<String>,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+    pub note: Option<String>,
+    pub execution_hints: Option<ExecutionHints>,
+}
+
+impl RecipeStep {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "recipe_step.id")?;
+        validate_non_empty(&self.title, "recipe_step.title")?;
+        if self.duration_seconds == 0 {
+            return Err("recipe_step.duration_seconds must be > 0".to_string());
+        }
+        if let Some(module_id) = &self.module_id {
+            validate_non_empty(module_id, "recipe_step.module_id")?;
+        }
+        for item in &self.checklist {
+            validate_non_empty(item, "recipe_step.checklist[]")?;
+        }
+        if let Some(pomodoro) = &self.pomodoro {
+            if pomodoro.focus_seconds == 0 {
+                return Err("recipe_step.pomodoro.focus_seconds must be > 0".to_string());
+            }
+            if pomodoro.break_seconds == 0 {
+                return Err("recipe_step.pomodoro.break_seconds must be > 0".to_string());
+            }
+            if pomodoro.cycles == 0 {
+                return Err("recipe_step.pomodoro.cycles must be > 0".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Recipe {
+    pub id: String,
+    pub name: String,
+    pub auto_drive_mode: AutoDriveMode,
+    pub steps: Vec<RecipeStep>,
+    pub studio_meta: Option<RecipeStudioMeta>,
+}
+
+impl Recipe {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "recipe.id")?;
+        validate_non_empty(&self.name, "recipe.name")?;
+        if self.steps.is_empty() {
+            return Err("recipe.steps must not be empty".to_string());
+        }
+        if let Some(meta) = &self.studio_meta {
+            if meta.version != 1 {
+                return Err("recipe.studio_meta.version must be 1".to_string());
+            }
+            validate_non_empty(&meta.kind, "recipe.studio_meta.kind")?;
+        }
+        for step in &self.steps {
+            step.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModulePomodoroConfig {
+    pub focus_seconds: u32,
+    pub break_seconds: u32,
+    pub cycles: u32,
+    pub long_break_seconds: Option<u32>,
+    pub long_break_every: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Module {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub description: Option<String>,
+    pub icon: Option<String>,
+    pub step_type: RecipeStepType,
+    pub duration_minutes: u32,
+    #[serde(default)]
+    pub checklist: Vec<String>,
+    pub pomodoro: Option<ModulePomodoroConfig>,
+    pub overrun_policy: Option<OverrunPolicy>,
+    pub execution_hints: Option<ExecutionHints>,
+}
+
+impl Module {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "module.id")?;
+        validate_non_empty(&self.name, "module.name")?;
+        validate_non_empty(&self.category, "module.category")?;
+        if self.duration_minutes == 0 {
+            return Err("module.duration_minutes must be > 0".to_string());
+        }
+        for item in &self.checklist {
+            validate_non_empty(item, "module.checklist[]")?;
+        }
+        if let Some(pomodoro) = &self.pomodoro {
+            if pomodoro.focus_seconds == 0 {
+                return Err("module.pomodoro.focus_seconds must be > 0".to_string());
+            }
+            if pomodoro.break_seconds == 0 {
+                return Err("module.pomodoro.break_seconds must be > 0".to_string());
+            }
+            if pomodoro.cycles == 0 {
+                return Err("module.pomodoro.cycles must be > 0".to_string());
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockChecklistItem {
+    pub id: String,
+    pub label: String,
+    pub checked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlockTimeSplit {
+    pub label: String,
+    pub minutes: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct BlockContents {
+    #[serde(default)]
+    pub task_refs: Vec<String>,
+    pub memo: Option<String>,
+    #[serde(default)]
+    pub checklist: Vec<BlockChecklistItem>,
+    #[serde(default)]
+    pub time_splits: Vec<BlockTimeSplit>,
+}
+
+impl BlockContents {
+    pub fn validate(&self) -> Result<(), String> {
+        for task_ref in &self.task_refs {
+            validate_non_empty(task_ref, "block.contents.task_refs[]")?;
+        }
+        for checklist_item in &self.checklist {
+            validate_non_empty(&checklist_item.id, "block.contents.checklist[].id")?;
+            validate_non_empty(&checklist_item.label, "block.contents.checklist[].label")?;
+        }
+        for time_split in &self.time_splits {
+            validate_non_empty(&time_split.label, "block.contents.time_splits[].label")?;
+            if time_split.minutes == 0 {
+                return Err("block.contents.time_splits[].minutes must be > 0".to_string());
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -35,11 +241,16 @@ pub struct Block {
     pub date: String,
     pub start_at: DateTime<Utc>,
     pub end_at: DateTime<Utc>,
-    pub block_type: BlockType,
     pub firmness: Firmness,
     pub planned_pomodoros: i32,
     pub source: String,
     pub source_id: Option<String>,
+    #[serde(default = "default_recipe_id")]
+    pub recipe_id: String,
+    #[serde(default)]
+    pub auto_drive_mode: AutoDriveMode,
+    #[serde(default)]
+    pub contents: BlockContents,
 }
 
 impl Block {
@@ -47,6 +258,7 @@ impl Block {
         validate_non_empty(&self.id, "block.id")?;
         validate_non_empty(&self.instance, "block.instance")?;
         validate_non_empty(&self.source, "block.source")?;
+        validate_non_empty(&self.recipe_id, "block.recipe_id")?;
         validate_date(&self.date, "block.date")?;
         if self.end_at <= self.start_at {
             return Err("block.end_at must be after block.start_at".to_string());
@@ -54,6 +266,7 @@ impl Block {
         if self.planned_pomodoros < 0 {
             return Err("block.planned_pomodoros must be >= 0".to_string());
         }
+        self.contents.validate()?;
         Ok(())
     }
 }
@@ -271,7 +484,6 @@ impl Policy {
 pub struct RoutineDefault {
     pub start: String,
     pub duration_minutes: u32,
-    pub block_type: BlockType,
     pub pomodoros: u32,
     pub firmness: Firmness,
 }
@@ -308,6 +520,10 @@ pub struct Routine {
     pub id: String,
     pub name: String,
     pub rrule: String,
+    #[serde(default = "default_recipe_id")]
+    pub recipe_id: String,
+    #[serde(default)]
+    pub auto_drive_mode: Option<AutoDriveMode>,
     #[serde(rename = "default")]
     pub default_rule: RoutineDefault,
     pub exceptions: Vec<RoutineException>,
@@ -319,6 +535,7 @@ impl Routine {
         validate_non_empty(&self.id, "routine.id")?;
         validate_non_empty(&self.name, "routine.name")?;
         validate_non_empty(&self.rrule, "routine.rrule")?;
+        validate_non_empty(&self.recipe_id, "routine.recipe_id")?;
         self.default_rule.validate()?;
         for exception in &self.exceptions {
             exception.validate()?;
@@ -360,6 +577,10 @@ impl OAuthToken {
         self.expires_at > now + chrono::Duration::seconds(leeway_seconds)
             && !self.access_token.trim().is_empty()
     }
+}
+
+fn default_recipe_id() -> String {
+    "rcp-default".to_string()
 }
 
 fn validate_non_empty(value: &str, field_name: &str) -> Result<(), String> {
@@ -433,11 +654,13 @@ mod tests {
             date: "2026-02-16".to_string(),
             start_at: fixed_time("2026-02-16T09:00:00Z"),
             end_at: fixed_time("2026-02-16T10:00:00Z"),
-            block_type: BlockType::Deep,
             firmness: Firmness::Draft,
             planned_pomodoros: 2,
             source: "template".to_string(),
             source_id: Some("tpl-deep-1".to_string()),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            contents: BlockContents::default(),
         }
     }
 
@@ -498,10 +721,11 @@ mod tests {
             id: "rtn-1".to_string(),
             name: "Daily deep work".to_string(),
             rrule: "FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR".to_string(),
+            recipe_id: "rcp-deep-default".to_string(),
+            auto_drive_mode: Some(AutoDriveMode::Auto),
             default_rule: RoutineDefault {
                 start: "09:00".to_string(),
                 duration_minutes: 90,
-                block_type: BlockType::Deep,
                 pomodoros: 2,
                 firmness: Firmness::Draft,
             },
@@ -509,6 +733,33 @@ mod tests {
                 skip_dates: vec!["2026-02-21".to_string()],
             }],
             carryover: true,
+        }
+    }
+
+    fn sample_recipe() -> Recipe {
+        Recipe {
+            id: "rcp-deep-default".to_string(),
+            name: "Deep Work".to_string(),
+            auto_drive_mode: AutoDriveMode::Manual,
+            steps: vec![RecipeStep {
+                id: "step-1".to_string(),
+                step_type: RecipeStepType::Pomodoro,
+                title: "Focus Session".to_string(),
+                duration_seconds: 1500,
+                pomodoro: Some(RecipePomodoroConfig {
+                    focus_seconds: 1500,
+                    break_seconds: 300,
+                    cycles: 1,
+                    long_break_seconds: None,
+                    long_break_every: None,
+                }),
+                overrun_policy: Some(OverrunPolicy::Wait),
+                module_id: None,
+                checklist: Vec::new(),
+                note: None,
+                execution_hints: None,
+            }],
+            studio_meta: None,
         }
     }
 
@@ -553,6 +804,7 @@ mod tests {
         assert!(sample_policy().validate().is_ok());
         assert!(sample_routine().validate().is_ok());
         assert!(sample_template().validate().is_ok());
+        assert!(sample_recipe().validate().is_ok());
     }
 
     #[test]
@@ -617,6 +869,7 @@ mod tests {
         let policy = sample_policy();
         let routine = sample_routine();
         let template = sample_template();
+        let recipe = sample_recipe();
 
         let block_roundtrip: Block =
             serde_json::from_str(&serde_json::to_string(&block).expect("serialize block"))
@@ -638,6 +891,9 @@ mod tests {
             &serde_json::to_string(&template).expect("serialize template"),
         )
         .expect("deserialize template");
+        let recipe_roundtrip: Recipe =
+            serde_json::from_str(&serde_json::to_string(&recipe).expect("serialize recipe"))
+                .expect("deserialize recipe");
 
         assert_eq!(block_roundtrip, block);
         assert_eq!(task_roundtrip, task);
@@ -645,5 +901,6 @@ mod tests {
         assert_eq!(policy_roundtrip, policy);
         assert_eq!(routine_roundtrip, routine);
         assert_eq!(template_roundtrip, template);
+        assert_eq!(recipe_roundtrip, recipe);
     }
 }

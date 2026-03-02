@@ -10,7 +10,13 @@
     "createIfNoSlot": false,
     "maxShiftMinutes": 120,
     "placementStrategy": "keep",
-    "respectSuppression": true
+    "respectSuppression": true,
+    "todayAutoGenerate": true,
+    "generateOnAppStart": true
+  },
+  "timer": {
+    "defaultAutoDriveMode": "manual",
+    "overrunPolicy": "wait"
   },
   "minBlockGapMinutes": 0,
   "schema": 1,
