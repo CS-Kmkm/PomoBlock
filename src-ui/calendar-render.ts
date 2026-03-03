@@ -39,7 +39,7 @@ type RenderHelpers = {
   toDurationLabel: (minutes: number) => string;
 };
 
-type DayCalendarModel = {
+export type DayCalendarModel = {
   dayStartMs: number;
   dayEndMs: number;
   blockItems: RenderItem[];
@@ -361,6 +361,157 @@ export function renderWeeklyPlannerCalendar(
           })
           .join("")}
       </div>
+    </div>
+  `;
+}
+
+export function renderDailyDetail(
+  selectedItem: unknown,
+  deps: RenderHelpers & { blockTitle: (block: unknown) => string }
+): string {
+  const item = selectedItem as
+    | {
+        kind: string;
+        durationMinutes: number;
+        payload: Record<string, unknown>;
+      }
+    | null;
+
+  if (!item) {
+    return `
+      <div class="day-detail panel">
+        <h4>詳細</h4>
+        <p class="small">表示対象がありません。</p>
+      </div>
+    `;
+  }
+  if (item.kind === "block") {
+    const block = item.payload;
+    const titleValue = deps.blockTitle(block);
+    return `
+      <div class="day-detail panel">
+        <h4>ブロック詳細</h4>
+        <div class="row">
+          <label style="flex:1">
+            タイトル
+            <input
+              type="text"
+              value="${deps.escapeHtml(titleValue)}"
+              data-block-title-input="${deps.escapeHtml(block.id || "")}"
+              placeholder="タイトルなし"
+            />
+          </label>
+          <button type="button" class="btn-secondary" data-block-title-save="${deps.escapeHtml(block.id || "")}">タイトル保存</button>
+        </div>
+        <dl class="day-detail-list">
+          <div><dt>ID</dt><dd>${deps.escapeHtml(block.id || "")}</dd></div>
+          <div><dt>時間</dt><dd>${deps.intervalRangeLabel(item)}</dd></div>
+          <div><dt>長さ</dt><dd>${deps.toDurationLabel(item.durationMinutes)}</dd></div>
+          <div><dt>Firmness</dt><dd>${deps.escapeHtml(block.firmness || "-")}</dd></div>
+          <div><dt>予定ポモドーロ</dt><dd>${Number.isFinite(Number(block.planned_pomodoros)) ? block.planned_pomodoros : "-"}</dd></div>
+          <div><dt>Source</dt><dd>${deps.escapeHtml(block.source || "-")}</dd></div>
+        </dl>
+      </div>
+    `;
+  }
+  if (item.kind === "event") {
+    const event = item.payload;
+    return `
+      <div class="day-detail panel">
+        <h4>予定詳細</h4>
+        <dl class="day-detail-list">
+          <div><dt>タイトル</dt><dd>${deps.escapeHtml(event.title || "予定")}</dd></div>
+          <div><dt>時間</dt><dd>${deps.intervalRangeLabel(item)}</dd></div>
+          <div><dt>長さ</dt><dd>${deps.toDurationLabel(item.durationMinutes)}</dd></div>
+          <div><dt>Event ID</dt><dd>${deps.escapeHtml(event.id || "-")}</dd></div>
+          <div><dt>Account</dt><dd>${deps.escapeHtml(event.account_id || "-")}</dd></div>
+        </dl>
+      </div>
+    `;
+  }
+  return `
+    <div class="day-detail panel">
+      <h4>空き枠詳細</h4>
+      <dl class="day-detail-list">
+        <div><dt>時間</dt><dd>${deps.intervalRangeLabel(item)}</dd></div>
+        <div><dt>長さ</dt><dd>${deps.toDurationLabel(item.durationMinutes)}</dd></div>
+        <div><dt>種別</dt><dd>ブロック作成可能な時間帯</dd></div>
+      </dl>
+    </div>
+  `;
+}
+
+export function renderDailyCalendar(
+  params: {
+    dateValue: string;
+    model: DayCalendarModel & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number } };
+    mode: "grid" | "simple";
+    panelClass: string;
+    showHeader: boolean;
+    showMetrics: boolean;
+    showViewToggle: boolean;
+    includeDetail: boolean;
+    includeBoard: boolean;
+    includeTimeline: boolean;
+  },
+  deps: RenderHelpers & {
+    timezoneOffsetLabel: () => string;
+    renderSimpleDailyCalendar: (model: DayCalendarModel, options: { includeDetail?: boolean; includeTimeline?: boolean }) => string;
+    renderGridDailyCalendar: (model: DayCalendarModel, options: { includeDetail?: boolean; includeBoard?: boolean }) => string;
+  }
+): string {
+  return `
+    <div class="panel day-calendar${params.panelClass}">
+      ${
+        params.showHeader
+          ? `
+      <div class="row spread">
+        <h3>1日の時間ビュー</h3>
+        <span class="small">${deps.escapeHtml(params.dateValue)} / ${deps.timezoneOffsetLabel()}</span>
+      </div>
+      `
+          : ""
+      }
+      ${
+        params.showMetrics
+          ? `
+      <div class="calendar-metrics">
+        <span class="pill calendar-pill block">ブロック ${deps.toDurationLabel(params.model.totals.blockMinutes)}</span>
+        <span class="pill calendar-pill event">予定 ${deps.toDurationLabel(params.model.totals.eventMinutes)}</span>
+        <span class="pill calendar-pill free">空き ${deps.toDurationLabel(params.model.totals.freeMinutes)}</span>
+      </div>
+      `
+          : ""
+      }
+      ${
+        params.showViewToggle
+          ? `
+      <div class="day-view-toggle" role="group" aria-label="表示モード切替">
+        <button
+          type="button"
+          class="btn-secondary ${params.mode === "grid" ? "is-active" : ""}"
+          data-day-view="grid"
+          aria-pressed="${params.mode === "grid"}"
+        >
+          詳細グリッド
+        </button>
+        <button
+          type="button"
+          class="btn-secondary ${params.mode === "simple" ? "is-active" : ""}"
+          data-day-view="simple"
+          aria-pressed="${params.mode === "simple"}"
+        >
+          シンプル
+        </button>
+      </div>
+      `
+          : ""
+      }
+      ${
+        params.mode === "simple"
+          ? deps.renderSimpleDailyCalendar(params.model, { includeDetail: params.includeDetail, includeTimeline: params.includeTimeline })
+          : deps.renderGridDailyCalendar(params.model, { includeDetail: params.includeDetail, includeBoard: params.includeBoard })
+      }
     </div>
   `;
 }

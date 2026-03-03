@@ -1,6 +1,6 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLane as renderDayLaneValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineScale as renderSimpleTimelineScaleValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
+import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLane as renderDayLaneValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineScale as renderSimpleTimelineScaleValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -1019,68 +1019,12 @@ function renderGridDailyCalendar(model: Unsafe, options: Unsafe = {}) {
     });
 }
 function renderDailyDetail(selectedItem: Unsafe) {
-    if (!selectedItem) {
-        return `
-      <div class="day-detail panel">
-        <h4>詳細</h4>
-        <p class="small">表示対象がありません。</p>
-      </div>
-    `;
-    }
-    if (selectedItem.kind === "block") {
-        const block = selectedItem.payload;
-        const titleValue = blockTitle(block);
-        return `
-      <div class="day-detail panel">
-        <h4>ブロック詳細</h4>
-        <div class="row">
-          <label style="flex:1">
-            タイトル
-            <input
-              type="text"
-              value="${escapeHtml(titleValue)}"
-              data-block-title-input="${escapeHtml(block.id)}"
-              placeholder="タイトルなし"
-            />
-          </label>
-          <button type="button" class="btn-secondary" data-block-title-save="${escapeHtml(block.id)}">タイトル保存</button>
-        </div>
-        <dl class="day-detail-list">
-          <div><dt>ID</dt><dd>${escapeHtml(block.id)}</dd></div>
-          <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
-          <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
-          <div><dt>Firmness</dt><dd>${escapeHtml(block.firmness || "-")}</dd></div>
-          <div><dt>予定ポモドーロ</dt><dd>${Number.isFinite(block.planned_pomodoros) ? block.planned_pomodoros : "-"}</dd></div>
-          <div><dt>Source</dt><dd>${escapeHtml(block.source || "-")}</dd></div>
-        </dl>
-      </div>
-    `;
-    }
-    if (selectedItem.kind === "event") {
-        const event = selectedItem.payload;
-        return `
-      <div class="day-detail panel">
-        <h4>予定詳細</h4>
-        <dl class="day-detail-list">
-          <div><dt>タイトル</dt><dd>${escapeHtml(event.title || "予定")}</dd></div>
-          <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
-          <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
-          <div><dt>Event ID</dt><dd>${escapeHtml(event.id || "-")}</dd></div>
-          <div><dt>Account</dt><dd>${escapeHtml(event.account_id || "-")}</dd></div>
-        </dl>
-      </div>
-    `;
-    }
-    return `
-    <div class="day-detail panel">
-      <h4>空き枠詳細</h4>
-      <dl class="day-detail-list">
-        <div><dt>時間</dt><dd>${intervalRangeLabel(selectedItem)}</dd></div>
-        <div><dt>長さ</dt><dd>${toDurationLabel(selectedItem.durationMinutes)}</dd></div>
-        <div><dt>種別</dt><dd>ブロック作成可能な時間帯</dd></div>
-      </dl>
-    </div>
-  `;
+    return renderDailyDetailValue(selectedItem, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        blockTitle: (block: unknown) => blockTitle(block as Unsafe),
+    });
 }
 function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
     const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents, {
@@ -1099,52 +1043,25 @@ function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
     const includeDetail = options.includeDetail !== false;
     const includeBoard = options.includeBoard !== false;
     const includeTimeline = options.includeTimeline !== false;
-    return `
-    <div class="panel day-calendar${panelClass}">
-      ${showHeader
-        ? `
-      <div class="row spread">
-        <h3>1日の時間ビュー</h3>
-        <span class="small">${escapeHtml(dateValue)} / ${timezoneOffsetLabel()}</span>
-      </div>
-      `
-        : ""}
-      ${showMetrics
-        ? `
-      <div class="calendar-metrics">
-        <span class="pill calendar-pill block">ブロック ${toDurationLabel(model.totals.blockMinutes)}</span>
-        <span class="pill calendar-pill event">予定 ${toDurationLabel(model.totals.eventMinutes)}</span>
-        <span class="pill calendar-pill free">空き ${toDurationLabel(model.totals.freeMinutes)}</span>
-      </div>
-      `
-        : ""}
-      ${showViewToggle
-        ? `
-      <div class="day-view-toggle" role="group" aria-label="表示モード切替">
-        <button
-          type="button"
-          class="btn-secondary ${mode === "grid" ? "is-active" : ""}"
-          data-day-view="grid"
-          aria-pressed="${mode === "grid"}"
-        >
-          詳細グリッド
-        </button>
-        <button
-          type="button"
-          class="btn-secondary ${mode === "simple" ? "is-active" : ""}"
-          data-day-view="simple"
-          aria-pressed="${mode === "simple"}"
-        >
-          シンプル
-        </button>
-      </div>
-      `
-        : ""}
-      ${mode === "simple"
-        ? renderSimpleDailyCalendar(model, { includeDetail, includeTimeline })
-        : renderGridDailyCalendar(model, { includeDetail, includeBoard })}
-    </div>
-  `;
+    return renderDailyCalendarValue({
+        dateValue: String(dateValue),
+        model: model as Unsafe & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; },
+        mode,
+        panelClass,
+        showHeader,
+        showMetrics,
+        showViewToggle,
+        includeDetail,
+        includeBoard,
+        includeTimeline,
+    }, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        timezoneOffsetLabel,
+        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendar(calendarModel as Unsafe, renderOptions as Unsafe),
+        renderGridDailyCalendar: (calendarModel, renderOptions) => renderGridDailyCalendar(calendarModel as Unsafe, renderOptions as Unsafe),
+    });
 }
 function setStatus(message: Unsafe) {
     if (statusChip) {
