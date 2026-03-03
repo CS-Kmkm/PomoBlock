@@ -1,6 +1,6 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, } from "./calendar-render.js";
+import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -997,53 +997,25 @@ function renderSimpleTimelineScale() {
         .join("");
 }
 function renderSimpleTimelineSegments(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    const totalRange = Math.max(1, dayEndMs - dayStartMs);
-    return items
-        .map((item: Unsafe) => {
-        const left = ((item.startMs - dayStartMs) / totalRange) * 100;
-        const width = Math.max(0.9, ((item.endMs - item.startMs) / totalRange) * 100);
-        const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
-        const dragClass = kind === "block" ? "is-draggable" : "";
-        return `
-        <button
-          type="button"
-          class="day-simple-segment day-simple-segment-${kind} ${selectedClass} ${dragClass}"
-          style="left:${left}%;width:${width}%"
-          data-day-item-kind="${kind}"
-          data-day-item-id="${escapeHtml(item.id)}"
-          data-day-start-ms="${dayStartMs}"
-          data-day-end-ms="${dayEndMs}"
-          data-day-item-start-ms="${item.startMs}"
-          data-day-item-end-ms="${item.endMs}"
-          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
-        >
-          <span>${escapeHtml(item.title)}</span>
-        </button>
-      `;
-    })
-        .join("");
+    return renderSimpleTimelineSegmentsValue(String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+    });
 }
 function renderSimpleOccupancySegments(intervals: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    const totalRange = Math.max(1, dayEndMs - dayStartMs);
-    return intervals
-        .map((interval: Unsafe) => {
-        const left = ((interval.startMs - dayStartMs) / totalRange) * 100;
-        const width = Math.max(0.7, ((interval.endMs - interval.startMs) / totalRange) * 100);
-        const title = `${intervalRangeLabel(interval)} (${toDurationLabel(minutesBetween(interval.startMs, interval.endMs))})`;
-        return `<span class="day-simple-occupancy-segment" style="left:${left}%;width:${width}%" title="${title}"></span>`;
-    })
-        .join("");
+    return renderSimpleOccupancySegmentsValue(intervals as Array<{ startMs: number; endMs: number; }>, Number(dayStartMs), Number(dayEndMs), {
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        minutesBetween: (startMs: number, endMs: number) => minutesBetween(startMs, endMs),
+    });
 }
 function renderSimpleTimelineRow(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    const segments = renderSimpleTimelineSegments(kind, items, dayStartMs, dayEndMs, selectedItem);
-    return `
-    <div class="day-simple-row">
-      <span class="day-simple-row-label">${label}</span>
-      <div class="day-simple-track">
-        ${segments || '<span class="day-simple-empty">なし</span>'}
-      </div>
-    </div>
-  `;
+    return renderSimpleTimelineRowValue(String(label), String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+    });
 }
 function renderSimpleDailyCalendar(model: Unsafe, options: Unsafe = {}) {
     const includeDetail = options.includeDetail !== false;
