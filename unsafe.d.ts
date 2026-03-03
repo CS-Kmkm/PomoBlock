@@ -1,0 +1,2 @@
+﻿type Unsafe = any;
+

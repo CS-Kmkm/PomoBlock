@@ -4,19 +4,19 @@ import { BlockOperationsService } from "../src/application/blockOperationsServic
 import { createBlock } from "../src/domain/models.js";
 
 class MemoryStorageRepository {
-  private readonly blocks: Map<string, any>;
+  private readonly blocks: Map<string, Unsafe>;
 
   constructor() {
     this.blocks = new Map();
   }
 
-  saveBlock(input: any): any {
+  saveBlock(input: Unsafe): Unsafe {
     const block = createBlock(input);
     this.blocks.set(block.id, block);
     return block;
   }
 
-  loadBlockById(blockId: string): any {
+  loadBlockById(blockId: string): Unsafe {
     return this.blocks.get(blockId) ?? null;
   }
 
@@ -27,7 +27,7 @@ class MemoryStorageRepository {
 
 test("Feature: blocksched, Property 12: approving block updates firmness and calendar event", () => {
   const storage = new MemoryStorageRepository();
-  const updates: Array<{ eventId: string; block: any }> = [];
+  const updates: Array<{ eventId: string; block: Unsafe }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -94,7 +94,7 @@ test("Feature: blocksched, Property 13: deleting block is reflected in calendar"
 
 test("Feature: blocksched, Property 14: adjusting block time updates calendar event time", () => {
   const storage = new MemoryStorageRepository();
-  const updates: Array<{ eventId: string; block: any }> = [];
+  const updates: Array<{ eventId: string; block: Unsafe }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -129,3 +129,4 @@ test("Feature: blocksched, Property 14: adjusting block time updates calendar ev
   assert.equal(updates.length, 1);
   assert.equal(updates[0]?.eventId, "event-adjust");
 });
+

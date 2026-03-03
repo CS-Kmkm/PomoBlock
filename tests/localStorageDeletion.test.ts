@@ -45,7 +45,7 @@ test("Feature: blocksched, Property 30: deleted local data is fully removed", ()
     syncToken: "sync-token",
     lastSyncTime: "2026-02-16T00:00:00.000Z",
   });
-  repository.saveSuppression(block.instance, "deleted by user" as any);
+  repository.saveSuppression(block.instance, "deleted by user" as Unsafe);
   repository.appendAuditLog("task_selected", { taskId: task.id, blockId: block.id });
 
   repository.deletePomodoroLog("log-1");
@@ -87,3 +87,4 @@ test("Feature: blocksched, Property 30: deleted local data is fully removed", ()
   repository.close();
   rmSync(tempDir, { recursive: true, force: true });
 });
+

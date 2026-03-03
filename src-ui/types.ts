@@ -1,4 +1,6 @@
-export type JsonRecord = Record<string, any>;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
+export type JsonObject = { [key: string]: JsonValue };
 
 export type Block = {
   id: string;
@@ -73,15 +75,15 @@ export type RecipeStep = {
   moduleId?: string;
   checklist?: string[];
   note?: string;
-  executionHints?: JsonRecord | null;
-  pomodoro?: JsonRecord | null;
+  executionHints?: JsonObject | null;
+  pomodoro?: JsonObject | null;
 };
 
 export type Recipe = {
   id: string;
   name: string;
   auto_drive_mode?: string;
-  studioMeta?: JsonRecord;
+  studioMeta?: JsonObject;
   steps: RecipeStep[];
   [key: string]: unknown;
 };
@@ -95,9 +97,9 @@ export type Module = {
   durationMinutes?: number;
   stepType?: string;
   checklist?: string[];
-  pomodoro?: JsonRecord | null;
+  pomodoro?: JsonObject | null;
   overrunPolicy?: string;
-  executionHints?: JsonRecord | null;
+  executionHints?: JsonObject | null;
   [key: string]: unknown;
 };
 
@@ -118,18 +120,18 @@ export interface RoutineStudioState {
   macroTargetMinutes?: number;
   modules?: Module[];
   hiddenTemplateCount?: number;
-  canvasEntries?: JsonRecord[];
-  history?: JsonRecord[];
+  canvasEntries?: JsonObject[];
+  history?: JsonObject[];
   historyIndex?: number;
   dragInsertIndex?: number;
   selectedEntryId?: string;
   editingModuleId?: string;
-  moduleEditor?: JsonRecord | null;
+  moduleEditor?: JsonObject | null;
   [key: string]: unknown;
 }
 
 export interface UiState {
-  auth: JsonRecord | null;
+  auth: JsonObject | null;
   accountId: string;
   dashboardDate: string;
   blocks: Block[];

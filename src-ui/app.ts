@@ -1,26 +1,13 @@
-import { invokeCommand as invokeTauriCommand, invokeCommandWithProgress as invokeTauriCommandWithProgress, isTauriRuntimeAvailable as isTauriAvailable, safeInvoke as safeTauriInvoke, safeInvokeWithFallback as safeTauriInvokeWithFallback, } from "./tauri-contracts.js";
+﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
+import { getById } from "./dom.js";
+import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
-declare global {
-    interface Document {
-        getElementById(elementId: string): any;
-    }
-    interface HTMLElement {
-        value: any;
-        checked: any;
-    }
-    interface EventTarget {
-        value: any;
-        checked: any;
-        dataset: any;
-        closest(selectors: string): any;
-    }
-}
-const appRoot = document.getElementById("app") as HTMLElement;
-const statusChip = document.getElementById("global-status") as HTMLElement | null;
-const progressChip = document.getElementById("global-progress") as HTMLElement | null;
-const progressLabel = document.getElementById("global-progress-label") as HTMLElement | null;
-const progressFill = document.getElementById("global-progress-fill") as HTMLElement | null;
-const progressValue = document.getElementById("global-progress-value") as HTMLElement | null;
+const appRoot = getById<HTMLElement>("app") as HTMLElement;
+const statusChip = getById<HTMLElement>("global-status");
+const progressChip = getById<HTMLElement>("global-progress");
+const progressLabel = getById<HTMLElement>("global-progress-label");
+const progressFill = getById<HTMLElement>("global-progress-fill");
+const progressValue = getById<HTMLElement>("global-progress-value");
 const routes = ["today", "details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
@@ -178,7 +165,7 @@ type DayItemSelection = {
     id: string;
 } | null;
 type DayCalendarViewMode = "grid" | "simple";
-const uiState: any = {
+const uiState: Unsafe = {
     auth: null,
     accountId: "default",
     dashboardDate: isoDate(new Date()),
@@ -231,7 +218,7 @@ const uiState: any = {
         gitRemote: "",
     },
 };
-const mockState: any = {
+const mockState: Unsafe = {
     sequence: 1,
     tasks: [],
     blocks: [],
@@ -255,7 +242,7 @@ const mockState: any = {
     },
     logs: [],
 };
-const progressState: any = {
+const progressState: Unsafe = {
     active: false,
     command: "",
     label: "",
@@ -263,7 +250,7 @@ const progressState: any = {
     timerId: 0,
     hideTimerId: 0,
 };
-const dayBlockDragState: any = {
+const dayBlockDragState: Unsafe = {
     active: false,
     moved: false,
     pointerId: null,
@@ -290,7 +277,17 @@ const dayBlockDragState: any = {
     onMove: null,
     onUp: null,
 };
-function nextMockId(prefix: any) {
+const commandApi = createCommandApi({
+    setStatus,
+    mockInvoke,
+    isLongRunning: (name: string) => longRunningCommands.has(name),
+    onBegin: async (targetName: string) => {
+        beginLongRunningProgress(targetName);
+        await waitForNextFrame();
+    },
+    onFinish: finishLongRunningProgress,
+});
+function nextMockId(prefix: Unsafe) {
     const id = `${prefix}-${Date.now()}-${mockState.sequence}`;
     mockState.sequence += 1;
     return id;
@@ -327,62 +324,40 @@ function ensureMockRecipesSeeded() {
 function ensureMockModulesSeeded() {
     if (mockState.modules.length > 0)
         return;
-    mockState.modules = routineStudioSeedModules.map((module: any) => ({
+    mockState.modules = routineStudioSeedModules.map((module: Unsafe) => ({
         ...module,
         checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
         pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
         executionHints: module.executionHints ? { ...module.executionHints } : null,
     }));
 }
-function isoDate(value: any) {
-    return value.toISOString().slice(0, 10);
+function isoDate(value: Unsafe) {
+    return isoDateValue(value as Date);
 }
 function nowIso() {
-    return new Date().toISOString();
+    return nowIsoValue();
 }
-function formatTime(value: any) {
-    if (!value)
-        return "-";
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ja-JP");
+function formatTime(value: Unsafe) {
+    return formatTimeValue(value as string | null | undefined);
 }
-function formatHHmm(value: any) {
-    if (!value)
-        return "--:--";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime()))
-        return "--:--";
-    const hours = String(date.getHours()).padStart(2, "0");
-    const minutes = String(date.getMinutes()).padStart(2, "0");
-    return `${hours}:${minutes}`;
+function formatHHmm(value: Unsafe) {
+    return formatHHmmValue(value as string | null | undefined);
 }
-function blockDisplayName(block: any) {
+function blockDisplayName(block: Unsafe) {
     const timeRange = `${formatHHmm(block?.start_at)}-${formatHHmm(block?.end_at)}`;
     const title = blockTitle(block);
     return title ? `${title} (${timeRange})` : timeRange;
 }
-function toLocalInputValue(rfc3339: any) {
-    if (!rfc3339)
-        return "";
-    const date = new Date(rfc3339);
-    if (Number.isNaN(date.getTime()))
-        return "";
-    const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return shifted.toISOString().slice(0, 16);
+function toLocalInputValue(rfc3339: Unsafe) {
+    return toLocalInputValueValue(rfc3339 as string | null | undefined);
 }
-function fromLocalInputValue(value: any) {
-    if (!value)
-        return "";
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+function fromLocalInputValue(value: Unsafe) {
+    return fromLocalInputValueValue(value as string | null | undefined);
 }
-function toTimerText(seconds: any) {
-    const total = Math.max(0, Math.floor(seconds || 0));
-    const mm = String(Math.floor(total / 60)).padStart(2, "0");
-    const ss = String(total % 60).padStart(2, "0");
-    return `${mm}:${ss}`;
+function toTimerText(seconds: Unsafe) {
+    return toTimerTextValue(seconds as number | null | undefined);
 }
-function normalizePomodoroState(state: any) {
+function normalizePomodoroState(state: Unsafe) {
     return {
         current_block_id: state?.current_block_id ?? null,
         current_task_id: state?.current_task_id ?? null,
@@ -394,7 +369,7 @@ function normalizePomodoroState(state: any) {
         current_cycle: Number.isFinite(state?.current_cycle) ? Math.max(0, state.current_cycle) : 0,
     };
 }
-function pomodoroPhaseLabel(phase: any) {
+function pomodoroPhaseLabel(phase: Unsafe) {
     switch (phase) {
         case "focus":
             return "集中";
@@ -406,14 +381,14 @@ function pomodoroPhaseLabel(phase: any) {
             return "待機";
     }
 }
-function blockDurationMinutes(block: any) {
+function blockDurationMinutes(block: Unsafe) {
     const startMs = new Date(block.start_at).getTime();
     const endMs = new Date(block.end_at).getTime();
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs)
         return 0;
     return Math.max(1, Math.round((endMs - startMs) / 60000));
 }
-function blockPomodoroTarget(block: any) {
+function blockPomodoroTarget(block: Unsafe) {
     if (Number.isFinite(block.planned_pomodoros) && block.planned_pomodoros > 0) {
         return Math.max(1, Math.floor(block.planned_pomodoros));
     }
@@ -421,76 +396,76 @@ function blockPomodoroTarget(block: any) {
     const cycleMinutes = 25 + Math.max(1, Math.floor(uiState.settings.breakDuration || 5));
     return Math.max(1, Math.floor(duration / cycleMinutes));
 }
-function pomodoroProgressPercent(state: any) {
+function pomodoroProgressPercent(state: Unsafe) {
     const total = Math.max(1, state.total_cycles || 0);
     return Math.max(0, Math.min(100, Math.round((Math.min(state.completed_cycles, total) / total) * 100)));
 }
-function syncNowTaskOrder(tasksInput: any = uiState.tasks) {
+function syncNowTaskOrder(tasksInput: Unsafe = uiState.tasks) {
     const tasks = Array.isArray(tasksInput) ? tasksInput : [];
     const ids = tasks
-        .map((task: any) => (typeof task?.id === "string" ? task.id : ""))
-        .filter((taskId: any) => taskId.length > 0);
+        .map((task: Unsafe) => (typeof task?.id === "string" ? task.id : ""))
+        .filter((taskId: Unsafe) => taskId.length > 0);
     const idSet = new Set(ids);
-    const nextOrder = uiState.nowUi.taskOrder.filter((taskId: any) => idSet.has(taskId));
-    ids.forEach((taskId: any) => {
+    const nextOrder = uiState.nowUi.taskOrder.filter((taskId: Unsafe) => idSet.has(taskId));
+    ids.forEach((taskId: Unsafe) => {
         if (!nextOrder.includes(taskId)) {
             nextOrder.push(taskId);
         }
     });
     uiState.nowUi.taskOrder = nextOrder;
 }
-function getNowOrderedTasks(includeCompleted: any = false) {
+function getNowOrderedTasks(includeCompleted: Unsafe = false) {
     syncNowTaskOrder(uiState.tasks);
-    const byId = new Map(uiState.tasks.map((task: any) => [task.id, task]));
+    const byId = new Map(uiState.tasks.map((task: Unsafe) => [task.id, task]));
     const ordered = uiState.nowUi.taskOrder
-        .map((taskId: any) => byId.get(taskId))
-        .filter((task: any) => Boolean(task));
-    return includeCompleted ? ordered : ordered.filter((task: any) => task.status !== "completed");
+        .map((taskId: Unsafe) => byId.get(taskId))
+        .filter((task: Unsafe) => Boolean(task));
+    return includeCompleted ? ordered : ordered.filter((task: Unsafe) => task.status !== "completed");
 }
-function resolveNowDayBounds(reference: any = new Date()) {
+function resolveNowDayBounds(reference: Unsafe = new Date()) {
     const start = new Date(reference);
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
     return { dayStartMs: start.getTime(), dayEndMs: end.getTime() };
 }
-function resolveNowBlocks(reference: any = new Date()) {
+function resolveNowBlocks(reference: Unsafe = new Date()) {
     const { dayStartMs, dayEndMs } = resolveNowDayBounds(reference);
     return [...uiState.blocks]
-        .map((block: any) => {
+        .map((block: Unsafe) => {
         const startMs = new Date(block.start_at).getTime();
         const endMs = new Date(block.end_at).getTime();
         return { block, startMs, endMs };
     })
-        .filter(({ startMs, endMs }: any) => Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > dayStartMs && startMs < dayEndMs)
-        .sort((left: any, right: any) => left.startMs - right.startMs);
+        .filter(({ startMs, endMs }: Unsafe) => Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > dayStartMs && startMs < dayEndMs)
+        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
 }
-function resolveNowAutoStartBlock(state: any) {
+function resolveNowAutoStartBlock(state: Unsafe) {
     const todayBlocks = resolveNowBlocks();
     if (state.current_block_id) {
-        const current = todayBlocks.find(({ block }: any) => block.id === state.current_block_id);
+        const current = todayBlocks.find(({ block }: Unsafe) => block.id === state.current_block_id);
         if (current)
             return current.block;
     }
     const nowMs = Date.now();
-    const active = todayBlocks.find(({ startMs, endMs }: any) => startMs <= nowMs && nowMs < endMs);
+    const active = todayBlocks.find(({ startMs, endMs }: Unsafe) => startMs <= nowMs && nowMs < endMs);
     if (active)
         return active.block;
-    const upcoming = todayBlocks.find(({ startMs }: any) => startMs >= nowMs);
+    const upcoming = todayBlocks.find(({ startMs }: Unsafe) => startMs >= nowMs);
     if (upcoming)
         return upcoming.block;
     return todayBlocks[0]?.block || null;
 }
-function resolveNowAutoStartTask(state: any) {
+function resolveNowAutoStartTask(state: Unsafe) {
     const ordered = getNowOrderedTasks();
     if (state.current_task_id) {
-        const current = ordered.find((task: any) => task.id === state.current_task_id);
+        const current = ordered.find((task: Unsafe) => task.id === state.current_task_id);
         if (current)
             return current;
     }
-    return ordered.find((task: any) => task.status === "in_progress") || ordered.find((task: any) => task.status === "pending") || null;
+    return ordered.find((task: Unsafe) => task.status === "in_progress") || ordered.find((task: Unsafe) => task.status === "pending") || null;
 }
-function syncNowTimerDisplay(stateInput: any) {
+function syncNowTimerDisplay(stateInput: Unsafe) {
     const state = normalizePomodoroState(stateInput || uiState.pomodoro || {});
     const remainingSeconds = Math.max(0, Math.floor(state.remaining_seconds || 0));
     const previousPhase = uiState.nowUi.lastPhase;
@@ -547,23 +522,23 @@ function syncNowTimerDisplay(stateInput: any) {
     uiState.nowUi.lastPhase = state.phase;
     uiState.nowUi.lastSyncEpochMs = Date.now();
 }
-function nowBufferAvailableMinutes(reference: any = new Date()) {
+function nowBufferAvailableMinutes(reference: Unsafe = new Date()) {
     const nowMs = reference.getTime();
     const { dayEndMs } = resolveNowDayBounds(reference);
     const availableWindowMs = Math.max(0, dayEndMs - nowMs);
     if (availableWindowMs <= 0)
         return 0;
     const intervals = resolveNowBlocks(reference)
-        .map(({ startMs, endMs }: any) => ({
+        .map(({ startMs, endMs }: Unsafe) => ({
         startMs: Math.max(startMs, nowMs),
         endMs: Math.min(endMs, dayEndMs),
     }))
-        .filter((interval: any) => interval.endMs > interval.startMs)
-        .sort((left: any, right: any) => left.startMs - right.startMs);
+        .filter((interval: Unsafe) => interval.endMs > interval.startMs)
+        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
     let occupiedMs = 0;
     let cursorStart = -1;
     let cursorEnd = -1;
-    intervals.forEach((interval: any) => {
+    intervals.forEach((interval: Unsafe) => {
         if (cursorStart < 0) {
             cursorStart = interval.startMs;
             cursorEnd = interval.endMs;
@@ -582,56 +557,29 @@ function nowBufferAvailableMinutes(reference: any = new Date()) {
     }
     return Math.max(0, Math.floor((availableWindowMs - occupiedMs) / 60000));
 }
-function resolveCurrentFocusTask(stateInput: any = uiState.pomodoro) {
+function resolveCurrentFocusTask(stateInput: Unsafe = uiState.pomodoro) {
     const state = normalizePomodoroState(stateInput || {});
     if (state.current_task_id) {
-        const linked = uiState.tasks.find((task: any) => task.id === state.current_task_id) || null;
+        const linked = uiState.tasks.find((task: Unsafe) => task.id === state.current_task_id) || null;
         if (linked)
             return linked;
     }
-    return uiState.tasks.find((task: any) => task.status === "in_progress") || null;
+    return uiState.tasks.find((task: Unsafe) => task.status === "in_progress") || null;
 }
-function resolveDayBounds(dateValue: any) {
-    const parsed = new Date(`${dateValue}T00:00:00`);
-    const dayStart = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    return { dayStart, dayEnd };
+function resolveDayBounds(dateValue: Unsafe) {
+    return resolveDayBoundsValue(String(dateValue ?? ""));
 }
-function resolveWeekBounds(dateValue: any) {
-    const { dayStart } = resolveDayBounds(dateValue);
-    const weekday = dayStart.getDay();
-    const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
-    const weekStart = new Date(dayStart);
-    weekStart.setDate(dayStart.getDate() + mondayOffset);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-    return { weekStart, weekEnd };
+function resolveWeekBounds(dateValue: Unsafe) {
+    return resolveWeekBoundsValue(String(dateValue ?? ""));
 }
-function resolveWeekDateKeys(dateValue: any) {
-    const { weekStart } = resolveWeekBounds(dateValue);
-    return Array.from({ length: 7 }, (_: any, index: any) => {
-        const day = new Date(weekStart);
-        day.setDate(weekStart.getDate() + index);
-        day.setHours(0, 0, 0, 0);
-        return isoDate(day);
-    });
+function resolveWeekDateKeys(dateValue: Unsafe) {
+    return resolveWeekDateKeysValue(String(dateValue ?? ""));
 }
-function toSyncWindowPayload(dateValue: any, scope: any = "day") {
-    if (scope === "week") {
-        const { weekStart, weekEnd } = resolveWeekBounds(dateValue);
-        return {
-            time_min: weekStart.toISOString(),
-            time_max: weekEnd.toISOString(),
-        };
-    }
-    const { dayStart, dayEnd } = resolveDayBounds(dateValue);
-    return {
-        time_min: dayStart.toISOString(),
-        time_max: dayEnd.toISOString(),
-    };
+function toSyncWindowPayload(dateValue: Unsafe, scope: Unsafe = "day") {
+    const targetScope = scope === "week" ? "week" : "day";
+    return toSyncWindowPayloadValue(String(dateValue ?? ""), targetScope);
 }
-function normalizeAccountId(value: any) {
+function normalizeAccountId(value: Unsafe) {
     const normalized = typeof value === "string" ? value.trim() : "";
     return normalized || "default";
 }
@@ -645,7 +593,7 @@ function loadBlockTitles(): Record<string, string> {
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object")
             return {};
-        return Object.fromEntries(Object.entries(parsed).filter(([key, value]: any) => typeof key === "string" && typeof value === "string")) as Record<string, string>;
+        return Object.fromEntries(Object.entries(parsed).filter(([key, value]: Unsafe) => typeof key === "string" && typeof value === "string")) as Record<string, string>;
     }
     catch {
         return {};
@@ -661,13 +609,13 @@ function persistBlockTitles() {
         // ignore storage errors
     }
 }
-function blockTitle(block: any) {
+function blockTitle(block: Unsafe) {
     const blockId = typeof block?.id === "string" ? block.id.trim() : "";
     if (!blockId)
         return "";
     return uiState.blockTitles[blockId] || "";
 }
-function setBlockTitle(blockId: any, title: any) {
+function setBlockTitle(blockId: Unsafe, title: Unsafe) {
     const normalizedId = typeof blockId === "string" ? blockId.trim() : "";
     if (!normalizedId)
         return false;
@@ -681,23 +629,23 @@ function setBlockTitle(blockId: any, title: any) {
     persistBlockTitles();
     return true;
 }
-function withAccount(payload: any = {}) {
+function withAccount(payload: Unsafe = {}) {
     return {
         ...payload,
         account_id: normalizeAccountId(uiState.accountId),
     };
 }
-async function resetBlocksForDate(date: any) {
+async function resetBlocksForDate(date: Unsafe) {
     const targetDate = typeof date === "string" && date.trim() ? date.trim() : uiState.dashboardDate;
     const existingBlocks = await safeInvoke("list_blocks", { date: targetDate });
     if (existingBlocks.length > 0) {
-        await Promise.all(existingBlocks.map((block: any) => safeInvoke("delete_block", {
+        await Promise.all(existingBlocks.map((block: Unsafe) => safeInvoke("delete_block", {
             block_id: block.id,
         })));
     }
     return existingBlocks.length;
 }
-function toClockText(milliseconds: any, options: any = {}) {
+function toClockText(milliseconds: Unsafe, options: Unsafe = {}) {
     return new Date(milliseconds).toLocaleTimeString("ja-JP", {
         hour: "2-digit",
         minute: "2-digit",
@@ -713,7 +661,7 @@ function timezoneOffsetLabel() {
     const minutes = String(absoluteMinutes % 60).padStart(2, "0");
     return `GMT${sign}${hours}${minutes === "00" ? "" : `:${minutes}`}`;
 }
-function escapeHtml(value: any) {
+function escapeHtml(value: Unsafe) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -721,13 +669,13 @@ function escapeHtml(value: any) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 }
-function dayItemKey(kind: any, id: any) {
+function dayItemKey(kind: Unsafe, id: Unsafe) {
     return `${kind}:${id}`;
 }
-function minutesBetween(startMs: any, endMs: any) {
+function minutesBetween(startMs: Unsafe, endMs: Unsafe) {
     return Math.max(0, Math.round((endMs - startMs) / 60000));
 }
-function toDurationLabel(totalMinutes: any) {
+function toDurationLabel(totalMinutes: Unsafe) {
     if (totalMinutes <= 0)
         return "0m";
     const hours = Math.floor(totalMinutes / 60);
@@ -743,27 +691,27 @@ function nextRoutineStudioEntryId() {
     routineStudioSequence += 1;
     return id;
 }
-function routineStudioStepDurationMinutes(step: any) {
+function routineStudioStepDurationMinutes(step: Unsafe) {
     const durationSeconds = Number(step?.durationSeconds ?? step?.duration_seconds ?? 300);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
         return 5;
     return Math.max(1, Math.round(durationSeconds / 60));
 }
-function routineStudioSlug(value: any) {
+function routineStudioSlug(value: Unsafe) {
     return String(value || "")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 48);
 }
-function isRoutineStudioRecipe(recipe: any) {
+function isRoutineStudioRecipe(recipe: Unsafe) {
     const meta = recipe?.studioMeta || recipe?.studio_meta;
     return Number(meta?.version) === 1 && String(meta?.kind || "").toLowerCase() === "routine_studio";
 }
-function cloneValue(value: any) {
+function cloneValue(value: Unsafe) {
     return JSON.parse(JSON.stringify(value));
 }
-function toClippedInterval(startAt: any, endAt: any, dayStartMs: any, dayEndMs: any) {
+function toClippedInterval(startAt: Unsafe, endAt: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const startMs = new Date(startAt).getTime();
     const endMs = new Date(endAt).getTime();
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -776,9 +724,9 @@ function toClippedInterval(startAt: any, endAt: any, dayStartMs: any, dayEndMs: 
     }
     return { startMs: clippedStart, endMs: clippedEnd };
 }
-function toTimelineIntervals(items: any, dayStartMs: any, dayEndMs: any) {
+function toTimelineIntervals(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const intervals = items
-        .map((item: any) => {
+        .map((item: Unsafe) => {
         const startMs = new Date(item.start_at).getTime();
         const endMs = new Date(item.end_at).getTime();
         if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -791,13 +739,13 @@ function toTimelineIntervals(items: any, dayStartMs: any, dayEndMs: any) {
         }
         return { startMs: clippedStart, endMs: clippedEnd };
     })
-        .filter((slot: any) => slot !== null);
+        .filter((slot: Unsafe) => slot !== null);
     return mergeTimelineIntervals(intervals);
 }
-function mergeTimelineIntervals(intervals: any) {
+function mergeTimelineIntervals(intervals: Unsafe) {
     if (!intervals.length)
         return [];
-    const sorted = [...intervals].sort((left: any, right: any) => left.startMs - right.startMs);
+    const sorted = [...intervals].sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
     const merged = [{ ...sorted[0] }];
     for (let index = 1; index < sorted.length; index += 1) {
         const current = sorted[index];
@@ -810,7 +758,7 @@ function mergeTimelineIntervals(intervals: any) {
     }
     return merged;
 }
-function invertTimelineIntervals(dayStartMs: any, dayEndMs: any, busyIntervals: any) {
+function invertTimelineIntervals(dayStartMs: Unsafe, dayEndMs: Unsafe, busyIntervals: Unsafe) {
     if (dayEndMs <= dayStartMs)
         return [];
     if (!busyIntervals.length) {
@@ -818,7 +766,7 @@ function invertTimelineIntervals(dayStartMs: any, dayEndMs: any, busyIntervals: 
     }
     const freeIntervals = [];
     let cursor = dayStartMs;
-    busyIntervals.forEach((interval: any) => {
+    busyIntervals.forEach((interval: Unsafe) => {
         if (interval.startMs > cursor) {
             freeIntervals.push({ startMs: cursor, endMs: interval.startMs });
         }
@@ -831,17 +779,17 @@ function invertTimelineIntervals(dayStartMs: any, dayEndMs: any, busyIntervals: 
     }
     return freeIntervals;
 }
-function sumIntervalMinutes(intervals: any) {
-    return intervals.reduce((total: any, interval: any) => total + minutesBetween(interval.startMs, interval.endMs), 0);
+function sumIntervalMinutes(intervals: Unsafe) {
+    return intervals.reduce((total: Unsafe, interval: Unsafe) => total + minutesBetween(interval.startMs, interval.endMs), 0);
 }
-function intervalRangeLabel(interval: any) {
+function intervalRangeLabel(interval: Unsafe) {
     return `${toClockText(interval.startMs)} - ${toClockText(interval.endMs)}`;
 }
-function snapToMinutes(milliseconds: any, minutes: any) {
+function snapToMinutes(milliseconds: Unsafe, minutes: Unsafe) {
     const step = Math.max(1, Math.floor(minutes)) * 60000;
     return Math.round(milliseconds / step) * step;
 }
-function clampBlockIntervalToDay(startMs: any, durationMs: any, dayStartMs: any, dayEndMs: any) {
+function clampBlockIntervalToDay(startMs: Unsafe, durationMs: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const safeDuration = Math.max(60000, durationMs);
     const maxStartMs = Math.max(dayStartMs, dayEndMs - safeDuration);
     const clampedStartMs = Math.min(Math.max(startMs, dayStartMs), maxStartMs);
@@ -850,7 +798,7 @@ function clampBlockIntervalToDay(startMs: any, durationMs: any, dayStartMs: any,
         endMs: clampedStartMs + safeDuration,
     };
 }
-function snapAndClampBlockInterval(startMs: any, durationMs: any, dayStartMs: any, dayEndMs: any) {
+function snapAndClampBlockInterval(startMs: Unsafe, durationMs: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const snappedStartMs = snapToMinutes(startMs, DAY_BLOCK_DRAG_SNAP_MINUTES);
     return clampBlockIntervalToDay(snappedStartMs, durationMs, dayStartMs, dayEndMs);
 }
@@ -865,7 +813,7 @@ function clearDayBlockDragDocumentListeners() {
         dayBlockDragState.onUp = null;
     }
 }
-function setHoveredFreeEntry(entry: any) {
+function setHoveredFreeEntry(entry: Unsafe) {
     if (dayBlockDragState.hoveredFreeEntry === entry)
         return;
     if (dayBlockDragState.hoveredFreeEntry) {
@@ -889,7 +837,7 @@ function resetDayBlockDragVisualState() {
         }
     }
 }
-async function commitDayBlockMove(rerender: any, snapshot: any) {
+async function commitDayBlockMove(rerender: Unsafe, snapshot: Unsafe) {
     const blockId = snapshot.blockId;
     if (!blockId)
         return;
@@ -913,7 +861,7 @@ async function commitDayBlockMove(rerender: any, snapshot: any) {
         rerender();
     });
 }
-function finishDayBlockDrag(rerender: any) {
+function finishDayBlockDrag(rerender: Unsafe) {
     clearDayBlockDragDocumentListeners();
     if (!dayBlockDragState.active)
         return;
@@ -968,7 +916,7 @@ function finishDayBlockDrag(rerender: any) {
         void commitDayBlockMove(rerender, commitSnapshot);
     }
 }
-function applyDayBlockPreview(entry: any, interval: any) {
+function applyDayBlockPreview(entry: Unsafe, interval: Unsafe) {
     if (!dayBlockDragState.rangeMs || dayBlockDragState.rangeMs <= 0)
         return;
     dayBlockDragState.previewStartMs = interval.startMs;
@@ -990,14 +938,14 @@ function applyDayBlockPreview(entry: any, interval: any) {
         date: uiState.dashboardDate,
     })} | ${timeText}`;
 }
-function buildDailyCalendarModel(dateValue: any, blocks: any, events: any, options: any = {}) {
+function buildDailyCalendarModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe, options: Unsafe = {}) {
     const syncSelection = options.syncSelection !== false;
     const preferredSelection = options.preferredSelection || null;
     const { dayStart, dayEnd } = resolveDayBounds(dateValue);
     const dayStartMs = dayStart.getTime();
     const dayEndMs = dayEnd.getTime();
     const blockItems = blocks
-        .map((block: any) => {
+        .map((block: Unsafe) => {
         const interval = toClippedInterval(block.start_at, block.end_at, dayStartMs, dayEndMs);
         if (!interval)
             return null;
@@ -1013,10 +961,10 @@ function buildDailyCalendarModel(dateValue: any, blocks: any, events: any, optio
             payload: block,
         };
     })
-        .filter((item: any) => item !== null)
-        .sort((left: any, right: any) => left.startMs - right.startMs || left.endMs - right.endMs);
+        .filter((item: Unsafe) => item !== null)
+        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
     const eventItems = events
-        .map((event: any) => {
+        .map((event: Unsafe) => {
         const interval = toClippedInterval(event.start_at, event.end_at, dayStartMs, dayEndMs);
         if (!interval)
             return null;
@@ -1032,15 +980,15 @@ function buildDailyCalendarModel(dateValue: any, blocks: any, events: any, optio
             payload: event,
         };
     })
-        .filter((item: any) => item !== null)
-        .sort((left: any, right: any) => left.startMs - right.startMs || left.endMs - right.endMs);
+        .filter((item: Unsafe) => item !== null)
+        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
     const blockIntervals = toTimelineIntervals(blocks, dayStartMs, dayEndMs);
     const eventIntervals = toTimelineIntervals(events, dayStartMs, dayEndMs);
     const busyIntervals = mergeTimelineIntervals([...blockIntervals, ...eventIntervals]);
     const freeIntervals = invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals);
     const freeItems = freeIntervals
-        .filter((interval: any) => minutesBetween(interval.startMs, interval.endMs) >= 10)
-        .map((interval: any) => ({
+        .filter((interval: Unsafe) => minutesBetween(interval.startMs, interval.endMs) >= 10)
+        .map((interval: Unsafe) => ({
         kind: /** @type {DayItemKind} */ ("free"),
         id: `${interval.startMs}-${interval.endMs}`,
         key: dayItemKey("free", `${interval.startMs}-${interval.endMs}`),
@@ -1052,7 +1000,7 @@ function buildDailyCalendarModel(dateValue: any, blocks: any, events: any, optio
         payload: interval,
     }));
     const allItems = [...blockItems, ...eventItems, ...freeItems];
-    const itemMap = new Map(allItems.map((item: any) => [item.key, item]));
+    const itemMap = new Map(allItems.map((item: Unsafe) => [item.key, item]));
     const selectionSource = preferredSelection && typeof preferredSelection.kind === "string" && typeof preferredSelection.id === "string"
         ? { kind: preferredSelection.kind, id: preferredSelection.id }
         : uiState.dayCalendarSelection;
@@ -1084,44 +1032,29 @@ function buildDailyCalendarModel(dateValue: any, blocks: any, events: any, optio
         },
     };
 }
-function parseLocalDate(dateValue: any) {
-    const parsed = new Date(`${dateValue}T00:00:00`);
-    if (Number.isNaN(parsed.getTime())) {
-        const fallback = new Date();
-        fallback.setHours(0, 0, 0, 0);
-        return fallback;
-    }
-    parsed.setHours(0, 0, 0, 0);
-    return parsed;
+function parseLocalDate(dateValue: Unsafe) {
+    return parseLocalDateValue(String(dateValue ?? ""));
 }
-function shiftDateByDays(baseDate: any, offsetDays: any) {
-    const next = new Date(baseDate);
-    next.setDate(baseDate.getDate() + offsetDays);
-    next.setHours(0, 0, 0, 0);
-    return next;
+function shiftDateByDays(baseDate: Unsafe, offsetDays: Unsafe) {
+    return shiftDateByDaysValue(baseDate as Date, Number(offsetDays));
 }
-function toLocalDateKey(date: any) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+function toLocalDateKey(date: Unsafe) {
+    return toLocalDateKeyValue(date as Date);
 }
-function toMonthDayLabel(date: any) {
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${month}/${day}`;
+function toMonthDayLabel(date: Unsafe) {
+    return toMonthDayLabelValue(date as Date);
 }
-function buildWeeklyPlannerModel(dateValue: any, blocks: any, events: any) {
+function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe) {
     const anchor = parseLocalDate(dateValue);
     const weekday = anchor.getDay();
     const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
     const weekStart = shiftDateByDays(anchor, mondayOffset);
     const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const days = Array.from({ length: 7 }, (_: any, index: any) => {
+    const days = Array.from({ length: 7 }, (_: Unsafe, index: Unsafe) => {
         const dayDate = shiftDateByDays(weekStart, index);
         const dayKey = toLocalDateKey(dayDate);
         const dailyModel = buildDailyCalendarModel(dayKey, blocks, events, { syncSelection: false });
-        const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort((left: any, right: any) => left.startMs - right.startMs || left.endMs - right.endMs);
+        const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
         return {
             ...dailyModel,
             dayKey,
@@ -1132,13 +1065,13 @@ function buildWeeklyPlannerModel(dateValue: any, blocks: any, events: any) {
             combinedItems,
         };
     });
-    const allItems = days.flatMap((day: any) => day.combinedItems);
-    const itemMap = new Map(allItems.map((item: any) => [item.key, item]));
+    const allItems = days.flatMap((day: Unsafe) => day.combinedItems);
+    const itemMap = new Map(allItems.map((item: Unsafe) => [item.key, item]));
     const selectedByState = uiState.dayCalendarSelection
         ? itemMap.get(dayItemKey(uiState.dayCalendarSelection.kind, uiState.dayCalendarSelection.id))
         : null;
-    const currentDay = days.find((day: any) => day.isCurrent) || days[0] || null;
-    const firstAvailable = days.find((day: any) => day.combinedItems.length > 0)?.combinedItems[0] || null;
+    const currentDay = days.find((day: Unsafe) => day.isCurrent) || days[0] || null;
+    const firstAvailable = days.find((day: Unsafe) => day.combinedItems.length > 0)?.combinedItems[0] || null;
     const selectedItem = selectedByState || currentDay?.combinedItems[0] || firstAvailable || null;
     uiState.dayCalendarSelection = selectedItem
         ? {
@@ -1155,17 +1088,17 @@ function buildWeeklyPlannerModel(dateValue: any, blocks: any, events: any) {
     };
 }
 function renderDayHourGuides() {
-    return Array.from({ length: 25 }, (_: any, index: any) => {
+    return Array.from({ length: 25 }, (_: Unsafe, index: Unsafe) => {
         const top = (index / 24) * 100;
         return `<span class="day-hour-line" style="top:${top}%"></span>`;
     }).join("");
 }
-function renderDayTimeAxis(dayStartMs: any, dayEndMs: any) {
+function renderDayTimeAxis(dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const totalHours = Math.max(1, Math.round((dayEndMs - dayStartMs) / (60 * 60 * 1000)));
     return `
     <div class="day-time-axis">
       ${renderDayHourGuides()}
-      ${Array.from({ length: totalHours + 1 }, (_: any, index: any) => {
+      ${Array.from({ length: totalHours + 1 }, (_: Unsafe, index: Unsafe) => {
         const top = (index / totalHours) * 100;
         const clock = toClockText(dayStartMs + index * 60 * 60 * 1000);
         return `<span class="day-time-label" style="top:${top}%">${clock}</span>`;
@@ -1173,10 +1106,10 @@ function renderDayTimeAxis(dayStartMs: any, dayEndMs: any) {
     </div>
   `;
 }
-function renderDayLaneItems(kind: any, items: any, dayStartMs: any, dayEndMs: any, selectedItem: any) {
+function renderDayLaneItems(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const totalRange = Math.max(1, dayEndMs - dayStartMs);
     return items
-        .map((item: any) => {
+        .map((item: Unsafe) => {
         const top = ((item.startMs - dayStartMs) / totalRange) * 100;
         const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
         const minHeight = kind === "free" ? 2.2 : 3.2;
@@ -1205,10 +1138,10 @@ function renderDayLaneItems(kind: any, items: any, dayStartMs: any, dayEndMs: an
     })
         .join("");
 }
-function renderCombinedDayLaneItems(items: any, dayStartMs: any, dayEndMs: any, selectedItem: any) {
+function renderCombinedDayLaneItems(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const totalRange = Math.max(1, dayEndMs - dayStartMs);
     return items
-        .map((item: any) => {
+        .map((item: Unsafe) => {
         const top = ((item.startMs - dayStartMs) / totalRange) * 100;
         const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
         const minHeight = item.kind === "free" ? 2.2 : 3.2;
@@ -1237,7 +1170,7 @@ function renderCombinedDayLaneItems(items: any, dayStartMs: any, dayEndMs: any, 
     })
         .join("");
 }
-function renderWeeklyPlannerCalendar(model: any) {
+function renderWeeklyPlannerCalendar(model: Unsafe) {
     if (!model.days.length) {
         return '<div class="panel"><p class="small">週次データがありません。</p></div>';
     }
@@ -1247,7 +1180,7 @@ function renderWeeklyPlannerCalendar(model: any) {
       <div class="week-board-head" style="grid-template-columns:${gridColumns}">
         <span class="week-board-head-time">時刻</span>
         ${model.days
-        .map((day: any) => `
+        .map((day: Unsafe) => `
           <span class="week-board-day ${day.isCurrent ? "is-current" : ""}">
             <small>${day.weekdayLabel}</small>
             <strong>${day.dayNumber}</strong>
@@ -1258,7 +1191,7 @@ function renderWeeklyPlannerCalendar(model: any) {
       <div class="week-board-body" style="grid-template-columns:${gridColumns}">
         ${renderDayTimeAxis(model.days[0].dayStartMs, model.days[0].dayEndMs)}
         ${model.days
-        .map((day: any) => {
+        .map((day: Unsafe) => {
         const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem);
         return `
               <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
@@ -1274,7 +1207,7 @@ function renderWeeklyPlannerCalendar(model: any) {
     </div>
   `;
 }
-function renderDayLane(label: any, kind: any, items: any, dayStartMs: any, dayEndMs: any, selectedItem: any) {
+function renderDayLane(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const entries = renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem);
     const hint = "";
     return `
@@ -1292,16 +1225,16 @@ function renderDayLane(label: any, kind: any, items: any, dayStartMs: any, dayEn
 }
 function renderSimpleTimelineScale() {
     return [0, 6, 12, 18, 24]
-        .map((hour: any) => {
+        .map((hour: Unsafe) => {
         const left = (hour / 24) * 100;
         return `<span style="left:${left}%">${String(hour).padStart(2, "0")}:00</span>`;
     })
         .join("");
 }
-function renderSimpleTimelineSegments(kind: any, items: any, dayStartMs: any, dayEndMs: any, selectedItem: any) {
+function renderSimpleTimelineSegments(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const totalRange = Math.max(1, dayEndMs - dayStartMs);
     return items
-        .map((item: any) => {
+        .map((item: Unsafe) => {
         const left = ((item.startMs - dayStartMs) / totalRange) * 100;
         const width = Math.max(0.9, ((item.endMs - item.startMs) / totalRange) * 100);
         const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
@@ -1325,10 +1258,10 @@ function renderSimpleTimelineSegments(kind: any, items: any, dayStartMs: any, da
     })
         .join("");
 }
-function renderSimpleOccupancySegments(intervals: any, dayStartMs: any, dayEndMs: any) {
+function renderSimpleOccupancySegments(intervals: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
     const totalRange = Math.max(1, dayEndMs - dayStartMs);
     return intervals
-        .map((interval: any) => {
+        .map((interval: Unsafe) => {
         const left = ((interval.startMs - dayStartMs) / totalRange) * 100;
         const width = Math.max(0.7, ((interval.endMs - interval.startMs) / totalRange) * 100);
         const title = `${intervalRangeLabel(interval)} (${toDurationLabel(minutesBetween(interval.startMs, interval.endMs))})`;
@@ -1336,7 +1269,7 @@ function renderSimpleOccupancySegments(intervals: any, dayStartMs: any, dayEndMs
     })
         .join("");
 }
-function renderSimpleTimelineRow(label: any, kind: any, items: any, dayStartMs: any, dayEndMs: any, selectedItem: any) {
+function renderSimpleTimelineRow(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const segments = renderSimpleTimelineSegments(kind, items, dayStartMs, dayEndMs, selectedItem);
     return `
     <div class="day-simple-row">
@@ -1347,7 +1280,7 @@ function renderSimpleTimelineRow(label: any, kind: any, items: any, dayStartMs: 
     </div>
   `;
 }
-function renderSimpleDailyCalendar(model: any, options: any = {}) {
+function renderSimpleDailyCalendar(model: Unsafe, options: Unsafe = {}) {
     const includeDetail = options.includeDetail !== false;
     const includeTimeline = options.includeTimeline !== false;
     return `
@@ -1372,7 +1305,7 @@ function renderSimpleDailyCalendar(model: any, options: any = {}) {
     </div>
   `;
 }
-function renderGridDailyCalendar(model: any, options: any = {}) {
+function renderGridDailyCalendar(model: Unsafe, options: Unsafe = {}) {
     const includeDetail = options.includeDetail !== false;
     const includeBoard = options.includeBoard !== false;
     return `
@@ -1399,7 +1332,7 @@ function renderGridDailyCalendar(model: any, options: any = {}) {
     </div>
   `;
 }
-function renderDailyDetail(selectedItem: any) {
+function renderDailyDetail(selectedItem: Unsafe) {
     if (!selectedItem) {
         return `
       <div class="day-detail panel">
@@ -1463,7 +1396,7 @@ function renderDailyDetail(selectedItem: any) {
     </div>
   `;
 }
-function renderDailyCalendar(dateValue: any, options: any = {}) {
+function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
     const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents, {
         syncSelection: options.syncSelection,
         preferredSelection: options.preferredSelection,
@@ -1527,7 +1460,7 @@ function renderDailyCalendar(dateValue: any, options: any = {}) {
     </div>
   `;
 }
-function setStatus(message: any) {
+function setStatus(message: Unsafe) {
     if (statusChip) {
         statusChip.textContent = message;
     }
@@ -1588,11 +1521,11 @@ function finishLongRunningProgress(success: boolean) {
 }
 function waitForNextFrame() {
     if (typeof window.requestAnimationFrame === "function") {
-        return new Promise((resolve: any) => {
+        return new Promise((resolve: Unsafe) => {
             window.requestAnimationFrame(() => setTimeout(resolve, 0));
         });
     }
-    return new Promise((resolve: any) => setTimeout(resolve, 0));
+    return new Promise((resolve: Unsafe) => setTimeout(resolve, 0));
 }
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
@@ -1624,7 +1557,7 @@ function getRoute(): string {
     return routes.includes(normalized) ? normalized : "today";
 }
 function markActiveRoute(route: string) {
-    document.querySelectorAll("a[data-route]").forEach((node: any) => {
+    document.querySelectorAll("a[data-route]").forEach((node: Unsafe) => {
         const anchor = node as HTMLAnchorElement;
         if (anchor.dataset.route === route) {
             anchor.setAttribute("aria-current", "page");
@@ -1634,17 +1567,17 @@ function markActiveRoute(route: string) {
         }
     });
 }
-async function invokeCommand(name: string, payload: Record<string, unknown> = {}): Promise<any> {
-    return await invokeTauriCommand(name as never, payload as never, mockInvoke);
+async function invokeCommand(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+    return await commandApi.invokeCommand(name, payload);
 }
 function isTauriRuntimeAvailable() {
-    return isTauriAvailable();
+    return commandApi.isTauriRuntimeAvailable();
 }
-async function safeInvoke(name: string, payload: Record<string, unknown> = {}): Promise<any> {
-    return await safeTauriInvoke(name as never, payload as never, setStatus, mockInvoke);
+async function safeInvoke(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+    return await commandApi.safeInvoke(name, payload);
 }
-async function safeInvokeWithFallback(primaryName: string, payload: Record<string, unknown>, fallbackName: string, fallbackPayload: Record<string, unknown> = payload): Promise<any> {
-    return await safeTauriInvokeWithFallback(primaryName as never, payload as never, fallbackName as never, fallbackPayload as never, setStatus, mockInvoke);
+async function safeInvokeWithFallback(primaryName: string, payload: Record<string, unknown>, fallbackName: string, fallbackPayload: Record<string, unknown> = payload): Promise<Unsafe> {
+    return await commandApi.safeInvokeWithFallback(primaryName, payload, fallbackName, fallbackPayload);
 }
 async function runUiAction(action: () => Promise<void>): Promise<void> {
     try {
@@ -1656,21 +1589,11 @@ async function runUiAction(action: () => Promise<void>): Promise<void> {
         console.error(error);
     }
 }
-async function invokeCommandWithProgress(name: string, payload: Record<string, unknown> = {}): Promise<any> {
-    return await invokeTauriCommandWithProgress(name as never, payload as never, {
-        isLongRunning: (targetName: any) => longRunningCommands.has(targetName),
-        onBegin: async (targetName: any) => {
-            beginLongRunningProgress(targetName);
-            await waitForNextFrame();
-        },
-        onFinish: finishLongRunningProgress,
-        setStatus,
-        mockInvoke,
-    });
+async function invokeCommandWithProgress(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+    return await commandApi.invokeCommandWithProgress(name, payload);
 }
 function isUnknownCommandError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return /unknown|not found|unsupported|invoke|command/i.test(message);
+    return isUnknownCommandErrorValue(error);
 }
 function emptyMockPomodoroState() {
     return {
@@ -1687,9 +1610,9 @@ function emptyMockPomodoroState() {
         paused_phase: null,
     };
 }
-function mockSessionPlan(block: any) {
+function mockSessionPlan(block: Unsafe) {
     const requestedCycles = blockPomodoroTarget(block);
-    const recipe = mockState.recipes.find((item: any) => item.id === block.recipe_id);
+    const recipe = mockState.recipes.find((item: Unsafe) => item.id === block.recipe_id);
     const step = Array.isArray(recipe?.steps) ? recipe.steps[0] : null;
     const pomodoro = step?.pomodoro || null;
     const focusSeconds = Number(pomodoro?.focusSeconds || pomodoro?.focus_seconds || 25 * 60);
@@ -1705,7 +1628,7 @@ function mockSessionPlan(block: any) {
         breakSeconds,
     };
 }
-function appendMockPomodoroLog(phase: any, interruptionReason: any = null) {
+function appendMockPomodoroLog(phase: Unsafe, interruptionReason: Unsafe = null) {
     mockState.logs.push({
         id: nextMockId("pom"),
         block_id: mockState.pomodoro.current_block_id,
@@ -1716,14 +1639,14 @@ function appendMockPomodoroLog(phase: any, interruptionReason: any = null) {
         interruption_reason: interruptionReason,
     });
 }
-function unassignMockTask(taskId: any) {
+function unassignMockTask(taskId: Unsafe) {
     const previousBlockId = mockState.taskAssignmentsByTask[taskId];
     if (previousBlockId) {
         delete mockState.taskAssignmentsByTask[taskId];
         delete mockState.taskAssignmentsByBlock[previousBlockId];
     }
 }
-function assignMockTask(taskId: any, blockId: any) {
+function assignMockTask(taskId: Unsafe, blockId: Unsafe) {
     const previousTaskId = mockState.taskAssignmentsByBlock[blockId];
     if (previousTaskId) {
         delete mockState.taskAssignmentsByTask[previousTaskId];
@@ -1732,7 +1655,7 @@ function assignMockTask(taskId: any, blockId: any) {
     mockState.taskAssignmentsByTask[taskId] = blockId;
     mockState.taskAssignmentsByBlock[blockId] = taskId;
 }
-async function mockInvoke(name: any, payload: any) {
+async function mockInvoke(name: Unsafe, payload: Unsafe) {
     switch (name) {
         case "bootstrap":
             return { workspace_root: "mock", database_path: "mock.sqlite" };
@@ -1790,7 +1713,7 @@ async function mockInvoke(name: any, payload: any) {
             if (!payloadRecipe?.id) {
                 throw new Error("recipe id is required");
             }
-            if (mockState.recipes.some((recipe: any) => recipe.id === payloadRecipe.id)) {
+            if (mockState.recipes.some((recipe: Unsafe) => recipe.id === payloadRecipe.id)) {
                 throw new Error("recipe already exists");
             }
             const recipe = {
@@ -1809,7 +1732,7 @@ async function mockInvoke(name: any, payload: any) {
             const recipeId = String(payload.recipe_id || "").trim();
             if (!recipeId)
                 throw new Error("recipe_id is required");
-            const index = mockState.recipes.findIndex((recipe: any) => recipe.id === recipeId);
+            const index = mockState.recipes.findIndex((recipe: Unsafe) => recipe.id === recipeId);
             if (index < 0)
                 throw new Error("recipe not found");
             const updated = {
@@ -1824,7 +1747,7 @@ async function mockInvoke(name: any, payload: any) {
             ensureMockRecipesSeeded();
             const recipeId = String(payload.recipe_id || "").trim();
             const before = mockState.recipes.length;
-            mockState.recipes = mockState.recipes.filter((recipe: any) => recipe.id !== recipeId);
+            mockState.recipes = mockState.recipes.filter((recipe: Unsafe) => recipe.id !== recipeId);
             return before !== mockState.recipes.length;
         }
         case "list_modules":
@@ -1837,7 +1760,7 @@ async function mockInvoke(name: any, payload: any) {
                 throw new Error("module id is required");
             }
             const id = String(payloadModule.id);
-            if (mockState.modules.some((module: any) => module.id === id)) {
+            if (mockState.modules.some((module: Unsafe) => module.id === id)) {
                 throw new Error("module already exists");
             }
             const created = {
@@ -1864,7 +1787,7 @@ async function mockInvoke(name: any, payload: any) {
             if (!moduleId)
                 throw new Error("module_id is required");
             const payloadModule = payload.payload || payload;
-            const index = mockState.modules.findIndex((module: any) => module.id === moduleId);
+            const index = mockState.modules.findIndex((module: Unsafe) => module.id === moduleId);
             if (index < 0)
                 throw new Error("module not found");
             const updated = {
@@ -1885,7 +1808,7 @@ async function mockInvoke(name: any, payload: any) {
             ensureMockModulesSeeded();
             const moduleId = String(payload.module_id || "").trim();
             const before = mockState.modules.length;
-            mockState.modules = mockState.modules.filter((module: any) => module.id !== moduleId);
+            mockState.modules = mockState.modules.filter((module: Unsafe) => module.id !== moduleId);
             return before !== mockState.modules.length;
         }
         case "apply_studio_template_to_today": {
@@ -1893,17 +1816,17 @@ async function mockInvoke(name: any, payload: any) {
             const templateId = String(payload.template_id || "").trim();
             const date = String(payload.date || isoDate(new Date()));
             const triggerTime = String(payload.trigger_time || "09:00");
-            const recipe = mockState.recipes.find((entry: any) => entry.id === templateId);
+            const recipe = mockState.recipes.find((entry: Unsafe) => entry.id === templateId);
             if (!recipe)
                 throw new Error("template not found");
             const meta = recipe.studioMeta || recipe.studio_meta;
             if (!meta || Number(meta.version) !== 1 || String(meta.kind || "").toLowerCase() !== "routine_studio") {
                 throw new Error("template is not a routine studio template");
             }
-            const totalSeconds = (Array.isArray(recipe.steps) ? recipe.steps : []).reduce((sum: any, step: any) => sum + Math.max(60, Number(step?.durationSeconds || step?.duration_seconds || 0)), 0);
+            const totalSeconds = (Array.isArray(recipe.steps) ? recipe.steps : []).reduce((sum: Unsafe, step: Unsafe) => sum + Math.max(60, Number(step?.durationSeconds || step?.duration_seconds || 0)), 0);
             if (totalSeconds <= 0)
                 throw new Error("template has no duration");
-            const [hhRaw, mmRaw] = triggerTime.split(":").map((entry: any) => Number(entry || 0));
+            const [hhRaw, mmRaw] = triggerTime.split(":").map((entry: Unsafe) => Number(entry || 0));
             const hh = Number.isFinite(hhRaw) ? Number(hhRaw) : 9;
             const mm = Number.isFinite(mmRaw) ? Number(mmRaw) : 0;
             const requestedStart = new Date(`${date}T00:00:00`);
@@ -1911,8 +1834,8 @@ async function mockInvoke(name: any, payload: any) {
             const requestedEnd = new Date(requestedStart.getTime() + totalSeconds * 1000);
             const busyIntervals: Array<{ startMs: number; endMs: number }> = [];
             mockState.blocks
-                .filter((block: any) => block.date === date)
-                .forEach((block: any) => {
+                .filter((block: Unsafe) => block.date === date)
+                .forEach((block: Unsafe) => {
                 busyIntervals.push({
                     startMs: new Date(block.start_at).getTime(),
                     endMs: new Date(block.end_at).getTime(),
@@ -1920,23 +1843,23 @@ async function mockInvoke(name: any, payload: any) {
             });
             Object.values(mockState.syncedEventsByAccount)
                 .flat()
-                .forEach((event: any) => {
+                .forEach((event: Unsafe) => {
                 busyIntervals.push({
                     startMs: new Date(event.start_at).getTime(),
                     endMs: new Date(event.end_at).getTime(),
                 });
             });
-            const overlaps = (leftStart: any, leftEnd: any, rightStart: any, rightEnd: any) => leftStart < rightEnd && rightStart < leftEnd;
+            const overlaps = (leftStart: Unsafe, leftEnd: Unsafe, rightStart: Unsafe, rightEnd: Unsafe) => leftStart < rightEnd && rightStart < leftEnd;
             const requestedStartMs = requestedStart.getTime();
             const requestedEndMs = requestedEnd.getTime();
-            const conflictCount = busyIntervals.filter((interval: any) => overlaps(requestedStartMs, requestedEndMs, interval.startMs, interval.endMs)).length;
+            const conflictCount = busyIntervals.filter((interval: Unsafe) => overlaps(requestedStartMs, requestedEndMs, interval.startMs, interval.endMs)).length;
             let appliedStartMs = requestedStartMs;
             let appliedEndMs = requestedEndMs;
             let shifted = false;
             if (conflictCount > 0) {
                 const sorted = busyIntervals
-                    .filter((interval: any) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs) && interval.endMs > interval.startMs)
-                    .sort((left: any, right: any) => left.startMs - right.startMs);
+                    .filter((interval: Unsafe) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs) && interval.endMs > interval.startMs)
+                    .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
                 let cursor = requestedStartMs;
                 for (const interval of sorted) {
                     if (cursor + totalSeconds * 1000 <= interval.startMs)
@@ -1997,7 +1920,7 @@ async function mockInvoke(name: any, payload: any) {
             return task;
         }
         case "update_task": {
-            const task = mockState.tasks.find((item: any) => item.id === payload.task_id);
+            const task = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
             if (!task)
                 throw new Error("task not found");
             if (typeof payload.title === "string")
@@ -2012,14 +1935,14 @@ async function mockInvoke(name: any, payload: any) {
         }
         case "delete_task":
             unassignMockTask(payload.task_id);
-            mockState.tasks = mockState.tasks.filter((item: any) => item.id !== payload.task_id);
+            mockState.tasks = mockState.tasks.filter((item: Unsafe) => item.id !== payload.task_id);
             return true;
         case "split_task": {
             const parts = Number(payload.parts ?? 0);
             if (!Number.isInteger(parts) || parts < 2) {
                 throw new Error("parts must be >= 2");
             }
-            const parent = mockState.tasks.find((item: any) => item.id === payload.task_id);
+            const parent = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
             if (!parent)
                 throw new Error("task not found");
             const estimated = parent.estimated_pomodoros;
@@ -2051,22 +1974,22 @@ async function mockInvoke(name: any, payload: any) {
             if (!taskId || !fromBlockId) {
                 throw new Error("task_id and from_block_id are required");
             }
-            const task = mockState.tasks.find((item: any) => item.id === taskId);
+            const task = mockState.tasks.find((item: Unsafe) => item.id === taskId);
             if (!task)
                 throw new Error("task not found");
-            const fromBlock = mockState.blocks.find((item: any) => item.id === fromBlockId);
+            const fromBlock = mockState.blocks.find((item: Unsafe) => item.id === fromBlockId);
             if (!fromBlock)
                 throw new Error("block not found");
             const requested = Array.isArray(payload.candidate_block_ids)
-                ? payload.candidate_block_ids.map((value: any) => String(value || "").trim()).filter(Boolean)
+                ? payload.candidate_block_ids.map((value: Unsafe) => String(value || "").trim()).filter(Boolean)
                 : [];
             const candidates = [...mockState.blocks]
-                .filter((block: any) => block.id !== fromBlock.id)
-                .filter((block: any) => block.date === fromBlock.date)
-                .filter((block: any) => new Date(block.start_at).getTime() >= new Date(fromBlock.end_at).getTime())
-                .filter((block: any) => requested.length === 0 || requested.includes(block.id))
-                .sort((left: any, right: any) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
-            const next = candidates.find((block: any) => !mockState.taskAssignmentsByBlock[block.id]);
+                .filter((block: Unsafe) => block.id !== fromBlock.id)
+                .filter((block: Unsafe) => block.date === fromBlock.date)
+                .filter((block: Unsafe) => new Date(block.start_at).getTime() >= new Date(fromBlock.end_at).getTime())
+                .filter((block: Unsafe) => requested.length === 0 || requested.includes(block.id))
+                .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+            const next = candidates.find((block: Unsafe) => !mockState.taskAssignmentsByBlock[block.id]);
             if (!next) {
                 throw new Error("no available block for carry-over");
             }
@@ -2082,7 +2005,7 @@ async function mockInvoke(name: any, payload: any) {
         case "list_blocks": {
             const date = payload.date || null;
             const blocks = date
-                ? mockState.blocks.filter((block: any) => block.date === date)
+                ? mockState.blocks.filter((block: Unsafe) => block.date === date)
                 : mockState.blocks;
             return [...blocks];
         }
@@ -2091,20 +2014,20 @@ async function mockInvoke(name: any, payload: any) {
             const timeMin = new Date(payload.time_min || "1970-01-01T00:00:00.000Z").getTime();
             const timeMax = new Date(payload.time_max || "2999-12-31T23:59:59.000Z").getTime();
             const entries = payload.account_id == null
-                ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]: any) => events.map((event: any) => ({ ...event, account_id: entryAccountId })))
-                : (mockState.syncedEventsByAccount[accountId] || []).map((event: any) => ({
+                ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]: Unsafe) => events.map((event: Unsafe) => ({ ...event, account_id: entryAccountId })))
+                : (mockState.syncedEventsByAccount[accountId] || []).map((event: Unsafe) => ({
                     ...event,
                     account_id: accountId,
                 }));
             return entries
-                .filter((event: any) => {
+                .filter((event: Unsafe) => {
                 const startMs = new Date(event.start_at).getTime();
                 const endMs = new Date(event.end_at).getTime();
                 if (!Number.isFinite(startMs) || !Number.isFinite(endMs))
                     return false;
                 return endMs > timeMin && startMs < timeMax;
             })
-                .sort((left: any, right: any) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+                .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
         }
         case "generate_today_blocks":
             return mockInvoke("generate_blocks", { ...payload, date: payload.date || isoDate(new Date()) });
@@ -2112,7 +2035,7 @@ async function mockInvoke(name: any, payload: any) {
         case "generate_one_block": {
             ensureMockRecipesSeeded();
             const date = payload.date || isoDate(new Date());
-            const existing = mockState.blocks.filter((block: any) => block.date === date);
+            const existing = mockState.blocks.filter((block: Unsafe) => block.date === date);
             const isOneShot = name === "generate_one_block";
             const generated = [];
             for (let hour = 9; hour < 18; hour += 1) {
@@ -2121,7 +2044,7 @@ async function mockInvoke(name: any, payload: any) {
                 }
                 const startAt = new Date(`${date}T${String(hour).padStart(2, "0")}:00:00.000Z`);
                 const endAt = new Date(startAt.getTime() + 60 * 60000);
-                const collides = existing.some((block: any) => {
+                const collides = existing.some((block: Unsafe) => {
                     const startMs = new Date(block.start_at).getTime();
                     const endMs = new Date(block.end_at).getTime();
                     return startAt.getTime() < endMs && startMs < endAt.getTime();
@@ -2150,31 +2073,31 @@ async function mockInvoke(name: any, payload: any) {
             return generated;
         }
         case "approve_blocks":
-            mockState.blocks = mockState.blocks.map((block: any) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
-            return mockState.blocks.filter((block: any) => payload.block_ids.includes(block.id));
+            mockState.blocks = mockState.blocks.map((block: Unsafe) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
+            return mockState.blocks.filter((block: Unsafe) => payload.block_ids.includes(block.id));
         case "delete_block":
             if (mockState.taskAssignmentsByBlock[payload.block_id]) {
                 const taskId = mockState.taskAssignmentsByBlock[payload.block_id];
                 delete mockState.taskAssignmentsByBlock[payload.block_id];
                 delete mockState.taskAssignmentsByTask[taskId];
             }
-            mockState.blocks = mockState.blocks.filter((block: any) => block.id !== payload.block_id);
+            mockState.blocks = mockState.blocks.filter((block: Unsafe) => block.id !== payload.block_id);
             return true;
         case "adjust_block_time":
-            mockState.blocks = mockState.blocks.map((block: any) => block.id === payload.block_id
+            mockState.blocks = mockState.blocks.map((block: Unsafe) => block.id === payload.block_id
                 ? { ...block, start_at: payload.start_at, end_at: payload.end_at }
                 : block);
-            return mockState.blocks.find((block: any) => block.id === payload.block_id);
+            return mockState.blocks.find((block: Unsafe) => block.id === payload.block_id);
         case "start_block_timer":
         case "start_pomodoro":
             if (payload.task_id) {
                 assignMockTask(payload.task_id, payload.block_id);
-                const task = mockState.tasks.find((item: any) => item.id === payload.task_id);
+                const task = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
                 if (task && task.status !== "completed") {
                     task.status = "in_progress";
                 }
             }
-            const targetBlock = mockState.blocks.find((block: any) => block.id === payload.block_id);
+            const targetBlock = mockState.blocks.find((block: Unsafe) => block.id === payload.block_id);
             const plan = targetBlock
                 ? mockSessionPlan(targetBlock)
                 : { totalCycles: 1, focusSeconds: 25 * 60, breakSeconds: 5 * 60 };
@@ -2256,7 +2179,7 @@ async function mockInvoke(name: any, payload: any) {
             return { ...mockState.pomodoro };
         case "relocate_if_needed": {
             const accountId = normalizeAccountId(payload.account_id);
-            const block = mockState.blocks.find((item: any) => item.id === payload.block_id);
+            const block = mockState.blocks.find((item: Unsafe) => item.id === payload.block_id);
             if (!block)
                 throw new Error("block not found");
             const currentStartMs = new Date(block.start_at).getTime();
@@ -2264,7 +2187,7 @@ async function mockInvoke(name: any, payload: any) {
             if (!Number.isFinite(currentStartMs) || !Number.isFinite(currentEndMs) || currentEndMs <= currentStartMs) {
                 return null;
             }
-            const collisions = (mockState.syncedEventsByAccount[accountId] || []).filter((event: any) => {
+            const collisions = (mockState.syncedEventsByAccount[accountId] || []).filter((event: Unsafe) => {
                 const startMs = new Date(event.start_at).getTime();
                 const endMs = new Date(event.end_at).getTime();
                 return Number.isFinite(startMs) && Number.isFinite(endMs) && currentStartMs < endMs && startMs < currentEndMs;
@@ -2273,8 +2196,8 @@ async function mockInvoke(name: any, payload: any) {
                 return null;
             }
             const latestCollisionEnd = collisions
-                .map((event: any) => new Date(event.end_at).getTime())
-                .reduce((max: any, value: any) => Math.max(max, value), currentStartMs);
+                .map((event: Unsafe) => new Date(event.end_at).getTime())
+                .reduce((max: Unsafe, value: Unsafe) => Math.max(max, value), currentStartMs);
             const durationMs = currentEndMs - currentStartMs;
             block.start_at = new Date(latestCollisionEnd).toISOString();
             block.end_at = new Date(latestCollisionEnd + durationMs).toISOString();
@@ -2293,14 +2216,14 @@ async function mockInvoke(name: any, payload: any) {
             throw new Error(`mock command not implemented: ${name}`);
     }
 }
-async function refreshCoreData(date: any = isoDate(new Date())) {
+async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
     const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
     const syncWindow = toSyncWindowPayload(normalizedDate, "week");
     const weekDateKeys = resolveWeekDateKeys(normalizedDate);
-    const weeklyBlocksPromise = Promise.all(weekDateKeys.map((dateKey: any) => safeInvoke("list_blocks", { date: dateKey }))).then((dailyBlocks: any) => {
+    const weeklyBlocksPromise = Promise.all(weekDateKeys.map((dateKey: Unsafe) => safeInvoke("list_blocks", { date: dateKey }))).then((dailyBlocks: Unsafe) => {
         const merged = dailyBlocks.flat();
         const seen = new Set();
-        return merged.filter((block: any) => {
+        return merged.filter((block: Unsafe) => {
             if (!block?.id || seen.has(block.id))
                 return false;
             seen.add(block.id);
@@ -2360,7 +2283,7 @@ async function refreshCoreData(date: any = isoDate(new Date())) {
         setStatus(`refresh partially failed: ${refreshErrors.join(" | ")}`);
     }
 }
-async function authenticateAndSyncCalendar(date: any = uiState.dashboardDate || isoDate(new Date()), options: any = {}) {
+async function authenticateAndSyncCalendar(date: Unsafe = uiState.dashboardDate || isoDate(new Date()), options: Unsafe = {}) {
     if (options.forceReauth && !isTauriRuntimeAvailable()) {
         throw new Error("SSO login requires the Tauri desktop runtime. Start it with `cd src-tauri && cargo tauri dev`.");
     }
@@ -2375,12 +2298,12 @@ async function authenticateAndSyncCalendar(date: any = uiState.dashboardDate || 
     };
     return { normalizedDate, syncResult };
 }
-async function refreshNowPanelState(includeReflection: any = false) {
+async function refreshNowPanelState(includeReflection: Unsafe = false) {
     const operations = [safeInvoke("get_pomodoro_state"), safeInvoke("list_tasks")];
     if (includeReflection) {
         operations.push(safeInvoke("get_reflection_summary", {}));
     }
-    const [pomodoroResult, tasksResult, reflectionResult] = (await Promise.allSettled(operations)) as PromiseSettledResult<any>[];
+    const [pomodoroResult, tasksResult, reflectionResult] = (await Promise.allSettled(operations)) as PromiseSettledResult<Unsafe>[];
     if (pomodoroResult && pomodoroResult.status === "fulfilled") {
         uiState.pomodoro = pomodoroResult.value;
         syncNowTimerDisplay(uiState.pomodoro);
@@ -2433,7 +2356,7 @@ function renderTodaySequenceItems() {
     }
     return recipes
         .slice(0, 8)
-        .map((recipe: any) => {
+        .map((recipe: Unsafe) => {
         const name = typeof recipe?.name === "string" && recipe.name.trim() ? recipe.name.trim() : "Untitled";
         const autoDriveMode = typeof recipe?.auto_drive_mode === "string" && recipe.auto_drive_mode.trim()
             ? recipe.auto_drive_mode.trim()
@@ -2465,7 +2388,7 @@ function renderTodayStatusCard() {
     const phaseLabel = pomodoroPhaseLabel(state.phase);
     const focusTask = resolveCurrentFocusTask(state);
     const currentBlock = state.current_block_id
-        ? uiState.blocks.find((block: any) => block.id === state.current_block_id) || null
+        ? uiState.blocks.find((block: Unsafe) => block.id === state.current_block_id) || null
         : null;
     const currentTitle = currentBlock ? blockTitle(currentBlock) || currentBlock.id : "-";
     const progressPercent = pomodoroProgressPercent(state);
@@ -2523,7 +2446,7 @@ function refreshTodayStatusTimerDisplay() {
         : Math.max(0, Math.floor(state.remaining_seconds || 0));
     statusTime.textContent = toTimerText(displayRemainingSeconds);
 }
-function resolveTimerControlModel(stateInput: any = uiState.pomodoro) {
+function resolveTimerControlModel(stateInput: Unsafe = uiState.pomodoro) {
     const state = normalizePomodoroState(stateInput || {});
     const canStart = state.phase === "idle" && Boolean(resolveNowAutoStartBlock(state));
     const isRunningPhase = state.phase === "focus" || state.phase === "break";
@@ -2554,7 +2477,7 @@ function resolveTimerControlModel(stateInput: any = uiState.pomodoro) {
             (primaryAction === "resume" && !canResume),
     };
 }
-async function executeTimerAction(action: any, rerender: any) {
+async function executeTimerAction(action: Unsafe, rerender: Unsafe) {
     if (!action || uiState.nowUi.actionInFlight)
         return;
     uiState.nowUi.actionInFlight = true;
@@ -2603,7 +2526,7 @@ function renderTodayTaskPanel() {
     const state = normalizePomodoroState(uiState.pomodoro || {});
     const focusTask = resolveCurrentFocusTask(state);
     const focusTaskId = focusTask?.id || "";
-    const activeTasks = uiState.tasks.filter((task: any) => task.status !== "completed");
+    const activeTasks = uiState.tasks.filter((task: Unsafe) => task.status !== "completed");
     const visibleTasks = activeTasks.slice(0, 5);
     const overflowCount = Math.max(0, activeTasks.length - visibleTasks.length);
     return `
@@ -2616,7 +2539,7 @@ function renderTodayTaskPanel() {
         ${visibleTasks.length === 0
         ? '<li class="today-task-empty">未完了タスクはありません。</li>'
         : visibleTasks
-            .map((task: any) => `
+            .map((task: Unsafe) => `
             <li class="today-task-item">
               <span class="today-task-bullet ${task.id === focusTaskId ? "is-active" : ""}" aria-hidden="true"></span>
               <span>${escapeHtml(task.title || "(untitled)")}</span>
@@ -2630,7 +2553,7 @@ function renderTodayTaskPanel() {
 }
 function renderTodayTimelinePanel() {
     const timelineBlocks = [...uiState.blocks]
-        .sort((left: any, right: any) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
+        .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
         .slice(0, 10);
     return `
     <section class="today-timeline-panel">
@@ -2642,7 +2565,7 @@ function renderTodayTimelinePanel() {
         ${timelineBlocks.length === 0
         ? '<li class="today-timeline-empty">予定はまだありません。</li>'
         : timelineBlocks
-            .map((block: any) => {
+            .map((block: Unsafe) => {
             const title = blockTitle(block) || "Untitled Block";
             const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
             return `
@@ -2685,9 +2608,9 @@ function renderTodayAmbientPanel() {
     </section>
   `;
 }
-function blockRows(blocks: any) {
+function blockRows(blocks: Unsafe) {
     return blocks
-        .map((block: any) => `
+        .map((block: Unsafe) => `
       <tr>
         <td>${blockDisplayName(block)}</td>
         <td>${formatTime(block.start_at)}</td>
@@ -2696,9 +2619,9 @@ function blockRows(blocks: any) {
       </tr>`)
         .join("");
 }
-function bindDailyCalendarInteractions(rerender: any) {
-    appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node: any) => {
-        node.addEventListener("pointerdown", (event: any) => {
+function bindDailyCalendarInteractions(rerender: Unsafe) {
+    appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node: Unsafe) => {
+        node.addEventListener("pointerdown", (event: Unsafe) => {
             const pointerEvent = /** @type {PointerEvent} */ (event);
             if (pointerEvent.button !== 0)
                 return;
@@ -2750,7 +2673,7 @@ function bindDailyCalendarInteractions(rerender: any) {
             catch {
                 // ignore unsupported pointer capture
             }
-            const onMove = (moveEvent: any) => {
+            const onMove = (moveEvent: Unsafe) => {
                 if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
@@ -2793,7 +2716,7 @@ function bindDailyCalendarInteractions(rerender: any) {
                         Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
                 moveEvent.preventDefault();
             };
-            const onUp = (upEvent: any) => {
+            const onUp = (upEvent: Unsafe) => {
                 if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 finishDayBlockDrag(rerender);
@@ -2806,8 +2729,8 @@ function bindDailyCalendarInteractions(rerender: any) {
             pointerEvent.preventDefault();
         });
     });
-    appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node: any) => {
-        node.addEventListener("pointerdown", (event: any) => {
+    appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node: Unsafe) => {
+        node.addEventListener("pointerdown", (event: Unsafe) => {
             const pointerEvent = /** @type {PointerEvent} */ (event);
             if (pointerEvent.button !== 0)
                 return;
@@ -2859,7 +2782,7 @@ function bindDailyCalendarInteractions(rerender: any) {
             catch {
                 // ignore unsupported pointer capture
             }
-            const onMove = (moveEvent: any) => {
+            const onMove = (moveEvent: Unsafe) => {
                 if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 const deltaX = moveEvent.clientX - dayBlockDragState.originClientX;
@@ -2875,7 +2798,7 @@ function bindDailyCalendarInteractions(rerender: any) {
                         Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
                 moveEvent.preventDefault();
             };
-            const onUp = (upEvent: any) => {
+            const onUp = (upEvent: Unsafe) => {
                 if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 finishDayBlockDrag(rerender);
@@ -2888,7 +2811,7 @@ function bindDailyCalendarInteractions(rerender: any) {
             pointerEvent.preventDefault();
         });
     });
-    appRoot.querySelectorAll("[data-day-view]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-day-view]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const element = /** @type {HTMLElement} */ (node);
             const mode = element.dataset.dayView;
@@ -2898,7 +2821,7 @@ function bindDailyCalendarInteractions(rerender: any) {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             if (Date.now() < dayBlockDragState.suppressClickUntil) {
                 return;
@@ -2914,7 +2837,7 @@ function bindDailyCalendarInteractions(rerender: any) {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-block-title-save]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-block-title-save]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const button = /** @type {HTMLElement} */ (node);
             const blockId = button.dataset.blockTitleSave;
@@ -2979,8 +2902,8 @@ function renderDashboard() {
       </aside>
     </section>
   `;
-    appRoot.querySelectorAll("[data-today-timer-action]").forEach((node: any) => {
-        node.addEventListener("click", async (event: any) => {
+    appRoot.querySelectorAll("[data-today-timer-action]").forEach((node: Unsafe) => {
+        node.addEventListener("click", async (event: Unsafe) => {
             const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.todayTimerAction;
             await executeTimerAction(action || "", renderDashboard);
         });
@@ -3112,7 +3035,7 @@ function renderBlocks() {
     ${renderDailyCalendar(today)}
     <div class="grid">
       ${visibleBlocks
-        .map((block: any) => `
+        .map((block: Unsafe) => `
           <article class="panel">
             <div class="row spread">
               <h3>${blockDisplayName(block)}</h3>
@@ -3209,7 +3132,7 @@ function renderBlocks() {
     document.getElementById("block-account-id")?.addEventListener("change", async () => {
         await runUiAction(reload);
     });
-    appRoot.querySelectorAll("[data-approve]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-approve]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             await runUiAction(async () => {
                 const id = /** @type {HTMLElement} */ (node).dataset.approve;
@@ -3218,7 +3141,7 @@ function renderBlocks() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-delete]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-delete]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             await runUiAction(async () => {
                 const id = /** @type {HTMLElement} */ (node).dataset.delete;
@@ -3227,7 +3150,7 @@ function renderBlocks() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-adjust]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-adjust]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             await runUiAction(async () => {
                 const id = /** @type {HTMLElement} */ (node).dataset.adjust;
@@ -3242,7 +3165,7 @@ function renderBlocks() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-relocate]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-relocate]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             await runUiAction(async () => {
                 const id = /** @type {HTMLElement} */ (node).dataset.relocate;
@@ -3265,9 +3188,9 @@ function renderPomodoro() {
     const nowMs = Date.now();
     const todayBlocks = resolveNowBlocks();
     const orderedTasks = getNowOrderedTasks(true);
-    const openTasks = orderedTasks.filter((task: any) => task.status !== "completed");
+    const openTasks = orderedTasks.filter((task: Unsafe) => task.status !== "completed");
     const runningBlock = state.current_block_id
-        ? todayBlocks.find(({ block }: any) => block.id === state.current_block_id)?.block || null
+        ? todayBlocks.find(({ block }: Unsafe) => block.id === state.current_block_id)?.block || null
         : null;
     const runningTask = resolveCurrentFocusTask(state);
     const autoStartBlock = resolveNowAutoStartBlock(state);
@@ -3278,7 +3201,7 @@ function renderPomodoro() {
         ? 0
         : Math.max(0, Math.min(100, Math.round((displayRemainingSeconds / phaseTotalSeconds) * 100)));
     const phaseLabel = pomodoroPhaseLabel(state.phase);
-    const deferredCount = uiState.tasks.filter((task: any) => task.status === "deferred").length;
+    const deferredCount = uiState.tasks.filter((task: Unsafe) => task.status === "deferred").length;
     const bufferMinutes = nowBufferAvailableMinutes();
     const reflectionLogs = Array.isArray(uiState.reflection?.logs) ? uiState.reflection.logs : null;
     const focusCompletion = reflectionLogs && reflectionLogs.length > 0
@@ -3301,7 +3224,7 @@ function renderPomodoro() {
           ${todayBlocks.length === 0
         ? '<p class="small now-empty">今日のブロックがありません。</p>'
         : todayBlocks
-            .map(({ block, startMs, endMs }: any) => {
+            .map(({ block, startMs, endMs }: Unsafe) => {
             const isActive = state.current_block_id === block.id || (startMs <= nowMs && nowMs < endMs && state.phase === "idle");
             const title = blockTitle(block) || block.id;
             return `
@@ -3375,7 +3298,7 @@ function renderPomodoro() {
           ${openTasks.length === 0
         ? '<p class="small now-empty">未完了タスクがありません。</p>'
         : openTasks
-            .map((task: any, index: any) => {
+            .map((task: Unsafe, index: Unsafe) => {
             const upDisabled = index === 0;
             const downDisabled = index === openTasks.length - 1;
             return `
@@ -3404,13 +3327,13 @@ function renderPomodoro() {
         : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`}
     </section>
   `;
-    ["now-left-action", "now-primary-action", "now-right-action"].forEach((id: any) => {
-        document.getElementById(id)?.addEventListener("click", async (event: any) => {
+    ["now-left-action", "now-primary-action", "now-right-action"].forEach((id: Unsafe) => {
+        document.getElementById(id)?.addEventListener("click", async (event: Unsafe) => {
             const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.nowAction;
             await executeTimerAction(action || "", renderPomodoro);
         });
     });
-    appRoot.querySelectorAll("[data-now-task-complete]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-now-task-complete]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const taskId = /** @type {HTMLElement} */ (node).dataset.nowTaskComplete;
             if (!taskId)
@@ -3423,14 +3346,14 @@ function renderPomodoro() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-now-task-move]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-now-task-move]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const element = /** @type {HTMLElement} */ (node);
             const taskId = element.dataset.nowTaskMove;
             const direction = element.dataset.nowTaskDir;
             if (!taskId || (direction !== "up" && direction !== "down"))
                 return;
-            const visibleIds = getNowOrderedTasks().map((task: any) => task.id);
+            const visibleIds = getNowOrderedTasks().map((task: Unsafe) => task.id);
             const visibleIndex = visibleIds.indexOf(taskId);
             if (visibleIndex < 0)
                 return;
@@ -3480,7 +3403,7 @@ function renderRoutines() {
     studio.moduleEditor = studio.moduleEditor && typeof studio.moduleEditor === "object" ? studio.moduleEditor : null;
     studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
     studio.entryEditorEntryId = typeof studio.entryEditorEntryId === "string" ? studio.entryEditorEntryId : "";
-    const normalizeModule = (module: any, index: any) => {
+    const normalizeModule = (module: Unsafe, index: Unsafe) => {
         const id = String(module?.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
         const durationMinutes = Math.max(1, Number(module?.durationMinutes || module?.duration_minutes || 1));
         return {
@@ -3492,7 +3415,7 @@ function renderRoutines() {
             durationMinutes,
         };
     };
-    const normalizeEntry = (entry: any, index: any) => {
+    const normalizeEntry = (entry: Unsafe, index: Unsafe) => {
         const durationMinutes = Math.max(1, Number(entry?.durationMinutes || entry?.duration_minutes || 5));
         return {
             entryId: String(entry?.entryId || nextRoutineStudioEntryId()),
@@ -3505,7 +3428,7 @@ function renderRoutines() {
             note: String(entry?.note || ""),
         };
     };
-    const normalizeModuleEditor = (editor: any) => ({
+    const normalizeModuleEditor = (editor: Unsafe) => ({
         id: String(editor?.id || ""),
         name: String(editor?.name || ""),
         category: String(editor?.category || "General"),
@@ -3522,7 +3445,7 @@ function renderRoutines() {
         durationMinutes: 5,
     });
     studio.modules = studio.modules.map(normalizeModule);
-    studio.canvasEntries = studio.canvasEntries.map((entry: any, index: any) => normalizeEntry(entry, index));
+    studio.canvasEntries = studio.canvasEntries.map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
     studio.moduleEditor = studio.moduleEditor ? normalizeModuleEditor(studio.moduleEditor) : null;
     if (!studio.assetsLoaded) {
         appRoot.innerHTML = `
@@ -3551,7 +3474,7 @@ function renderRoutines() {
         }
         return;
     }
-    const moduleToEntry = (module: any) => normalizeEntry({
+    const moduleToEntry = (module: Unsafe) => normalizeEntry({
         sourceKind: "module",
         sourceId: module.id,
         moduleId: module.id,
@@ -3560,7 +3483,7 @@ function renderRoutines() {
         durationMinutes: Math.max(1, Number(module.durationMinutes) || 5),
         note: "",
     }, 0);
-    const recipeToEntries = (recipe: any) => {
+    const recipeToEntries = (recipe: Unsafe) => {
         const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
         if (steps.length === 0) {
             return [
@@ -3574,7 +3497,7 @@ function renderRoutines() {
                 }, 0),
             ];
         }
-        return steps.map((step: any, index: any) => normalizeEntry({
+        return steps.map((step: Unsafe, index: Unsafe) => normalizeEntry({
             sourceKind: "template",
             sourceId: recipe?.id || "",
             moduleId: String(step?.moduleId || step?.module_id || ""),
@@ -3584,7 +3507,7 @@ function renderRoutines() {
             note: String(step?.note || ""),
         }, index));
     };
-    const syncFromRecipe = (recipe: any) => {
+    const syncFromRecipe = (recipe: Unsafe) => {
         if (!recipe)
             return;
         const autoDriveMode = String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual");
@@ -3593,7 +3516,7 @@ function renderRoutines() {
         studio.autoStart = autoDriveMode !== "manual";
     };
     if (!studio.bootstrapped) {
-        const studioRecipes = recipes.filter((recipe: any) => isRoutineStudioRecipe(recipe));
+        const studioRecipes = recipes.filter((recipe: Unsafe) => isRoutineStudioRecipe(recipe));
         if (studioRecipes.length > 0) {
             syncFromRecipe(studioRecipes[0]);
             studio.canvasEntries = recipeToEntries(studioRecipes[0]);
@@ -3616,12 +3539,12 @@ function renderRoutines() {
     if (!studio.selectedEntryId && studio.canvasEntries.length > 0) {
         studio.selectedEntryId = studio.canvasEntries[0].entryId;
     }
-    const addAssetToCanvas = (kind: any, id: any, replace: any = false, insertIndex: any = studio.canvasEntries.length) => {
+    const addAssetToCanvas = (kind: Unsafe, id: Unsafe, replace: Unsafe = false, insertIndex: Unsafe = studio.canvasEntries.length) => {
         if (!id)
             return false;
         const clampedInsertIndex = Math.max(0, Math.min(Number(insertIndex) || 0, studio.canvasEntries.length));
         if (kind === "module") {
-            const module = studio.modules.find((candidate: any) => candidate.id === id);
+            const module = studio.modules.find((candidate: Unsafe) => candidate.id === id);
             if (!module)
                 return false;
             const next = moduleToEntry(module);
@@ -3637,7 +3560,7 @@ function renderRoutines() {
             return true;
         }
         if (kind === "template") {
-            const recipe = recipes.find((candidate: any) => candidate.id === id && isRoutineStudioRecipe(candidate));
+            const recipe = recipes.find((candidate: Unsafe) => candidate.id === id && isRoutineStudioRecipe(candidate));
             if (!recipe)
                 return false;
             const entries = recipeToEntries(recipe);
@@ -3656,7 +3579,7 @@ function renderRoutines() {
         return false;
     };
     const pushHistory = () => {
-        const snapshot = cloneValue(studio.canvasEntries.map((entry: any, index: any) => normalizeEntry(entry, index)));
+        const snapshot = cloneValue(studio.canvasEntries.map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index)));
         const current = studio.historyIndex >= 0 && studio.historyIndex < studio.history.length
             ? studio.history[studio.historyIndex]
             : null;
@@ -3671,13 +3594,13 @@ function renderRoutines() {
         studio.history = truncated;
         studio.historyIndex = studio.history.length - 1;
     };
-    const applyCanvasEntries = (nextEntries: any, recordHistory: any = true) => {
-        studio.canvasEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry: any, index: any) => normalizeEntry(entry, index));
+    const applyCanvasEntries = (nextEntries: Unsafe, recordHistory: Unsafe = true) => {
+        studio.canvasEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
         if (studio.canvasEntries.length > 0 && !studio.selectedEntryId) {
             studio.selectedEntryId = studio.canvasEntries[0].entryId;
         }
         if (studio.selectedEntryId &&
-            studio.canvasEntries.every((entry: any) => entry.entryId !== studio.selectedEntryId)) {
+            studio.canvasEntries.every((entry: Unsafe) => entry.entryId !== studio.selectedEntryId)) {
             studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
         }
         if (recordHistory) {
@@ -3685,16 +3608,16 @@ function renderRoutines() {
         }
     };
     const searchNeedle = studio.search.trim().toLowerCase();
-    const moduleAssets = studio.modules.filter((module: any) => {
+    const moduleAssets = studio.modules.filter((module: Unsafe) => {
         if (!searchNeedle)
             return true;
         return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
     });
     const complexModuleAssets = recipes
-        .filter((recipe: any) => isRoutineStudioRecipe(recipe))
-        .map((recipe: any) => {
+        .filter((recipe: Unsafe) => isRoutineStudioRecipe(recipe))
+        .map((recipe: Unsafe) => {
         const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
-        const totalMinutes = steps.reduce((sum: any, step: any) => sum + routineStudioStepDurationMinutes(step), 0);
+        const totalMinutes = steps.reduce((sum: Unsafe, step: Unsafe) => sum + routineStudioStepDurationMinutes(step), 0);
         return {
             id: String(recipe.id || ""),
             name: String(recipe.name || recipe.id || "Untitled"),
@@ -3702,12 +3625,12 @@ function renderRoutines() {
             totalMinutes,
         };
     })
-        .filter((cm: any) => {
+        .filter((cm: Unsafe) => {
         if (!searchNeedle)
             return true;
         return cm.name.toLowerCase().includes(searchNeedle);
     });
-    const totalMinutes = studio.canvasEntries.reduce((sum: any, entry: any) => sum + (Number(entry.durationMinutes) || 0), 0);
+    const totalMinutes = studio.canvasEntries.reduce((sum: Unsafe, entry: Unsafe) => sum + (Number(entry.durationMinutes) || 0), 0);
     appRoot.innerHTML = `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
@@ -3744,18 +3667,18 @@ function renderRoutines() {
             </div>
             <div class="rs-assets">
               ${(() => {
-        const grouped = moduleAssets.reduce((acc: any, m: any) => {
+        const grouped = moduleAssets.reduce((acc: Unsafe, m: Unsafe) => {
             const cat = String(m.category || "General");
             if (!acc[cat])
                 acc[cat] = [];
             acc[cat].push(m);
             return acc;
         }, {});
-        const cats = Object.keys(grouped).sort((a: any, b: any) => a.localeCompare(b));
-        const modParts = cats.length === 0 ? "" : cats.map((cat: any) => `
+        const cats = Object.keys(grouped).sort((a: Unsafe, b: Unsafe) => a.localeCompare(b));
+        const modParts = cats.length === 0 ? "" : cats.map((cat: Unsafe) => `
                   <section class="rs-asset-group">
                     <h4 class="rs-asset-group-title">${escapeHtml(cat)}</h4>
-                    ${grouped[cat].map((module: any) => `
+                    ${grouped[cat].map((module: Unsafe) => `
                       <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(module.name)}</p>
@@ -3774,7 +3697,7 @@ function renderRoutines() {
         const cmParts = complexModuleAssets.length === 0 ? "" : `
                   <section class="rs-asset-group">
                     <h4 class="rs-asset-group-title">複合モジュール</h4>
-                    ${complexModuleAssets.map((cm: any) => `
+                    ${complexModuleAssets.map((cm: Unsafe) => `
                       <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(cm.name)}<span class="rs-badge">複合</span></p>
@@ -3812,7 +3735,7 @@ function renderRoutines() {
                 ${studio.canvasEntries.length === 0
         ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
         : studio.canvasEntries
-            .map((entry: any, index: any) => `
+            .map((entry: Unsafe, index: Unsafe) => `
                     <article class="rs-canvas-card ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(entry.entryId)}" draggable="true" data-studio-canvas-entry="${escapeHtml(entry.entryId)}">
                       <header class="rs-canvas-card-head">
                         <span class="rs-drag-handle" aria-hidden="true" title="ドラッグして並び順を変更">&#x2807;</span>
@@ -3846,7 +3769,7 @@ function renderRoutines() {
                 <summary class="rs-properties-summary">プロパティ</summary>
                 <label class="rs-field">ルーティン名<input id="studio-draft-name" value="${escapeHtml(studio.draftName)}" /></label>
                 <label class="rs-field">コンテキスト<select id="studio-context">${routineStudioContexts
-        .map((ctx: any) => `<option value="${escapeHtml(ctx)}" ${ctx === studio.context ? "selected" : ""}>${escapeHtml(ctx)}</option>`)
+        .map((ctx: Unsafe) => `<option value="${escapeHtml(ctx)}" ${ctx === studio.context ? "selected" : ""}>${escapeHtml(ctx)}</option>`)
         .join("")}</select></label>
                 <label class="rs-field rs-toggle" for="studio-auto-start"><span>タイマー自動開始</span><input id="studio-auto-start" type="checkbox" ${studio.autoStart ? "checked" : ""} /></label>
               </details>
@@ -3859,7 +3782,7 @@ function renderRoutines() {
         </div>
       `}
       ${studio.entryEditorEntryId ? (() => {
-        const editEntry = studio.canvasEntries.find((e: any) => e.entryId === studio.entryEditorEntryId);
+        const editEntry = studio.canvasEntries.find((e: Unsafe) => e.entryId === studio.entryEditorEntryId);
         if (!editEntry)
             return "";
         const eid = escapeHtml(editEntry.entryId);
@@ -3876,7 +3799,7 @@ function renderRoutines() {
               <label class="rs-field">モジュール
                 <select data-studio-entry-field="moduleId" data-studio-entry-id="${eid}">
                   <option value="">なし</option>
-                  ${studio.modules.map((m: any) => `<option value="${escapeHtml(m.id)}" ${m.id === editEntry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
+                  ${studio.modules.map((m: Unsafe) => `<option value="${escapeHtml(m.id)}" ${m.id === editEntry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`).join("")}
                 </select>
               </label>
               <label class="rs-field rs-field-full">ノート
@@ -3924,9 +3847,9 @@ function renderRoutines() {
         const slugBase = routineStudioSlug(studio.templateId || name) || "routine-studio";
         const id = slugBase.startsWith("rcp-") ? slugBase : `rcp-${slugBase}`;
         studio.templateId = id;
-        const steps = studio.canvasEntries.map((entry: any, index: any) => {
+        const steps = studio.canvasEntries.map((entry: Unsafe, index: Unsafe) => {
             const durationSeconds = Math.max(60, Math.round((Number(entry.durationMinutes) || 1) * 60));
-            const step: any = {
+            const step: Unsafe = {
                 id: `step-${index + 1}`,
                 type: "micro",
                 title: String(entry.title || `Step ${index + 1}`),
@@ -3955,7 +3878,7 @@ function renderRoutines() {
     };
     const persistTemplate = async () => {
         const payload = buildRecipePayload();
-        const exists = recipes.some((recipe: any) => recipe.id === payload.id);
+        const exists = recipes.some((recipe: Unsafe) => recipe.id === payload.id);
         if (exists) {
             await safeInvoke("update_recipe", { recipe_id: payload.id, payload });
         }
@@ -3967,10 +3890,10 @@ function renderRoutines() {
         studio.draftName = payload.name;
         return payload.id;
     };
-    const readField = (id: any) => 
+    const readField = (id: Unsafe) => 
     /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null} */ (document.getElementById(id))?.value || "";
-    const readChecked = (id: any) => Boolean(/** @type {HTMLInputElement | null} */ (document.getElementById(id))?.checked);
-    const openModuleEditor = (module: any) => {
+    const readChecked = (id: Unsafe) => Boolean(/** @type {HTMLInputElement | null} */ (document.getElementById(id))?.checked);
+    const openModuleEditor = (module: Unsafe) => {
         if (!module) {
             studio.editingModuleId = "";
             studio.moduleEditor = createEmptyModuleEditor();
@@ -3979,8 +3902,8 @@ function renderRoutines() {
         studio.editingModuleId = module.id;
         studio.moduleEditor = normalizeModuleEditor({ ...module });
     };
-    const updateEntry = (entryId: any, updater: any) => {
-        const index = studio.canvasEntries.findIndex((entry: any) => entry.entryId === entryId);
+    const updateEntry = (entryId: Unsafe, updater: Unsafe) => {
+        const index = studio.canvasEntries.findIndex((entry: Unsafe) => entry.entryId === entryId);
         if (index < 0)
             return false;
         const nextEntries = [...studio.canvasEntries];
@@ -3990,8 +3913,8 @@ function renderRoutines() {
         studio.selectedEntryId = entryId;
         return true;
     };
-    const resolveDropInsertIndex = (dropzone: any, clientY: any) => {
-        const cards: any[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+    const resolveDropInsertIndex = (dropzone: Unsafe, clientY: Unsafe) => {
+        const cards: Unsafe[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
         for (let index = 0; index < cards.length; index += 1) {
             const rect = /** @type {HTMLElement} */ (cards[index]).getBoundingClientRect();
             if (clientY < rect.top + rect.height / 2) {
@@ -4000,14 +3923,14 @@ function renderRoutines() {
         }
         return cards.length;
     };
-    const clearDropIndicator = (dropzone: any) => {
+    const clearDropIndicator = (dropzone: Unsafe) => {
         dropzone.classList.remove("is-over", "is-insert-end");
-        dropzone.querySelectorAll(".is-insert-target").forEach((node: any) => node.classList.remove("is-insert-target"));
+        dropzone.querySelectorAll(".is-insert-target").forEach((node: Unsafe) => node.classList.remove("is-insert-target"));
         studio.dragInsertIndex = -1;
     };
-    const paintDropIndicator = (dropzone: any, insertIndex: any) => {
+    const paintDropIndicator = (dropzone: Unsafe, insertIndex: Unsafe) => {
         clearDropIndicator(dropzone);
-        const cards: any[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+        const cards: Unsafe[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
         dropzone.classList.add("is-over");
         if (cards.length === 0) {
             // 空キャンバス: 末尾挿入として扱う
@@ -4046,14 +3969,14 @@ function renderRoutines() {
         studio.editingModuleId = "";
         rerender();
     });
-    document.getElementById("module-editor-overlay")?.addEventListener("click", (e: any) => {
+    document.getElementById("module-editor-overlay")?.addEventListener("click", (e: Unsafe) => {
         if (e.target === e.currentTarget) {
             studio.moduleEditor = null;
             studio.editingModuleId = "";
             rerender();
         }
     });
-    document.getElementById("entry-editor-overlay")?.addEventListener("click", (e: any) => {
+    document.getElementById("entry-editor-overlay")?.addEventListener("click", (e: Unsafe) => {
         if (e.target === e.currentTarget) {
             studio.entryEditorEntryId = "";
             rerender();
@@ -4094,28 +4017,28 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-subpage]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-subpage]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const page = /** @type {HTMLElement} */ (node).dataset.studioSubpage || "";
             studio.subPage = page === "schedule" ? "schedule" : "editor";
             rerender();
         });
     });
-    document.getElementById("studio-search-input")?.addEventListener("input", (event: any) => {
+    document.getElementById("studio-search-input")?.addEventListener("input", (event: Unsafe) => {
         studio.search = /** @type {HTMLInputElement} */ (event.currentTarget).value || "";
         rerender();
     });
-    appRoot.querySelectorAll("[data-studio-module-edit]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-module-edit]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleEdit || "";
-            const module = studio.modules.find((candidate: any) => candidate.id === moduleId);
+            const module = studio.modules.find((candidate: Unsafe) => candidate.id === moduleId);
             if (!module)
                 return;
             openModuleEditor(module);
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-module-delete]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-module-delete]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleDelete || "";
             if (!moduleId)
@@ -4137,7 +4060,7 @@ function renderRoutines() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const element = /** @type {HTMLElement} */ (node);
             if (addAssetToCanvas(element.dataset.studioInsertKind || "", element.dataset.studioInsertId || "")) {
@@ -4145,7 +4068,7 @@ function renderRoutines() {
             }
         });
     });
-    appRoot.querySelectorAll("[data-studio-load-template]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-load-template]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const templateId = /** @type {HTMLElement} */ (node).dataset.studioLoadTemplate || "";
             if (addAssetToCanvas("template", templateId, true)) {
@@ -4153,19 +4076,19 @@ function renderRoutines() {
             }
         });
     });
-    appRoot.querySelectorAll("[data-studio-remove]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-remove]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const entryId = /** @type {HTMLElement} */ (node).dataset.studioRemove || "";
-            applyCanvasEntries(studio.canvasEntries.filter((entry: any) => entry.entryId !== entryId), true);
+            applyCanvasEntries(studio.canvasEntries.filter((entry: Unsafe) => entry.entryId !== entryId), true);
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-move]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-move]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const element = /** @type {HTMLElement} */ (node);
             const entryId = element.dataset.studioMove || "";
             const direction = element.dataset.studioDir || "";
-            const index = studio.canvasEntries.findIndex((entry: any) => entry.entryId === entryId);
+            const index = studio.canvasEntries.findIndex((entry: Unsafe) => entry.entryId === entryId);
             if (index < 0)
                 return;
             const nextIndex = direction === "up" ? index - 1 : index + 1;
@@ -4177,7 +4100,7 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-select-entry]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-select-entry]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const entryId = /** @type {HTMLElement} */ (node).dataset.studioSelectEntry || "";
             if (!entryId)
@@ -4186,7 +4109,7 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-entry-settings]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-entry-settings]").forEach((node: Unsafe) => {
         node.addEventListener("click", () => {
             const entryId = /** @type {HTMLElement} */ (node).dataset.studioEntrySettings || "";
             if (!entryId)
@@ -4195,15 +4118,15 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-entry-field]").forEach((node: any) => {
-        node.addEventListener("change", (event: any) => {
+    appRoot.querySelectorAll("[data-studio-entry-field]").forEach((node: Unsafe) => {
+        node.addEventListener("change", (event: Unsafe) => {
             const element = /** @type {HTMLElement} */ (event.currentTarget);
             const entryId = element.dataset.studioEntryId || "";
             const field = element.dataset.studioEntryField || "";
             const value = /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */ (event.currentTarget).value;
             if (!entryId || !field)
                 return;
-            const changed = updateEntry(entryId, (entry: any) => {
+            const changed = updateEntry(entryId, (entry: Unsafe) => {
                 if (field === "title") {
                     entry.title = String(value || "").trim() || entry.title;
                 }
@@ -4226,7 +4149,7 @@ function renderRoutines() {
         if (studio.historyIndex <= 0)
             return;
         studio.historyIndex -= 1;
-        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: any, index: any) => normalizeEntry(entry, index));
+        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
         studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
         rerender();
     });
@@ -4234,7 +4157,7 @@ function renderRoutines() {
         if (studio.historyIndex >= studio.history.length - 1)
             return;
         studio.historyIndex += 1;
-        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: any, index: any) => normalizeEntry(entry, index));
+        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
         studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
         rerender();
     });
@@ -4259,7 +4182,7 @@ function renderRoutines() {
     }
     routineStudioActiveDrag = null;
     // ドロップを確定する内部関数
-    const commitStudioDrop = (clientX: any, clientY: any) => {
+    const commitStudioDrop = (clientX: Unsafe, clientY: Unsafe) => {
         const dz = document.getElementById("routine-studio-dropzone");
         if (!dz) {
             routineStudioActiveDrag = null;
@@ -4277,7 +4200,7 @@ function renderRoutines() {
         const { kind, id } = routineStudioActiveDrag;
         routineStudioActiveDrag = null;
         if (kind === "entry") {
-            const sourceIndex = studio.canvasEntries.findIndex((e: any) => e.entryId === id);
+            const sourceIndex = studio.canvasEntries.findIndex((e: Unsafe) => e.entryId === id);
             if (sourceIndex < 0)
                 return;
             const target = Math.max(0, Math.min(insertIndex, studio.canvasEntries.length));
@@ -4294,7 +4217,7 @@ function renderRoutines() {
         rerender();
     };
     // pointermove: ゴーストを移動し、挿入インジケータを更新
-    const onRsDragMove = (/** @type {PointerEvent} */ event: any) => {
+    const onRsDragMove = (/** @type {PointerEvent} */ event: Unsafe) => {
         if (!_rsDragGhost)
             return;
         _rsDragGhost.style.left = `${event.clientX - _rsDragOffsetX}px`;
@@ -4312,7 +4235,7 @@ function renderRoutines() {
         }
     };
     // pointerup / pointercancel: ドロップを確定またはキャンセル
-    const onRsDragUp = (/** @type {PointerEvent} */ event: any) => {
+    const onRsDragUp = (/** @type {PointerEvent} */ event: Unsafe) => {
         document.removeEventListener("pointermove", onRsDragMove);
         document.removeEventListener("pointerup", onRsDragUp);
         document.removeEventListener("pointercancel", onRsDragUp);
@@ -4328,7 +4251,7 @@ function renderRoutines() {
         commitStudioDrop(event.clientX, event.clientY);
     };
     // ドラッグ開始共通內部関数
-    const startStudioDrag = (/** @type {PointerEvent} */ event: any, /** @type {{ kind: string, id: string }} */ payload: any, /** @type {HTMLElement} */ sourceEl: any) => {
+    const startStudioDrag = (/** @type {PointerEvent} */ event: Unsafe, /** @type {{ kind: string, id: string }} */ payload: Unsafe, /** @type {HTMLElement} */ sourceEl: Unsafe) => {
         if (event.button !== undefined && event.button !== 0)
             return;
         event.preventDefault();
@@ -4352,8 +4275,8 @@ function renderRoutines() {
         document.addEventListener("pointercancel", onRsDragUp);
     };
     // Library アセットカード: pointerdown でドラッグ開始
-    appRoot.querySelectorAll("[data-studio-draggable='true']").forEach((node: any) => {
-        node.addEventListener("pointerdown", (event: any) => {
+    appRoot.querySelectorAll("[data-studio-draggable='true']").forEach((node: Unsafe) => {
+        node.addEventListener("pointerdown", (event: Unsafe) => {
             const el = /** @type {HTMLElement} */ (node);
             const kind = el.dataset.studioAssetKind || "";
             const id = el.dataset.studioAssetId || "";
@@ -4366,8 +4289,8 @@ function renderRoutines() {
         });
     });
     // Canvas エントリカード: ハンドルの pointerdown でドラッグ開始
-    appRoot.querySelectorAll(".rs-drag-handle").forEach((handle: any) => {
-        handle.addEventListener("pointerdown", (event: any) => {
+    appRoot.querySelectorAll(".rs-drag-handle").forEach((handle: Unsafe) => {
+        handle.addEventListener("pointerdown", (event: Unsafe) => {
             const card = /** @type {HTMLElement | null} */ (
             /** @type {HTMLElement} */ (handle).closest("[data-studio-canvas-entry]"));
             if (!card)
@@ -4378,20 +4301,20 @@ function renderRoutines() {
             startStudioDrag(/** @type {PointerEvent} */ (event), { kind: "entry", id }, card);
         });
     });
-    document.getElementById("studio-draft-name")?.addEventListener("input", (event: any) => {
+    document.getElementById("studio-draft-name")?.addEventListener("input", (event: Unsafe) => {
         studio.draftName = /** @type {HTMLInputElement} */ (event.currentTarget).value || "Routine Draft";
         const titleNode = appRoot.querySelector("[data-studio-title]");
         if (titleNode)
             titleNode.textContent = studio.draftName;
     });
-    document.getElementById("studio-context")?.addEventListener("change", (event: any) => {
+    document.getElementById("studio-context")?.addEventListener("change", (event: Unsafe) => {
         studio.context = /** @type {HTMLSelectElement} */ (event.currentTarget).value || routineStudioContexts[0];
     });
-    document.getElementById("studio-trigger-time")?.addEventListener("change", (event: any) => {
+    document.getElementById("studio-trigger-time")?.addEventListener("change", (event: Unsafe) => {
         studio.triggerTime = /** @type {HTMLInputElement} */ (event.currentTarget).value || "09:00";
         rerender();
     });
-    document.getElementById("studio-auto-start")?.addEventListener("change", (event: any) => {
+    document.getElementById("studio-auto-start")?.addEventListener("change", (event: Unsafe) => {
         studio.autoStart = /** @type {HTMLInputElement} */ (event.currentTarget).checked;
     });
     document.getElementById("studio-save-template")?.addEventListener("click", async () => {
@@ -4421,7 +4344,7 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-recipe-delete]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-studio-recipe-delete]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const recipeId = /** @type {HTMLElement} */ (node).dataset.studioRecipeDelete || "";
             if (!recipeId)
@@ -4464,13 +4387,13 @@ function renderTasks() {
         <thead><tr><th>Title</th><th>Status</th><th>Estimate</th><th>操作</th></tr></thead>
         <tbody>
           ${uiState.tasks
-        .map((task: any) => `
+        .map((task: Unsafe) => `
               <tr>
                 <td><input id="title-${task.id}" value="${task.title}" /></td>
                 <td>
                   <select id="status-${task.id}">
                     ${["pending", "in_progress", "completed", "deferred"]
-        .map((status: any) => `<option value="${status}" ${task.status === status ? "selected" : ""}>${status}</option>`)
+        .map((status: Unsafe) => `<option value="${status}" ${task.status === status ? "selected" : ""}>${status}</option>`)
         .join("")}
                   </select>
                 </td>
@@ -4493,8 +4416,8 @@ function renderTasks() {
           <select id="carry-task-id">
             <option value="">(task)</option>
             ${uiState.tasks
-        .filter((task: any) => task.status !== "completed")
-        .map((task: any) => `<option value="${task.id}">${task.title}</option>`)
+        .filter((task: Unsafe) => task.status !== "completed")
+        .map((task: Unsafe) => `<option value="${task.id}">${task.title}</option>`)
         .join("")}
           </select>
         </label>
@@ -4502,7 +4425,7 @@ function renderTasks() {
           <select id="carry-from-block-id">
             <option value="">(from)</option>
             ${uiState.blocks
-        .map((block: any) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
+        .map((block: Unsafe) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
         .join("")}
           </select>
         </label>
@@ -4510,7 +4433,7 @@ function renderTasks() {
           <select id="carry-to-block-id">
             <option value="">(to)</option>
             ${uiState.blocks
-        .map((block: any) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
+        .map((block: Unsafe) => `<option value="${block.id}">${blockDisplayName(block)}</option>`)
         .join("")}
           </select>
         </label>
@@ -4532,7 +4455,7 @@ function renderTasks() {
         uiState.tasks = await safeInvoke("list_tasks");
         renderTasks();
     });
-    appRoot.querySelectorAll("[data-save-task]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-save-task]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const id = /** @type {HTMLElement} */ (node).dataset.saveTask;
             const title = /** @type {HTMLInputElement} */ (document.getElementById(`title-${id}`)).value;
@@ -4548,7 +4471,7 @@ function renderTasks() {
             renderTasks();
         });
     });
-    appRoot.querySelectorAll("[data-delete-task]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-delete-task]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const id = /** @type {HTMLElement} */ (node).dataset.deleteTask;
             await safeInvoke("delete_task", { task_id: id });
@@ -4556,7 +4479,7 @@ function renderTasks() {
             renderTasks();
         });
     });
-    appRoot.querySelectorAll("[data-split-task]").forEach((node: any) => {
+    appRoot.querySelectorAll("[data-split-task]").forEach((node: Unsafe) => {
         node.addEventListener("click", async () => {
             const id = /** @type {HTMLElement} */ (node).dataset.splitTask;
             const partsRaw = /** @type {HTMLInputElement} */ (document.getElementById(`split-parts-${id}`)).value;
@@ -4617,7 +4540,7 @@ function renderReflection() {
       <h3>ログ</h3>
       <div class="log-list">
         ${(summary?.logs ?? [])
-        .map((log: any) => `
+        .map((log: Unsafe) => `
             <div class="panel">
               <p><b>${log.phase}</b> / ${log.block_id}</p>
               <p class="small">${formatTime(log.start_time)} - ${formatTime(log.end_time)}</p>
@@ -4712,7 +4635,7 @@ function renderSettings() {
     </section>
     <nav class="settings-page-nav" aria-label="設定内ページ">
       ${settingsPages
-        .map((page: any) => `
+        .map((page: Unsafe) => `
         <a href="#/settings/${page}" data-settings-page="${page}" ${page === activePage ? 'aria-current="page"' : ""}>${settingsPageLabels[page as keyof typeof settingsPageLabels]}</a>
       `)
         .join("")}
@@ -4843,3 +4766,6 @@ setInterval(() => {
     }
     render();
 })();
+
+
+
