@@ -3,7 +3,8 @@ import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPla
 import { renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
 import type { DayCalendarModel } from "./calendar-render.js";
 import { getById } from "./dom.js";
-import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
+import { blockDurationMinutes as blockDurationMinutesValue, blockPomodoroTarget as blockPomodoroTargetValue, getNowOrderedTasks as getNowOrderedTasksValue, normalizePomodoroState as normalizePomodoroStateValue, nowBufferAvailableMinutes as nowBufferAvailableMinutesValue, pomodoroPhaseLabel as pomodoroPhaseLabelValue, pomodoroProgressPercent as pomodoroProgressPercentValue, resolveCurrentFocusTask as resolveCurrentFocusTaskValue, resolveNowAutoStartBlock as resolveNowAutoStartBlockValue, resolveNowAutoStartTask as resolveNowAutoStartTaskValue, resolveNowBlocks as resolveNowBlocksValue, resolveNowDayBounds as resolveNowDayBoundsValue, syncNowTaskOrder as syncNowTaskOrderValue, syncNowTimerDisplay as syncNowTimerDisplayValue, } from "./now.js";
+import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, toLocalInputValue as toLocalInputValueValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -361,213 +362,46 @@ function toTimerText(seconds: Unsafe) {
     return toTimerTextValue(seconds as number | null | undefined);
 }
 function normalizePomodoroState(state: Unsafe) {
-    return {
-        current_block_id: state?.current_block_id ?? null,
-        current_task_id: state?.current_task_id ?? null,
-        phase: state?.phase ?? "idle",
-        remaining_seconds: Number.isFinite(state?.remaining_seconds) ? Math.max(0, state.remaining_seconds) : 0,
-        start_time: state?.start_time ?? null,
-        total_cycles: Number.isFinite(state?.total_cycles) ? Math.max(0, state.total_cycles) : 0,
-        completed_cycles: Number.isFinite(state?.completed_cycles) ? Math.max(0, state.completed_cycles) : 0,
-        current_cycle: Number.isFinite(state?.current_cycle) ? Math.max(0, state.current_cycle) : 0,
-    };
+    return normalizePomodoroStateValue(state);
 }
 function pomodoroPhaseLabel(phase: Unsafe) {
-    switch (phase) {
-        case "focus":
-            return "集中";
-        case "break":
-            return "休憩";
-        case "paused":
-            return "一時停止";
-        default:
-            return "待機";
-    }
+    return pomodoroPhaseLabelValue(phase);
 }
 function blockDurationMinutes(block: Unsafe) {
-    const startMs = new Date(block.start_at).getTime();
-    const endMs = new Date(block.end_at).getTime();
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs)
-        return 0;
-    return Math.max(1, Math.round((endMs - startMs) / 60000));
+    return blockDurationMinutesValue(block);
 }
 function blockPomodoroTarget(block: Unsafe) {
-    if (Number.isFinite(block.planned_pomodoros) && block.planned_pomodoros > 0) {
-        return Math.max(1, Math.floor(block.planned_pomodoros));
-    }
-    const duration = blockDurationMinutes(block);
-    const cycleMinutes = 25 + Math.max(1, Math.floor(uiState.settings.breakDuration || 5));
-    return Math.max(1, Math.floor(duration / cycleMinutes));
+    return blockPomodoroTargetValue(block, Number(uiState.settings.breakDuration || 5));
 }
 function pomodoroProgressPercent(state: Unsafe) {
-    const total = Math.max(1, state.total_cycles || 0);
-    return Math.max(0, Math.min(100, Math.round((Math.min(state.completed_cycles, total) / total) * 100)));
+    return pomodoroProgressPercentValue(state);
 }
 function syncNowTaskOrder(tasksInput: Unsafe = uiState.tasks) {
-    const tasks = Array.isArray(tasksInput) ? tasksInput : [];
-    const ids = tasks
-        .map((task: Unsafe) => (typeof task?.id === "string" ? task.id : ""))
-        .filter((taskId: Unsafe) => taskId.length > 0);
-    const idSet = new Set(ids);
-    const nextOrder = uiState.nowUi.taskOrder.filter((taskId: Unsafe) => idSet.has(taskId));
-    ids.forEach((taskId: Unsafe) => {
-        if (!nextOrder.includes(taskId)) {
-            nextOrder.push(taskId);
-        }
-    });
-    uiState.nowUi.taskOrder = nextOrder;
+    syncNowTaskOrderValue(uiState.nowUi as UiState["nowUi"], tasksInput);
 }
 function getNowOrderedTasks(includeCompleted: Unsafe = false) {
-    syncNowTaskOrder(uiState.tasks);
-    const byId = new Map(uiState.tasks.map((task: Unsafe) => [task.id, task]));
-    const ordered = uiState.nowUi.taskOrder
-        .map((taskId: Unsafe) => byId.get(taskId))
-        .filter((task: Unsafe) => Boolean(task));
-    return includeCompleted ? ordered : ordered.filter((task: Unsafe) => task.status !== "completed");
+    return getNowOrderedTasksValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, Boolean(includeCompleted)) as Unsafe;
 }
 function resolveNowDayBounds(reference: Unsafe = new Date()) {
-    const start = new Date(reference);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    return { dayStartMs: start.getTime(), dayEndMs: end.getTime() };
+    return resolveNowDayBoundsValue(reference as Date);
 }
 function resolveNowBlocks(reference: Unsafe = new Date()) {
-    const { dayStartMs, dayEndMs } = resolveNowDayBounds(reference);
-    return [...uiState.blocks]
-        .map((block: Unsafe) => {
-        const startMs = new Date(block.start_at).getTime();
-        const endMs = new Date(block.end_at).getTime();
-        return { block, startMs, endMs };
-    })
-        .filter(({ startMs, endMs }: Unsafe) => Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && endMs > dayStartMs && startMs < dayEndMs)
-        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
+    return resolveNowBlocksValue(uiState.blocks, reference as Date);
 }
 function resolveNowAutoStartBlock(state: Unsafe) {
-    const todayBlocks = resolveNowBlocks();
-    if (state.current_block_id) {
-        const current = todayBlocks.find(({ block }: Unsafe) => block.id === state.current_block_id);
-        if (current)
-            return current.block;
-    }
-    const nowMs = Date.now();
-    const active = todayBlocks.find(({ startMs, endMs }: Unsafe) => startMs <= nowMs && nowMs < endMs);
-    if (active)
-        return active.block;
-    const upcoming = todayBlocks.find(({ startMs }: Unsafe) => startMs >= nowMs);
-    if (upcoming)
-        return upcoming.block;
-    return todayBlocks[0]?.block || null;
+    return resolveNowAutoStartBlockValue(uiState.blocks, state) as Unsafe;
 }
 function resolveNowAutoStartTask(state: Unsafe) {
-    const ordered = getNowOrderedTasks();
-    if (state.current_task_id) {
-        const current = ordered.find((task: Unsafe) => task.id === state.current_task_id);
-        if (current)
-            return current;
-    }
-    return ordered.find((task: Unsafe) => task.status === "in_progress") || ordered.find((task: Unsafe) => task.status === "pending") || null;
+    return resolveNowAutoStartTaskValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, state) as Unsafe;
 }
 function syncNowTimerDisplay(stateInput: Unsafe) {
-    const state = normalizePomodoroState(stateInput || uiState.pomodoro || {});
-    const remainingSeconds = Math.max(0, Math.floor(state.remaining_seconds || 0));
-    const previousPhase = uiState.nowUi.lastPhase;
-    const previousDisplay = Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0));
-    const runningPhase = state.phase === "focus" || state.phase === "break";
-    const previousRunningPhase = previousPhase === "focus" || previousPhase === "break";
-    const runningPhaseSwitched = runningPhase && previousRunningPhase && previousPhase !== state.phase;
-    if (uiState.nowUi.lastSyncEpochMs === 0) {
-        uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
-        uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-    }
-    else if (runningPhaseSwitched) {
-        uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
-        uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-    }
-    else if (runningPhase) {
-        if (!previousRunningPhase) {
-            if (previousPhase !== "paused" || uiState.nowUi.phaseTotalSeconds <= 0) {
-                uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
-            }
-            if (previousPhase === "paused" && previousDisplay > 0) {
-                uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
-            }
-            else {
-                uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-            }
-        }
-        else {
-            // Keep local 1-second countdown smooth; only correct downward from backend snapshots.
-            uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
-            if (previousDisplay <= 0 && remainingSeconds > 0) {
-                uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-            }
-            if (remainingSeconds > uiState.nowUi.phaseTotalSeconds) {
-                uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
-            }
-        }
-    }
-    else if (state.phase === "paused") {
-        if (previousDisplay > 0) {
-            uiState.nowUi.displayRemainingSeconds = Math.min(previousDisplay, remainingSeconds);
-        }
-        else {
-            uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-        }
-        if (uiState.nowUi.phaseTotalSeconds <= 0) {
-            uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds);
-        }
-    }
-    else {
-        uiState.nowUi.phaseTotalSeconds = Math.max(1, remainingSeconds || uiState.nowUi.phaseTotalSeconds || 1);
-        uiState.nowUi.displayRemainingSeconds = remainingSeconds;
-    }
-    uiState.nowUi.lastPhase = state.phase;
-    uiState.nowUi.lastSyncEpochMs = Date.now();
+    syncNowTimerDisplayValue(uiState.nowUi as UiState["nowUi"], stateInput, uiState.pomodoro);
 }
 function nowBufferAvailableMinutes(reference: Unsafe = new Date()) {
-    const nowMs = reference.getTime();
-    const { dayEndMs } = resolveNowDayBounds(reference);
-    const availableWindowMs = Math.max(0, dayEndMs - nowMs);
-    if (availableWindowMs <= 0)
-        return 0;
-    const intervals = resolveNowBlocks(reference)
-        .map(({ startMs, endMs }: Unsafe) => ({
-        startMs: Math.max(startMs, nowMs),
-        endMs: Math.min(endMs, dayEndMs),
-    }))
-        .filter((interval: Unsafe) => interval.endMs > interval.startMs)
-        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
-    let occupiedMs = 0;
-    let cursorStart = -1;
-    let cursorEnd = -1;
-    intervals.forEach((interval: Unsafe) => {
-        if (cursorStart < 0) {
-            cursorStart = interval.startMs;
-            cursorEnd = interval.endMs;
-            return;
-        }
-        if (interval.startMs > cursorEnd) {
-            occupiedMs += cursorEnd - cursorStart;
-            cursorStart = interval.startMs;
-            cursorEnd = interval.endMs;
-            return;
-        }
-        cursorEnd = Math.max(cursorEnd, interval.endMs);
-    });
-    if (cursorStart >= 0 && cursorEnd > cursorStart) {
-        occupiedMs += cursorEnd - cursorStart;
-    }
-    return Math.max(0, Math.floor((availableWindowMs - occupiedMs) / 60000));
+    return nowBufferAvailableMinutesValue(uiState.blocks, reference as Date);
 }
 function resolveCurrentFocusTask(stateInput: Unsafe = uiState.pomodoro) {
-    const state = normalizePomodoroState(stateInput || {});
-    if (state.current_task_id) {
-        const linked = uiState.tasks.find((task: Unsafe) => task.id === state.current_task_id) || null;
-        if (linked)
-            return linked;
-    }
-    return uiState.tasks.find((task: Unsafe) => task.status === "in_progress") || null;
+    return resolveCurrentFocusTaskValue(uiState.tasks, stateInput) as Unsafe;
 }
 function resolveDayBounds(dateValue: Unsafe) {
     return resolveDayBoundsValue(String(dateValue ?? ""));
@@ -895,18 +729,6 @@ function buildDailyCalendarModel(dateValue: Unsafe, blocks: Unsafe, events: Unsa
         uiState.dayCalendarSelection = model.selection;
     }
     return model;
-}
-function parseLocalDate(dateValue: Unsafe) {
-    return parseLocalDateValue(String(dateValue ?? ""));
-}
-function shiftDateByDays(baseDate: Unsafe, offsetDays: Unsafe) {
-    return shiftDateByDaysValue(baseDate as Date, Number(offsetDays));
-}
-function toLocalDateKey(date: Unsafe) {
-    return toLocalDateKeyValue(date as Date);
-}
-function toMonthDayLabel(date: Unsafe) {
-    return toMonthDayLabelValue(date as Date);
 }
 function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe) {
     const model = buildWeeklyPlannerModelValue(dateValue, {
@@ -4296,6 +4118,7 @@ setInterval(() => {
     }
     render();
 })();
+
 
 
 
