@@ -1,4 +1,5 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
+import { dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -670,10 +671,10 @@ function escapeHtml(value: Unsafe) {
         .replace(/'/g, "&#39;");
 }
 function dayItemKey(kind: Unsafe, id: Unsafe) {
-    return `${kind}:${id}`;
+    return dayItemKeyValue(kind, id);
 }
 function minutesBetween(startMs: Unsafe, endMs: Unsafe) {
-    return Math.max(0, Math.round((endMs - startMs) / 60000));
+    return minutesBetweenValue(startMs, endMs);
 }
 function toDurationLabel(totalMinutes: Unsafe) {
     if (totalMinutes <= 0)
@@ -712,75 +713,19 @@ function cloneValue(value: Unsafe) {
     return JSON.parse(JSON.stringify(value));
 }
 function toClippedInterval(startAt: Unsafe, endAt: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    const startMs = new Date(startAt).getTime();
-    const endMs = new Date(endAt).getTime();
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-        return null;
-    }
-    const clippedStart = Math.max(startMs, dayStartMs);
-    const clippedEnd = Math.min(endMs, dayEndMs);
-    if (clippedEnd <= clippedStart) {
-        return null;
-    }
-    return { startMs: clippedStart, endMs: clippedEnd };
+    return toClippedIntervalValue(startAt, endAt, dayStartMs, dayEndMs);
 }
 function toTimelineIntervals(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    const intervals = items
-        .map((item: Unsafe) => {
-        const startMs = new Date(item.start_at).getTime();
-        const endMs = new Date(item.end_at).getTime();
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-            return null;
-        }
-        const clippedStart = Math.max(startMs, dayStartMs);
-        const clippedEnd = Math.min(endMs, dayEndMs);
-        if (clippedEnd <= clippedStart) {
-            return null;
-        }
-        return { startMs: clippedStart, endMs: clippedEnd };
-    })
-        .filter((slot: Unsafe) => slot !== null);
-    return mergeTimelineIntervals(intervals);
+    return toTimelineIntervalsValue(items as Array<{ start_at: string; end_at: string }>, dayStartMs, dayEndMs);
 }
 function mergeTimelineIntervals(intervals: Unsafe) {
-    if (!intervals.length)
-        return [];
-    const sorted = [...intervals].sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
-    const merged = [{ ...sorted[0] }];
-    for (let index = 1; index < sorted.length; index += 1) {
-        const current = sorted[index];
-        const last = merged[merged.length - 1];
-        if (current.startMs <= last.endMs) {
-            last.endMs = Math.max(last.endMs, current.endMs);
-            continue;
-        }
-        merged.push({ ...current });
-    }
-    return merged;
+    return mergeTimelineIntervalsValue(intervals);
 }
 function invertTimelineIntervals(dayStartMs: Unsafe, dayEndMs: Unsafe, busyIntervals: Unsafe) {
-    if (dayEndMs <= dayStartMs)
-        return [];
-    if (!busyIntervals.length) {
-        return [{ startMs: dayStartMs, endMs: dayEndMs }];
-    }
-    const freeIntervals = [];
-    let cursor = dayStartMs;
-    busyIntervals.forEach((interval: Unsafe) => {
-        if (interval.startMs > cursor) {
-            freeIntervals.push({ startMs: cursor, endMs: interval.startMs });
-        }
-        if (interval.endMs > cursor) {
-            cursor = interval.endMs;
-        }
-    });
-    if (cursor < dayEndMs) {
-        freeIntervals.push({ startMs: cursor, endMs: dayEndMs });
-    }
-    return freeIntervals;
+    return invertTimelineIntervalsValue(dayStartMs, dayEndMs, busyIntervals);
 }
 function sumIntervalMinutes(intervals: Unsafe) {
-    return intervals.reduce((total: Unsafe, interval: Unsafe) => total + minutesBetween(interval.startMs, interval.endMs), 0);
+    return sumIntervalMinutesValue(intervals);
 }
 function intervalRangeLabel(interval: Unsafe) {
     return `${toClockText(interval.startMs)} - ${toClockText(interval.endMs)}`;
