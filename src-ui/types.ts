@@ -1,3 +1,5 @@
+import type { CommandService } from "./services/command-service.js";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
@@ -165,6 +167,24 @@ export interface UiState {
     blockDuration: number;
     breakDuration: number;
     gitRemote: string;
+  };
+}
+
+export interface PageRenderDeps {
+  uiState: UiState;
+  appRoot: HTMLElement;
+  services: CommandService;
+  setStatus: (message: string) => void;
+  refreshCoreData: (date?: string) => Promise<void>;
+  authenticateAndSyncCalendar: (date?: string, options?: Record<string, unknown>) => Promise<unknown>;
+  renderers: {
+    renderDashboard: () => void;
+    renderTodayDetailsPage: () => void;
+    renderPomodoro: () => void;
+    renderRoutines: () => void;
+    renderReflection: () => void;
+    renderSettings: () => void;
+    renderBlocks: () => void;
   };
 }
 
