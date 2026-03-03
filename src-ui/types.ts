@@ -183,6 +183,7 @@ export interface PageRenderDeps {
     normalizeAccountId: (value: unknown) => string;
     withAccount: (payload?: Record<string, unknown>) => Record<string, unknown>;
     isoDate: (value: Date) => string;
+    formatTime: (value: string | null | undefined) => string;
   };
   renderers: {
     renderDashboard: () => void;
