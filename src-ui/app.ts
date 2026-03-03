@@ -169,6 +169,24 @@ type DayItemSelection = {
     id: string;
 } | null;
 type DayCalendarViewMode = "grid" | "simple";
+type RoutineStudioModuleView = {
+    id: string;
+    name: string;
+    category: string;
+    description: string;
+    icon: string;
+    durationMinutes: number;
+};
+type RoutineStudioEntryView = {
+    entryId: string;
+    sourceKind: string;
+    sourceId: string;
+    moduleId: string;
+    title: string;
+    subtitle: string;
+    durationMinutes: number;
+    note: string;
+};
 const uiState: UiState = {
     auth: null,
     accountId: "default",
@@ -2683,15 +2701,15 @@ function renderPomodoro() {
         : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`}
     </section>
   `;
-    ["now-left-action", "now-primary-action", "now-right-action"].forEach((id: Unsafe) => {
-        document.getElementById(id)?.addEventListener("click", async (event: Unsafe) => {
-            const action = /** @type {HTMLElement} */ (event.currentTarget)?.dataset.nowAction;
+    ["now-left-action", "now-primary-action", "now-right-action"].forEach((id: string) => {
+        document.getElementById(id)?.addEventListener("click", async (event: Event) => {
+            const action = (event.currentTarget as HTMLElement | null)?.dataset.nowAction;
             await executeTimerAction(action || "", renderPomodoro);
         });
     });
-    appRoot.querySelectorAll("[data-now-task-complete]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-now-task-complete]").forEach((node) => {
         node.addEventListener("click", async () => {
-            const taskId = /** @type {HTMLElement} */ (node).dataset.nowTaskComplete;
+            const taskId = (node as HTMLElement).dataset.nowTaskComplete;
             if (!taskId)
                 return;
             await runUiAction(async () => {
@@ -2702,9 +2720,9 @@ function renderPomodoro() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-now-task-move]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-now-task-move]").forEach((node) => {
         node.addEventListener("click", () => {
-            const element = /** @type {HTMLElement} */ (node);
+            const element = node as HTMLElement;
             const taskId = element.dataset.nowTaskMove;
             const direction = element.dataset.nowTaskDir;
             if (!taskId || (direction !== "up" && direction !== "down"))
@@ -2762,39 +2780,47 @@ function renderRoutines() {
     studio.moduleEditor = studio.moduleEditor && typeof studio.moduleEditor === "object" ? studio.moduleEditor : null;
     studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
     studio.entryEditorEntryId = typeof studio.entryEditorEntryId === "string" ? studio.entryEditorEntryId : "";
-    const normalizeModule = (module: Unsafe, index: Unsafe) => {
-        const id = String(module?.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
-        const durationMinutes = Math.max(1, Number(module?.durationMinutes || module?.duration_minutes || 1));
+    const normalizeModule = (module: unknown, index: number): RoutineStudioModuleView => {
+        const source = (module ?? {}) as Record<string, unknown>;
+        const id = String(source.id || `mod-${index + 1}`).trim() || `mod-${index + 1}`;
+        const durationMinutes = Math.max(1, Number(source.durationMinutes || source.duration_minutes || 1));
         return {
             id,
-            name: String(module?.name || id),
-            category: String(module?.category || "General"),
-            description: String(module?.description || ""),
-            icon: String(module?.icon || "module"),
+            name: String(source.name || id),
+            category: String(source.category || "General"),
+            description: String(source.description || ""),
+            icon: String(source.icon || "module"),
             durationMinutes,
         };
     };
-    const normalizeEntry = (entry: Unsafe, index: Unsafe) => {
-        const durationMinutes = Math.max(1, Number(entry?.durationMinutes || entry?.duration_minutes || 5));
+    const normalizeEntry = (entry: unknown, index: number): RoutineStudioEntryView => {
+        const source = (entry ?? {}) as Record<string, unknown>;
+        const durationMinutes = Math.max(1, Number(source.durationMinutes || source.duration_minutes || 5));
         return {
-            entryId: String(entry?.entryId || nextRoutineStudioEntryId()),
-            sourceKind: String(entry?.sourceKind || entry?.source_kind || "module"),
-            sourceId: String(entry?.sourceId || entry?.source_id || ""),
-            moduleId: String(entry?.moduleId || entry?.module_id || ""),
-            title: String(entry?.title || `Step ${index + 1}`),
-            subtitle: String(entry?.subtitle || ""),
+            entryId: String(source.entryId || nextRoutineStudioEntryId()),
+            sourceKind: String(source.sourceKind || source.source_kind || "module"),
+            sourceId: String(source.sourceId || source.source_id || ""),
+            moduleId: String(source.moduleId || source.module_id || ""),
+            title: String(source.title || `Step ${index + 1}`),
+            subtitle: String(source.subtitle || ""),
             durationMinutes,
-            note: String(entry?.note || ""),
+            note: String(source.note || ""),
         };
     };
-    const normalizeModuleEditor = (editor: Unsafe) => ({
-        id: String(editor?.id || ""),
-        name: String(editor?.name || ""),
-        category: String(editor?.category || "General"),
-        description: String(editor?.description || ""),
-        icon: String(editor?.icon || "module"),
-        durationMinutes: Math.max(1, Number(editor?.durationMinutes || editor?.duration_minutes || 5)),
-    });
+    const normalizeModuleEditor = (editor: unknown): RoutineStudioModuleView => {
+        const source = (editor ?? {}) as Record<string, unknown>;
+        return {
+            id: String(source.id || ""),
+            name: String(source.name || ""),
+            category: String(source.category || "General"),
+            description: String(source.description || ""),
+            icon: String(source.icon || "module"),
+            durationMinutes: Math.max(1, Number(source.durationMinutes || source.duration_minutes || 5)),
+        };
+    };
+    const toEntryRecords = (entries: RoutineStudioEntryView[]): Array<Record<string, unknown>> =>
+        entries.map((entry) => ({ ...entry }));
+    const readEntryId = (entry: Record<string, unknown> | undefined): string => String(entry?.entryId || "");
     const createEmptyModuleEditor = () => normalizeModuleEditor({
         id: "",
         name: "",
@@ -2804,7 +2830,7 @@ function renderRoutines() {
         durationMinutes: 5,
     });
     studio.modules = studio.modules.map(normalizeModule);
-    studio.canvasEntries = studio.canvasEntries.map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
+    studio.canvasEntries = toEntryRecords(studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index)));
     studio.moduleEditor = studio.moduleEditor ? normalizeModuleEditor(studio.moduleEditor) : null;
     if (!studio.assetsLoaded) {
         appRoot.innerHTML = `
@@ -2833,45 +2859,47 @@ function renderRoutines() {
         }
         return;
     }
-    const moduleToEntry = (module: Unsafe) => normalizeEntry({
+    const moduleToEntry = (module: Module): RoutineStudioEntryView => normalizeEntry({
         sourceKind: "module",
         sourceId: module.id,
         moduleId: module.id,
-        title: module.name,
-        subtitle: module.description || module.category || "",
-        durationMinutes: Math.max(1, Number(module.durationMinutes) || 5),
+        title: String(module.name || module.id),
+        subtitle: String(module.description || module.category || ""),
+        durationMinutes: Math.max(1, Number(module.durationMinutes || 0) || 5),
         note: "",
     }, 0);
-    const recipeToEntries = (recipe: Unsafe) => {
-        const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
+    const recipeToEntries = (recipe: unknown): RoutineStudioEntryView[] => {
+        const source = (recipe ?? {}) as Record<string, unknown>;
+        const steps = Array.isArray(source.steps) ? source.steps : [];
         if (steps.length === 0) {
             return [
                 normalizeEntry({
                     sourceKind: "template",
-                    sourceId: recipe?.id || "",
-                    title: recipe?.name || recipe?.id || "ステップ",
+                    sourceId: source.id || "",
+                    title: source.name || source.id || "ステップ",
                     subtitle: "複合モジュール",
                     durationMinutes: 5,
                     note: "",
                 }, 0),
             ];
         }
-        return steps.map((step: Unsafe, index: Unsafe) => normalizeEntry({
+        return steps.map((step, index) => normalizeEntry({
             sourceKind: "template",
-            sourceId: recipe?.id || "",
-            moduleId: String(step?.moduleId || step?.module_id || ""),
-            title: String(step?.title || `Step ${index + 1}`),
-            subtitle: recipe?.name || recipe?.id || "複合モジュール",
+            sourceId: source.id || "",
+            moduleId: String((step as Record<string, unknown>)?.moduleId || (step as Record<string, unknown>)?.module_id || ""),
+            title: String((step as Record<string, unknown>)?.title || `Step ${index + 1}`),
+            subtitle: source.name || source.id || "複合モジュール",
             durationMinutes: routineStudioStepDurationMinutes(step),
-            note: String(step?.note || ""),
+            note: String((step as Record<string, unknown>)?.note || ""),
         }, index));
     };
-    const syncFromRecipe = (recipe: Unsafe) => {
+    const syncFromRecipe = (recipe: unknown) => {
         if (!recipe)
             return;
-        const autoDriveMode = String(recipe.auto_drive_mode || recipe.autoDriveMode || "manual");
-        studio.templateId = String(recipe.id || studio.templateId);
-        studio.draftName = String(recipe.name || recipe.id || studio.draftName);
+        const source = recipe as Record<string, unknown>;
+        const autoDriveMode = String(source.auto_drive_mode || source.autoDriveMode || "manual");
+        studio.templateId = String(source.id || studio.templateId);
+        studio.draftName = String(source.name || source.id || studio.draftName);
         studio.autoStart = autoDriveMode !== "manual";
     };
     if (!studio.bootstrapped) {
@@ -2898,12 +2926,12 @@ function renderRoutines() {
     if (!studio.selectedEntryId && studio.canvasEntries.length > 0) {
         studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
     }
-    const addAssetToCanvas = (kind: Unsafe, id: Unsafe, replace: Unsafe = false, insertIndex: Unsafe = studio.canvasEntries.length) => {
+    const addAssetToCanvas = (kind: string, id: string, replace = false, insertIndex: number = studio.canvasEntries.length) => {
         if (!id)
             return false;
         const clampedInsertIndex = Math.max(0, Math.min(Number(insertIndex) || 0, studio.canvasEntries.length));
         if (kind === "module") {
-            const module = studio.modules.find((candidate: Unsafe) => candidate.id === id);
+            const module = studio.modules.find((candidate) => candidate.id === id);
             if (!module)
                 return false;
             const next = moduleToEntry(module);
@@ -2912,14 +2940,14 @@ function renderRoutines() {
             }
             else {
                 const nextEntries = [...studio.canvasEntries];
-                nextEntries.splice(clampedInsertIndex, 0, next);
+                nextEntries.splice(clampedInsertIndex, 0, { ...next });
                 applyCanvasEntries(nextEntries, true);
             }
             studio.selectedEntryId = next.entryId;
             return true;
         }
         if (kind === "template") {
-            const recipe = recipes.find((candidate: Unsafe) => candidate.id === id && isRoutineStudioRecipe(candidate));
+            const recipe = recipes.find((candidate) => candidate.id === id && isRoutineStudioRecipe(candidate));
             if (!recipe)
                 return false;
             const entries = recipeToEntries(recipe);
@@ -2938,7 +2966,7 @@ function renderRoutines() {
         return false;
     };
     const pushHistory = () => {
-        const snapshot = cloneValue(studio.canvasEntries.map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index)));
+        const snapshot = cloneValue(studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index)));
         const current = studio.historyIndex >= 0 && studio.historyIndex < studio.history.length
             ? studio.history[studio.historyIndex]
             : null;
@@ -2953,30 +2981,31 @@ function renderRoutines() {
         studio.history = truncated;
         studio.historyIndex = studio.history.length - 1;
     };
-    const applyCanvasEntries = (nextEntries: Unsafe, recordHistory: Unsafe = true) => {
-        studio.canvasEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
+    const applyCanvasEntries = (nextEntries: unknown, recordHistory = true) => {
+        const normalizedEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry, index) => normalizeEntry(entry, index));
+        studio.canvasEntries = toEntryRecords(normalizedEntries);
         if (studio.canvasEntries.length > 0 && !studio.selectedEntryId) {
-            studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
+            studio.selectedEntryId = readEntryId(studio.canvasEntries[0]);
         }
         if (studio.selectedEntryId &&
-            studio.canvasEntries.every((entry: Unsafe) => entry.entryId !== studio.selectedEntryId)) {
-            studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
+            studio.canvasEntries.every((entry) => String((entry as Record<string, unknown>).entryId || "") !== studio.selectedEntryId)) {
+            studio.selectedEntryId = readEntryId(studio.canvasEntries[0]);
         }
         if (recordHistory) {
             pushHistory();
         }
     };
     const searchNeedle = studio.search.trim().toLowerCase();
-    const moduleAssets = studio.modules.filter((module: Unsafe) => {
+    const moduleAssets = studio.modules.filter((module) => {
         if (!searchNeedle)
             return true;
         return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
     });
     const complexModuleAssets = recipes
-        .filter((recipe: Unsafe) => isRoutineStudioRecipe(recipe))
-        .map((recipe: Unsafe) => {
+        .filter((recipe) => isRoutineStudioRecipe(recipe))
+        .map((recipe) => {
         const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
-        const totalMinutes = steps.reduce((sum: Unsafe, step: Unsafe) => sum + routineStudioStepDurationMinutes(step), 0);
+        const totalMinutes = steps.reduce((sum, step) => sum + routineStudioStepDurationMinutes(step), 0);
         return {
             id: String(recipe.id || ""),
             name: String(recipe.name || recipe.id || "Untitled"),
@@ -2984,12 +3013,12 @@ function renderRoutines() {
             totalMinutes,
         };
     })
-        .filter((cm: Unsafe) => {
+        .filter((cm) => {
         if (!searchNeedle)
             return true;
         return cm.name.toLowerCase().includes(searchNeedle);
     });
-    const totalMinutes = studio.canvasEntries.reduce((sum: Unsafe, entry: Unsafe) => sum + (Number(entry.durationMinutes) || 0), 0);
+    const totalMinutes = studio.canvasEntries.reduce((sum, entry) => sum + (Number((entry as Record<string, unknown>).durationMinutes) || 0), 0);
     appRoot.innerHTML = `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
@@ -3249,10 +3278,10 @@ function renderRoutines() {
         studio.draftName = payload.name;
         return payload.id;
     };
-    const readField = (id: Unsafe) => 
-    /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null} */ (document.getElementById(id))?.value || "";
-    const readChecked = (id: Unsafe) => Boolean(/** @type {HTMLInputElement | null} */ (document.getElementById(id))?.checked);
-    const openModuleEditor = (module: Unsafe) => {
+    const readField = (id: string) =>
+        (document.getElementById(id) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null)?.value || "";
+    const readChecked = (id: string) => Boolean((document.getElementById(id) as HTMLInputElement | null)?.checked);
+    const openModuleEditor = (module: Module | null) => {
         if (!module) {
             studio.editingModuleId = "";
             studio.moduleEditor = createEmptyModuleEditor();
@@ -3261,35 +3290,35 @@ function renderRoutines() {
         studio.editingModuleId = module.id;
         studio.moduleEditor = normalizeModuleEditor({ ...module });
     };
-    const updateEntry = (entryId: Unsafe, updater: Unsafe) => {
-        const index = studio.canvasEntries.findIndex((entry: Unsafe) => entry.entryId === entryId);
+    const updateEntry = (entryId: string, updater: (entry: RoutineStudioEntryView) => RoutineStudioEntryView) => {
+        const index = studio.canvasEntries.findIndex((entry) => String((entry as Record<string, unknown>).entryId || "") === entryId);
         if (index < 0)
             return false;
-        const nextEntries = [...studio.canvasEntries];
+        const nextEntries = [...studio.canvasEntries].map((entry, i) => normalizeEntry(entry, i));
         const draft = normalizeEntry(nextEntries[index], index);
         nextEntries[index] = normalizeEntry(updater(draft) || draft, index);
         applyCanvasEntries(nextEntries, true);
         studio.selectedEntryId = entryId;
         return true;
     };
-    const resolveDropInsertIndex = (dropzone: Unsafe, clientY: Unsafe) => {
-        const cards: Unsafe[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+    const resolveDropInsertIndex = (dropzone: HTMLElement, clientY: number) => {
+        const cards = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
         for (let index = 0; index < cards.length; index += 1) {
-            const rect = /** @type {HTMLElement} */ (cards[index]).getBoundingClientRect();
+            const rect = (cards[index] as HTMLElement).getBoundingClientRect();
             if (clientY < rect.top + rect.height / 2) {
                 return index;
             }
         }
         return cards.length;
     };
-    const clearDropIndicator = (dropzone: Unsafe) => {
+    const clearDropIndicator = (dropzone: HTMLElement) => {
         dropzone.classList.remove("is-over", "is-insert-end");
-        dropzone.querySelectorAll(".is-insert-target").forEach((node: Unsafe) => node.classList.remove("is-insert-target"));
+        dropzone.querySelectorAll(".is-insert-target").forEach((node) => (node as HTMLElement).classList.remove("is-insert-target"));
         studio.dragInsertIndex = -1;
     };
-    const paintDropIndicator = (dropzone: Unsafe, insertIndex: Unsafe) => {
+    const paintDropIndicator = (dropzone: HTMLElement, insertIndex: number) => {
         clearDropIndicator(dropzone);
-        const cards: Unsafe[] = Array.from(dropzone.querySelectorAll(".rs-canvas-card"));
+        const cards = Array.from(dropzone.querySelectorAll(".rs-canvas-card")) as HTMLElement[];
         dropzone.classList.add("is-over");
         if (cards.length === 0) {
             // 空キャンバス: 末尾挿入として扱う
@@ -3302,7 +3331,10 @@ function renderRoutines() {
             return;
         }
         if (insertIndex >= 0 && insertIndex < cards.length) {
-            cards[insertIndex].classList.add("is-insert-target");
+            const targetCard = cards[insertIndex];
+            if (targetCard) {
+                targetCard.classList.add("is-insert-target");
+            }
             studio.dragInsertIndex = insertIndex;
             return;
         }
@@ -3328,14 +3360,14 @@ function renderRoutines() {
         studio.editingModuleId = "";
         rerender();
     });
-    document.getElementById("module-editor-overlay")?.addEventListener("click", (e: Unsafe) => {
+    document.getElementById("module-editor-overlay")?.addEventListener("click", (e: Event) => {
         if (e.target === e.currentTarget) {
             studio.moduleEditor = null;
             studio.editingModuleId = "";
             rerender();
         }
     });
-    document.getElementById("entry-editor-overlay")?.addEventListener("click", (e: Unsafe) => {
+    document.getElementById("entry-editor-overlay")?.addEventListener("click", (e: Event) => {
         if (e.target === e.currentTarget) {
             studio.entryEditorEntryId = "";
             rerender();
@@ -3376,30 +3408,30 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-subpage]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-subpage]").forEach((node) => {
         node.addEventListener("click", () => {
-            const page = /** @type {HTMLElement} */ (node).dataset.studioSubpage || "";
+            const page = (node as HTMLElement).dataset.studioSubpage || "";
             studio.subPage = page === "schedule" ? "schedule" : "editor";
             rerender();
         });
     });
-    document.getElementById("studio-search-input")?.addEventListener("input", (event: Unsafe) => {
-        studio.search = /** @type {HTMLInputElement} */ (event.currentTarget).value || "";
+    document.getElementById("studio-search-input")?.addEventListener("input", (event: Event) => {
+        studio.search = (event.currentTarget as HTMLInputElement).value || "";
         rerender();
     });
-    appRoot.querySelectorAll("[data-studio-module-edit]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-module-edit]").forEach((node) => {
         node.addEventListener("click", () => {
-            const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleEdit || "";
-            const module = studio.modules.find((candidate: Unsafe) => candidate.id === moduleId);
+            const moduleId = (node as HTMLElement).dataset.studioModuleEdit || "";
+            const module = studio.modules.find((candidate) => candidate.id === moduleId);
             if (!module)
                 return;
             openModuleEditor(module);
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-module-delete]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-module-delete]").forEach((node) => {
         node.addEventListener("click", async () => {
-            const moduleId = /** @type {HTMLElement} */ (node).dataset.studioModuleDelete || "";
+            const moduleId = (node as HTMLElement).dataset.studioModuleDelete || "";
             if (!moduleId)
                 return;
             await runUiAction(async () => {
@@ -3419,35 +3451,35 @@ function renderRoutines() {
             });
         });
     });
-    appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node) => {
         node.addEventListener("click", () => {
-            const element = /** @type {HTMLElement} */ (node);
+            const element = node as HTMLElement;
             if (addAssetToCanvas(element.dataset.studioInsertKind || "", element.dataset.studioInsertId || "")) {
                 rerender();
             }
         });
     });
-    appRoot.querySelectorAll("[data-studio-load-template]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-load-template]").forEach((node) => {
         node.addEventListener("click", () => {
-            const templateId = /** @type {HTMLElement} */ (node).dataset.studioLoadTemplate || "";
+            const templateId = (node as HTMLElement).dataset.studioLoadTemplate || "";
             if (addAssetToCanvas("template", templateId, true)) {
                 rerender();
             }
         });
     });
-    appRoot.querySelectorAll("[data-studio-remove]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-remove]").forEach((node) => {
         node.addEventListener("click", () => {
-            const entryId = /** @type {HTMLElement} */ (node).dataset.studioRemove || "";
-            applyCanvasEntries(studio.canvasEntries.filter((entry: Unsafe) => entry.entryId !== entryId), true);
+            const entryId = (node as HTMLElement).dataset.studioRemove || "";
+            applyCanvasEntries(studio.canvasEntries.filter((entry) => String((entry as Record<string, unknown>).entryId || "") !== entryId), true);
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-move]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-move]").forEach((node) => {
         node.addEventListener("click", () => {
-            const element = /** @type {HTMLElement} */ (node);
+            const element = node as HTMLElement;
             const entryId = element.dataset.studioMove || "";
             const direction = element.dataset.studioDir || "";
-            const index = studio.canvasEntries.findIndex((entry: Unsafe) => entry.entryId === entryId);
+            const index = studio.canvasEntries.findIndex((entry) => String((entry as Record<string, unknown>).entryId || "") === entryId);
             if (index < 0)
                 return;
             const nextIndex = direction === "up" ? index - 1 : index + 1;
@@ -3463,33 +3495,33 @@ function renderRoutines() {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-select-entry]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-select-entry]").forEach((node) => {
         node.addEventListener("click", () => {
-            const entryId = /** @type {HTMLElement} */ (node).dataset.studioSelectEntry || "";
+            const entryId = (node as HTMLElement).dataset.studioSelectEntry || "";
             if (!entryId)
                 return;
             studio.selectedEntryId = entryId;
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-entry-settings]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-studio-entry-settings]").forEach((node) => {
         node.addEventListener("click", () => {
-            const entryId = /** @type {HTMLElement} */ (node).dataset.studioEntrySettings || "";
+            const entryId = (node as HTMLElement).dataset.studioEntrySettings || "";
             if (!entryId)
                 return;
             studio.entryEditorEntryId = entryId;
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-studio-entry-field]").forEach((node: Unsafe) => {
-        node.addEventListener("change", (event: Unsafe) => {
-            const element = /** @type {HTMLElement} */ (event.currentTarget);
+    appRoot.querySelectorAll("[data-studio-entry-field]").forEach((node) => {
+        node.addEventListener("change", (event: Event) => {
+            const element = event.currentTarget as HTMLElement;
             const entryId = element.dataset.studioEntryId || "";
             const field = element.dataset.studioEntryField || "";
-            const value = /** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */ (event.currentTarget).value;
+            const value = (event.currentTarget as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
             if (!entryId || !field)
                 return;
-            const changed = updateEntry(entryId, (entry: Unsafe) => {
+            const changed = updateEntry(entryId, (entry) => {
                 if (field === "title") {
                     entry.title = String(value || "").trim() || entry.title;
                 }
@@ -3512,16 +3544,16 @@ function renderRoutines() {
         if (studio.historyIndex <= 0)
             return;
         studio.historyIndex -= 1;
-        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
-        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
+        studio.canvasEntries = toEntryRecords((cloneValue(studio.history[studio.historyIndex] || []) as unknown[]).map((entry: unknown, index: number) => normalizeEntry(entry, index)));
+        studio.selectedEntryId = readEntryId(studio.canvasEntries[0]);
         rerender();
     });
     document.getElementById("studio-redo")?.addEventListener("click", () => {
         if (studio.historyIndex >= studio.history.length - 1)
             return;
         studio.historyIndex += 1;
-        studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
-        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
+        studio.canvasEntries = toEntryRecords((cloneValue(studio.history[studio.historyIndex] || []) as unknown[]).map((entry: unknown, index: number) => normalizeEntry(entry, index)));
+        studio.selectedEntryId = readEntryId(studio.canvasEntries[0]);
         rerender();
     });
     // ================================================================
@@ -3545,7 +3577,7 @@ function renderRoutines() {
     }
     routineStudioActiveDrag = null;
     // ドロップを確定する内部関数
-    const commitStudioDrop = (clientX: Unsafe, clientY: Unsafe) => {
+    const commitStudioDrop = (clientX: number, clientY: number) => {
         const dz = document.getElementById("routine-studio-dropzone");
         if (!dz) {
             routineStudioActiveDrag = null;
@@ -3563,7 +3595,7 @@ function renderRoutines() {
         const { kind, id } = routineStudioActiveDrag;
         routineStudioActiveDrag = null;
         if (kind === "entry") {
-            const sourceIndex = studio.canvasEntries.findIndex((e: Unsafe) => e.entryId === id);
+            const sourceIndex = studio.canvasEntries.findIndex((e) => String((e as Record<string, unknown>).entryId || "") === id);
             if (sourceIndex < 0)
                 return;
             const target = Math.max(0, Math.min(insertIndex, studio.canvasEntries.length));
@@ -3574,7 +3606,7 @@ function renderRoutines() {
             const adjusted = target > sourceIndex ? target - 1 : target;
             nextEntries.splice(Math.max(0, adjusted), 0, moved);
             applyCanvasEntries(nextEntries, true);
-            studio.selectedEntryId = String((moved as Unsafe)?.entryId || "");
+            studio.selectedEntryId = String((moved as Record<string, unknown>)?.entryId || "");
         }
         else {
             addAssetToCanvas(kind, id, false, insertIndex);
@@ -3582,7 +3614,7 @@ function renderRoutines() {
         rerender();
     };
     // pointermove: ゴーストを移動し、挿入インジケータを更新
-    const onRsDragMove = (/** @type {PointerEvent} */ event: Unsafe) => {
+    const onRsDragMove = (event: PointerEvent) => {
         if (!_rsDragGhost)
             return;
         _rsDragGhost.style.left = `${event.clientX - _rsDragOffsetX}px`;
@@ -3600,7 +3632,7 @@ function renderRoutines() {
         }
     };
     // pointerup / pointercancel: ドロップを確定またはキャンセル
-    const onRsDragUp = (/** @type {PointerEvent} */ event: Unsafe) => {
+    const onRsDragUp = (event: PointerEvent) => {
         document.removeEventListener("pointermove", onRsDragMove);
         document.removeEventListener("pointerup", onRsDragUp);
         document.removeEventListener("pointercancel", onRsDragUp);
@@ -3616,7 +3648,7 @@ function renderRoutines() {
         commitStudioDrop(event.clientX, event.clientY);
     };
     // ドラッグ開始共通內部関数
-    const startStudioDrag = (/** @type {PointerEvent} */ event: Unsafe, /** @type {{ kind: string, id: string }} */ payload: Unsafe, /** @type {HTMLElement} */ sourceEl: Unsafe) => {
+    const startStudioDrag = (event: PointerEvent, payload: { kind: string; id: string; }, sourceEl: HTMLElement) => {
         if (event.button !== undefined && event.button !== 0)
             return;
         event.preventDefault();
@@ -3640,43 +3672,43 @@ function renderRoutines() {
         document.addEventListener("pointercancel", onRsDragUp);
     };
     // Library アセットカード: pointerdown でドラッグ開始
-    appRoot.querySelectorAll("[data-studio-draggable='true']").forEach((node: Unsafe) => {
-        node.addEventListener("pointerdown", (event: Unsafe) => {
-            const el = /** @type {HTMLElement} */ (node);
+    appRoot.querySelectorAll("[data-studio-draggable='true']").forEach((node) => {
+        const el = node as HTMLElement;
+        el.addEventListener("pointerdown", (event: PointerEvent) => {
             const kind = el.dataset.studioAssetKind || "";
             const id = el.dataset.studioAssetId || "";
             if (!kind || !id)
                 return;
             // ボタンクリックは無視
-            if ( /** @type {HTMLElement} */(event.target).closest("button, a"))
+            if ((event.target as HTMLElement | null)?.closest("button, a"))
                 return;
-            startStudioDrag(/** @type {PointerEvent} */ (event), { kind, id }, el);
+            startStudioDrag(event, { kind, id }, el);
         });
     });
     // Canvas エントリカード: ハンドルの pointerdown でドラッグ開始
-    appRoot.querySelectorAll(".rs-drag-handle").forEach((handle: Unsafe) => {
-        handle.addEventListener("pointerdown", (event: Unsafe) => {
-            const card = /** @type {HTMLElement | null} */ (
-            /** @type {HTMLElement} */ (handle).closest("[data-studio-canvas-entry]"));
+    appRoot.querySelectorAll(".rs-drag-handle").forEach((handle) => {
+        const handleEl = handle as HTMLElement;
+        handleEl.addEventListener("pointerdown", (event: PointerEvent) => {
+            const card = handleEl.closest("[data-studio-canvas-entry]") as HTMLElement | null;
             if (!card)
                 return;
             const id = card.dataset.studioCanvasEntry || "";
             if (!id)
                 return;
-            startStudioDrag(/** @type {PointerEvent} */ (event), { kind: "entry", id }, card);
+            startStudioDrag(event, { kind: "entry", id }, card);
         });
     });
-    document.getElementById("studio-draft-name")?.addEventListener("input", (event: Unsafe) => {
-        studio.draftName = /** @type {HTMLInputElement} */ (event.currentTarget).value || "Routine Draft";
+    document.getElementById("studio-draft-name")?.addEventListener("input", (event: Event) => {
+        studio.draftName = (event.currentTarget as HTMLInputElement).value || "Routine Draft";
         const titleNode = appRoot.querySelector("[data-studio-title]");
         if (titleNode)
             titleNode.textContent = studio.draftName;
     });
-    document.getElementById("studio-context")?.addEventListener("change", (event: Unsafe) => {
-        studio.context = /** @type {HTMLSelectElement} */ (event.currentTarget).value || routineStudioContexts[0];
+    document.getElementById("studio-context")?.addEventListener("change", (event: Event) => {
+        studio.context = (event.currentTarget as HTMLSelectElement).value || routineStudioContexts[0] || "Work - Deep Focus";
     });
-    document.getElementById("studio-trigger-time")?.addEventListener("change", (event: Unsafe) => {
-        studio.triggerTime = /** @type {HTMLInputElement} */ (event.currentTarget).value || "09:00";
+    document.getElementById("studio-trigger-time")?.addEventListener("change", (event: Event) => {
+        studio.triggerTime = (event.currentTarget as HTMLInputElement).value || "09:00";
         rerender();
     });
     document.getElementById("studio-auto-start")?.addEventListener("change", (event: Unsafe) => {
