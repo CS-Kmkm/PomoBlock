@@ -5,7 +5,7 @@ import type { DayCalendarModel } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { blockDurationMinutes as blockDurationMinutesValue, blockPomodoroTarget as blockPomodoroTargetValue, getNowOrderedTasks as getNowOrderedTasksValue, normalizePomodoroState as normalizePomodoroStateValue, nowBufferAvailableMinutes as nowBufferAvailableMinutesValue, pomodoroPhaseLabel as pomodoroPhaseLabelValue, pomodoroProgressPercent as pomodoroProgressPercentValue, resolveCurrentFocusTask as resolveCurrentFocusTaskValue, resolveNowAutoStartBlock as resolveNowAutoStartBlockValue, resolveNowAutoStartTask as resolveNowAutoStartTaskValue, resolveNowBlocks as resolveNowBlocksValue, resolveNowDayBounds as resolveNowDayBoundsValue, syncNowTaskOrder as syncNowTaskOrderValue, syncNowTimerDisplay as syncNowTimerDisplayValue, } from "./now.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, toLocalInputValue as toLocalInputValueValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
-import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
+import type { Block, DayBlockDragState, MockState, Module, PomodoroState, ProgressState, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
 const progressChip = getById<HTMLElement>("global-progress");
@@ -361,47 +361,47 @@ function fromLocalInputValue(value: Unsafe) {
 function toTimerText(seconds: Unsafe) {
     return toTimerTextValue(seconds as number | null | undefined);
 }
-function normalizePomodoroState(state: Unsafe) {
+function normalizePomodoroState(state: Unsafe): PomodoroState {
     return normalizePomodoroStateValue(state);
 }
 function pomodoroPhaseLabel(phase: Unsafe) {
     return pomodoroPhaseLabelValue(phase);
 }
-function blockDurationMinutes(block: Unsafe) {
+function blockDurationMinutes(block: Block) {
     return blockDurationMinutesValue(block);
 }
-function blockPomodoroTarget(block: Unsafe) {
+function blockPomodoroTarget(block: Block) {
     return blockPomodoroTargetValue(block, Number(uiState.settings.breakDuration || 5));
 }
 function pomodoroProgressPercent(state: Unsafe) {
     return pomodoroProgressPercentValue(state);
 }
-function syncNowTaskOrder(tasksInput: Unsafe = uiState.tasks) {
+function syncNowTaskOrder(tasksInput: Task[] = uiState.tasks as Task[]) {
     syncNowTaskOrderValue(uiState.nowUi as UiState["nowUi"], tasksInput);
 }
-function getNowOrderedTasks(includeCompleted: Unsafe = false) {
-    return getNowOrderedTasksValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, Boolean(includeCompleted)) as Unsafe;
+function getNowOrderedTasks(includeCompleted = false): Task[] {
+    return getNowOrderedTasksValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, includeCompleted);
 }
-function resolveNowDayBounds(reference: Unsafe = new Date()) {
-    return resolveNowDayBoundsValue(reference as Date);
+function resolveNowDayBounds(reference: Date = new Date()) {
+    return resolveNowDayBoundsValue(reference);
 }
-function resolveNowBlocks(reference: Unsafe = new Date()) {
-    return resolveNowBlocksValue(uiState.blocks, reference as Date);
+function resolveNowBlocks(reference: Date = new Date()): Array<{ block: Block; startMs: number; endMs: number }> {
+    return resolveNowBlocksValue(uiState.blocks, reference);
 }
-function resolveNowAutoStartBlock(state: Unsafe) {
-    return resolveNowAutoStartBlockValue(uiState.blocks, state) as Unsafe;
+function resolveNowAutoStartBlock(state: PomodoroState): Block | null {
+    return resolveNowAutoStartBlockValue(uiState.blocks, state);
 }
-function resolveNowAutoStartTask(state: Unsafe) {
-    return resolveNowAutoStartTaskValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, state) as Unsafe;
+function resolveNowAutoStartTask(state: PomodoroState): Task | null {
+    return resolveNowAutoStartTaskValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, state);
 }
 function syncNowTimerDisplay(stateInput: Unsafe) {
     syncNowTimerDisplayValue(uiState.nowUi as UiState["nowUi"], stateInput, uiState.pomodoro);
 }
-function nowBufferAvailableMinutes(reference: Unsafe = new Date()) {
-    return nowBufferAvailableMinutesValue(uiState.blocks, reference as Date);
+function nowBufferAvailableMinutes(reference: Date = new Date()) {
+    return nowBufferAvailableMinutesValue(uiState.blocks, reference);
 }
-function resolveCurrentFocusTask(stateInput: Unsafe = uiState.pomodoro) {
-    return resolveCurrentFocusTaskValue(uiState.tasks, stateInput) as Unsafe;
+function resolveCurrentFocusTask(stateInput: PomodoroState = uiState.pomodoro as PomodoroState): Task | null {
+    return resolveCurrentFocusTaskValue(uiState.tasks, stateInput);
 }
 function resolveDayBounds(dateValue: Unsafe) {
     return resolveDayBoundsValue(String(dateValue ?? ""));
@@ -1936,7 +1936,7 @@ function renderTodayTimelinePanel() {
   `;
 }
 function renderTodayNotesPanel() {
-    const activeTask = resolveCurrentFocusTask(uiState.pomodoro || {}) || null;
+    const activeTask = resolveCurrentFocusTask(normalizePomodoroState(uiState.pomodoro || {})) || null;
     const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
     return `
     <section class="today-right-section today-right-section--notes">
@@ -2705,7 +2705,7 @@ function renderPomodoro() {
             const direction = element.dataset.nowTaskDir;
             if (!taskId || (direction !== "up" && direction !== "down"))
                 return;
-            const visibleIds = getNowOrderedTasks().map((task: Unsafe) => task.id);
+            const visibleIds = getNowOrderedTasks().map((task) => task.id);
             const visibleIndex = visibleIds.indexOf(taskId);
             if (visibleIndex < 0)
                 return;
