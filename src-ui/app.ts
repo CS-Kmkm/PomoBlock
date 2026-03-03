@@ -1,5 +1,6 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
+import { renderDayHourGuides as renderDayHourGuidesValue, renderDayTimeAxis as renderDayTimeAxisValue, } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -915,23 +916,10 @@ function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsa
     return model;
 }
 function renderDayHourGuides() {
-    return Array.from({ length: 25 }, (_: Unsafe, index: Unsafe) => {
-        const top = (index / 24) * 100;
-        return `<span class="day-hour-line" style="top:${top}%"></span>`;
-    }).join("");
+    return renderDayHourGuidesValue();
 }
 function renderDayTimeAxis(dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    const totalHours = Math.max(1, Math.round((dayEndMs - dayStartMs) / (60 * 60 * 1000)));
-    return `
-    <div class="day-time-axis">
-      ${renderDayHourGuides()}
-      ${Array.from({ length: totalHours + 1 }, (_: Unsafe, index: Unsafe) => {
-        const top = (index / totalHours) * 100;
-        const clock = toClockText(dayStartMs + index * 60 * 60 * 1000);
-        return `<span class="day-time-label" style="top:${top}%">${clock}</span>`;
-    }).join("")}
-    </div>
-  `;
+    return renderDayTimeAxisValue(Number(dayStartMs), Number(dayEndMs), (milliseconds: number) => toClockText(milliseconds));
 }
 function renderDayLaneItems(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     const totalRange = Math.max(1, dayEndMs - dayStartMs);
