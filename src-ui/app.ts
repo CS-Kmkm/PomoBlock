@@ -1,6 +1,6 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, } from "./calendar-render.js";
+import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLane as renderDayLaneValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineScale as renderSimpleTimelineScaleValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -936,65 +936,32 @@ function renderCombinedDayLaneItems(items: Unsafe, dayStartMs: Unsafe, dayEndMs:
     });
 }
 function renderWeeklyPlannerCalendar(model: Unsafe) {
-    if (!model.days.length) {
-        return '<div class="panel"><p class="small">週次データがありません。</p></div>';
-    }
-    const gridColumns = `84px repeat(${model.days.length}, minmax(150px, 1fr))`;
-    return `
-    <div class="week-board">
-      <div class="week-board-head" style="grid-template-columns:${gridColumns}">
-        <span class="week-board-head-time">時刻</span>
-        ${model.days
-        .map((day: Unsafe) => `
-          <span class="week-board-day ${day.isCurrent ? "is-current" : ""}">
-            <small>${day.weekdayLabel}</small>
-            <strong>${day.dayNumber}</strong>
-          </span>
-        `)
-        .join("")}
-      </div>
-      <div class="week-board-body" style="grid-template-columns:${gridColumns}">
-        ${renderDayTimeAxis(model.days[0].dayStartMs, model.days[0].dayEndMs)}
-        ${model.days
-        .map((day: Unsafe) => {
-        const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem);
-        return `
-              <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
-                <div class="day-lane-track week-day-track">
-                  ${renderDayHourGuides()}
-                  ${entries || '<span class="day-lane-empty">なし</span>'}
-                </div>
-              </section>
-            `;
-    })
-        .join("")}
-      </div>
-    </div>
-  `;
+    return renderWeeklyPlannerCalendarValue(model as {
+        days: Array<{
+            isCurrent: boolean;
+            dayNumber: string;
+            weekdayLabel: string;
+            combinedItems: Array<Unsafe & { kind: string; }>;
+            dayStartMs: number;
+            dayEndMs: number;
+        }>;
+        selectedItem: { key?: string; } | null;
+    }, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        toClockText: (milliseconds: number) => toClockText(milliseconds),
+    });
 }
 function renderDayLane(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    const entries = renderDayLaneItems(kind, items, dayStartMs, dayEndMs, selectedItem);
-    const hint = "";
-    return `
-    <section class="day-lane">
-      <header class="day-lane-head">
-        <span>${label}</span>
-        <span class="small">${items.length}件${hint}</span>
-      </header>
-      <div class="day-lane-track">
-        ${renderDayHourGuides()}
-        ${entries || '<span class="day-lane-empty">なし</span>'}
-      </div>
-    </section>
-  `;
+    return renderDayLaneValue(String(label), String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+    });
 }
 function renderSimpleTimelineScale() {
-    return [0, 6, 12, 18, 24]
-        .map((hour: Unsafe) => {
-        const left = (hour / 24) * 100;
-        return `<span style="left:${left}%">${String(hour).padStart(2, "0")}:00</span>`;
-    })
-        .join("");
+    return renderSimpleTimelineScaleValue();
 }
 function renderSimpleTimelineSegments(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
     return renderSimpleTimelineSegmentsValue(String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
@@ -1018,56 +985,38 @@ function renderSimpleTimelineRow(label: Unsafe, kind: Unsafe, items: Unsafe, day
     });
 }
 function renderSimpleDailyCalendar(model: Unsafe, options: Unsafe = {}) {
-    const includeDetail = options.includeDetail !== false;
-    const includeTimeline = options.includeTimeline !== false;
-    return `
-    <div class="day-view-simple">
-      ${includeTimeline
-        ? `
-      <div class="panel day-simple-timeline">
-        <div class="day-simple-scale">${renderSimpleTimelineScale()}</div>
-        <div class="day-simple-row">
-          <span class="day-simple-row-label">埋まり具合</span>
-          <div class="day-simple-track day-simple-track-occupancy">
-            ${renderSimpleOccupancySegments(model.busyIntervals, model.dayStartMs, model.dayEndMs)}
-          </div>
-        </div>
-        ${renderSimpleTimelineRow("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-        ${renderSimpleTimelineRow("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-        ${renderSimpleTimelineRow("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-      </div>
-      `
-        : ""}
-      ${includeDetail ? renderDailyDetail(model.selectedItem) : ""}
-    </div>
-  `;
+    return renderSimpleDailyCalendarValue(model as {
+        dayStartMs: number;
+        dayEndMs: number;
+        blockItems: Unsafe[];
+        eventItems: Unsafe[];
+        freeItems: Unsafe[];
+        busyIntervals: Array<{ startMs: number; endMs: number; }>;
+        selectedItem: { key?: string; } | null;
+    }, options as { includeDetail?: boolean; includeTimeline?: boolean; }, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        minutesBetween: (startMs: number, endMs: number) => minutesBetween(startMs, endMs),
+        renderDailyDetail: (selected: unknown) => renderDailyDetail(selected as Unsafe),
+    });
 }
 function renderGridDailyCalendar(model: Unsafe, options: Unsafe = {}) {
-    const includeDetail = options.includeDetail !== false;
-    const includeBoard = options.includeBoard !== false;
-    return `
-    <div class="day-view-grid ${includeBoard ? "" : "is-detail-only"}">
-      ${includeBoard
-        ? `
-      <div class="day-board">
-        <div class="day-board-head">
-          <span class="day-board-head-time">時刻</span>
-          <span>ブロック</span>
-          <span>予定</span>
-          <span>空き枠</span>
-        </div>
-        <div class="day-board-body">
-          ${renderDayTimeAxis(model.dayStartMs, model.dayEndMs)}
-          ${renderDayLane("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-          ${renderDayLane("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-          ${renderDayLane("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem)}
-        </div>
-      </div>
-      `
-        : ""}
-      ${includeDetail ? renderDailyDetail(model.selectedItem) : ""}
-    </div>
-  `;
+    return renderGridDailyCalendarValue(model as {
+        dayStartMs: number;
+        dayEndMs: number;
+        blockItems: Unsafe[];
+        eventItems: Unsafe[];
+        freeItems: Unsafe[];
+        busyIntervals: Array<{ startMs: number; endMs: number; }>;
+        selectedItem: { key?: string; } | null;
+    }, options as { includeDetail?: boolean; includeBoard?: boolean; }, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        toClockText: (milliseconds: number) => toClockText(milliseconds),
+        renderDailyDetail: (selected: unknown) => renderDailyDetail(selected as Unsafe),
+    });
 }
 function renderDailyDetail(selectedItem: Unsafe) {
     if (!selectedItem) {
