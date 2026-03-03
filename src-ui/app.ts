@@ -1,6 +1,7 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLane as renderDayLaneValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderSimpleOccupancySegments as renderSimpleOccupancySegmentsValue, renderSimpleTimelineRow as renderSimpleTimelineRowValue, renderSimpleTimelineScale as renderSimpleTimelineScaleValue, renderSimpleTimelineSegments as renderSimpleTimelineSegmentsValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
+import { renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
+import type { DayCalendarModel } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -915,26 +916,6 @@ function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsa
     uiState.dayCalendarSelection = model.selection;
     return model;
 }
-function renderDayHourGuides() {
-    return renderDayHourGuidesValue();
-}
-function renderDayTimeAxis(dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    return renderDayTimeAxisValue(Number(dayStartMs), Number(dayEndMs), (milliseconds: number) => toClockText(milliseconds));
-}
-function renderDayLaneItems(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    return renderDayLaneItemsValue(String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-    });
-}
-function renderCombinedDayLaneItems(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    return renderCombinedDayLaneItemsValue(items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-    });
-}
 function renderWeeklyPlannerCalendar(model: Unsafe) {
     return renderWeeklyPlannerCalendarValue(model as {
         days: Array<{
@@ -951,79 +932,6 @@ function renderWeeklyPlannerCalendar(model: Unsafe) {
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
         toClockText: (milliseconds: number) => toClockText(milliseconds),
-    });
-}
-function renderDayLane(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    return renderDayLaneValue(String(label), String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-    });
-}
-function renderSimpleTimelineScale() {
-    return renderSimpleTimelineScaleValue();
-}
-function renderSimpleTimelineSegments(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    return renderSimpleTimelineSegmentsValue(String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-    });
-}
-function renderSimpleOccupancySegments(intervals: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    return renderSimpleOccupancySegmentsValue(intervals as Array<{ startMs: number; endMs: number; }>, Number(dayStartMs), Number(dayEndMs), {
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-        minutesBetween: (startMs: number, endMs: number) => minutesBetween(startMs, endMs),
-    });
-}
-function renderSimpleTimelineRow(label: Unsafe, kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    return renderSimpleTimelineRowValue(String(label), String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-    });
-}
-function renderSimpleDailyCalendar(model: Unsafe, options: Unsafe = {}) {
-    return renderSimpleDailyCalendarValue(model as {
-        dayStartMs: number;
-        dayEndMs: number;
-        blockItems: Unsafe[];
-        eventItems: Unsafe[];
-        freeItems: Unsafe[];
-        busyIntervals: Array<{ startMs: number; endMs: number; }>;
-        selectedItem: { key?: string; } | null;
-    }, options as { includeDetail?: boolean; includeTimeline?: boolean; }, {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-        minutesBetween: (startMs: number, endMs: number) => minutesBetween(startMs, endMs),
-        renderDailyDetail: (selected: unknown) => renderDailyDetail(selected as Unsafe),
-    });
-}
-function renderGridDailyCalendar(model: Unsafe, options: Unsafe = {}) {
-    return renderGridDailyCalendarValue(model as {
-        dayStartMs: number;
-        dayEndMs: number;
-        blockItems: Unsafe[];
-        eventItems: Unsafe[];
-        freeItems: Unsafe[];
-        busyIntervals: Array<{ startMs: number; endMs: number; }>;
-        selectedItem: { key?: string; } | null;
-    }, options as { includeDetail?: boolean; includeBoard?: boolean; }, {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-        toClockText: (milliseconds: number) => toClockText(milliseconds),
-        renderDailyDetail: (selected: unknown) => renderDailyDetail(selected as Unsafe),
-    });
-}
-function renderDailyDetail(selectedItem: Unsafe) {
-    return renderDailyDetailValue(selectedItem, {
-        escapeHtml,
-        intervalRangeLabel,
-        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-        blockTitle: (block: unknown) => blockTitle(block as Unsafe),
     });
 }
 function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
@@ -1043,9 +951,16 @@ function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
     const includeDetail = options.includeDetail !== false;
     const includeBoard = options.includeBoard !== false;
     const includeTimeline = options.includeTimeline !== false;
+    const typedModel = model as DayCalendarModel & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; };
+    const renderDailyDetail = (selected: unknown) => renderDailyDetailValue(selected, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        blockTitle: (block: unknown) => blockTitle(block as Unsafe),
+    });
     return renderDailyCalendarValue({
         dateValue: String(dateValue),
-        model: model as Unsafe & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; },
+        model: typedModel,
         mode,
         panelClass,
         showHeader,
@@ -1059,8 +974,20 @@ function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
         timezoneOffsetLabel,
-        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendar(calendarModel as Unsafe, renderOptions as Unsafe),
-        renderGridDailyCalendar: (calendarModel, renderOptions) => renderGridDailyCalendar(calendarModel as Unsafe, renderOptions as Unsafe),
+        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendarValue(calendarModel, renderOptions, {
+            escapeHtml,
+            intervalRangeLabel,
+            toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+            minutesBetween: (startMs: number, endMs: number) => minutesBetween(startMs, endMs),
+            renderDailyDetail,
+        }),
+        renderGridDailyCalendar: (calendarModel, renderOptions) => renderGridDailyCalendarValue(calendarModel, renderOptions, {
+            escapeHtml,
+            intervalRangeLabel,
+            toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+            toClockText: (milliseconds: number) => toClockText(milliseconds),
+            renderDailyDetail,
+        }),
     });
 }
 function setStatus(message: Unsafe) {
