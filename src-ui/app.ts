@@ -899,11 +899,11 @@ function finishLongRunningProgress(success: boolean) {
 }
 function waitForNextFrame() {
     if (typeof window.requestAnimationFrame === "function") {
-        return new Promise((resolve: Unsafe) => {
+        return new Promise<void>((resolve) => {
             window.requestAnimationFrame(() => setTimeout(resolve, 0));
         });
     }
-    return new Promise((resolve: Unsafe) => setTimeout(resolve, 0));
+    return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
@@ -935,7 +935,7 @@ function getRoute(): string {
     return routes.includes(normalized) ? normalized : "today";
 }
 function markActiveRoute(route: string) {
-    document.querySelectorAll("a[data-route]").forEach((node: Unsafe) => {
+    document.querySelectorAll("a[data-route]").forEach((node) => {
         const anchor = node as HTMLAnchorElement;
         if (anchor.dataset.route === route) {
             anchor.setAttribute("aria-current", "page");
@@ -988,9 +988,9 @@ function emptyMockPomodoroState() {
         paused_phase: null,
     };
 }
-function mockSessionPlan(block: Unsafe) {
+function mockSessionPlan(block: Block) {
     const requestedCycles = blockPomodoroTarget(block);
-    const recipe = mockState.recipes.find((item: Unsafe) => item.id === block.recipe_id);
+    const recipe = mockState.recipes.find((item) => item.id === block.recipe_id);
     const step = Array.isArray(recipe?.steps) ? recipe.steps[0] : null;
     const pomodoro = step?.pomodoro || null;
     const focusSeconds = Number(pomodoro?.focusSeconds || pomodoro?.focus_seconds || 25 * 60);
@@ -1006,7 +1006,7 @@ function mockSessionPlan(block: Unsafe) {
         breakSeconds,
     };
 }
-function appendMockPomodoroLog(phase: Unsafe, interruptionReason: Unsafe = null) {
+function appendMockPomodoroLog(phase: string, interruptionReason: string | null = null) {
     mockState.logs.push({
         id: nextMockId("pom"),
         block_id: mockState.pomodoro.current_block_id ?? "-",
@@ -1017,14 +1017,14 @@ function appendMockPomodoroLog(phase: Unsafe, interruptionReason: Unsafe = null)
         interruption_reason: interruptionReason,
     });
 }
-function unassignMockTask(taskId: Unsafe) {
+function unassignMockTask(taskId: string) {
     const previousBlockId = mockState.taskAssignmentsByTask[taskId];
     if (previousBlockId) {
         delete mockState.taskAssignmentsByTask[taskId];
         delete mockState.taskAssignmentsByBlock[previousBlockId];
     }
 }
-function assignMockTask(taskId: Unsafe, blockId: Unsafe) {
+function assignMockTask(taskId: string, blockId: string) {
     const previousTaskId = mockState.taskAssignmentsByBlock[blockId];
     if (previousTaskId) {
         delete mockState.taskAssignmentsByTask[previousTaskId];
@@ -1093,7 +1093,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             if (!payloadRecipe?.id) {
                 throw new Error("recipe id is required");
             }
-            if (mockState.recipes.some((recipe: Unsafe) => recipe.id === payloadRecipe.id)) {
+            if (mockState.recipes.some((recipe) => recipe.id === payloadRecipe.id)) {
                 throw new Error("recipe already exists");
             }
             const recipe = {
@@ -1112,7 +1112,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const recipeId = String(payload.recipe_id || "").trim();
             if (!recipeId)
                 throw new Error("recipe_id is required");
-            const index = mockState.recipes.findIndex((recipe: Unsafe) => recipe.id === recipeId);
+            const index = mockState.recipes.findIndex((recipe) => recipe.id === recipeId);
             if (index < 0)
                 throw new Error("recipe not found");
             const updated = {
@@ -1127,7 +1127,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             ensureMockRecipesSeeded();
             const recipeId = String(payload.recipe_id || "").trim();
             const before = mockState.recipes.length;
-            mockState.recipes = mockState.recipes.filter((recipe: Unsafe) => recipe.id !== recipeId);
+            mockState.recipes = mockState.recipes.filter((recipe) => recipe.id !== recipeId);
             return before !== mockState.recipes.length;
         }
         case "list_modules":
@@ -1140,7 +1140,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                 throw new Error("module id is required");
             }
             const id = String(payloadModule.id);
-            if (mockState.modules.some((module: Unsafe) => module.id === id)) {
+            if (mockState.modules.some((module) => module.id === id)) {
                 throw new Error("module already exists");
             }
             const created = {
@@ -1167,7 +1167,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             if (!moduleId)
                 throw new Error("module_id is required");
             const payloadModule = payload.payload || payload;
-            const index = mockState.modules.findIndex((module: Unsafe) => module.id === moduleId);
+            const index = mockState.modules.findIndex((module) => module.id === moduleId);
             if (index < 0)
                 throw new Error("module not found");
             const updated = {
@@ -1188,7 +1188,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             ensureMockModulesSeeded();
             const moduleId = String(payload.module_id || "").trim();
             const before = mockState.modules.length;
-            mockState.modules = mockState.modules.filter((module: Unsafe) => module.id !== moduleId);
+            mockState.modules = mockState.modules.filter((module) => module.id !== moduleId);
             return before !== mockState.modules.length;
         }
         case "apply_studio_template_to_today": {
@@ -1196,17 +1196,17 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const templateId = String(payload.template_id || "").trim();
             const date = String(payload.date || isoDate(new Date()));
             const triggerTime = String(payload.trigger_time || "09:00");
-            const recipe = mockState.recipes.find((entry: Unsafe) => entry.id === templateId);
+            const recipe = mockState.recipes.find((entry) => entry.id === templateId);
             if (!recipe)
                 throw new Error("template not found");
             const meta = (recipe.studioMeta || recipe.studio_meta || null) as Record<string, unknown> | null;
             if (!meta || Number(meta.version) !== 1 || String(meta.kind || "").toLowerCase() !== "routine_studio") {
                 throw new Error("template is not a routine studio template");
             }
-            const totalSeconds = (Array.isArray(recipe.steps) ? recipe.steps : []).reduce((sum: Unsafe, step: Unsafe) => sum + Math.max(60, Number(step?.durationSeconds || step?.duration_seconds || 0)), 0);
+            const totalSeconds = (Array.isArray(recipe.steps) ? recipe.steps : []).reduce((sum, step) => sum + Math.max(60, Number((step as Record<string, unknown>)?.durationSeconds || (step as Record<string, unknown>)?.duration_seconds || 0)), 0);
             if (totalSeconds <= 0)
                 throw new Error("template has no duration");
-            const [hhRaw, mmRaw] = triggerTime.split(":").map((entry: Unsafe) => Number(entry || 0));
+            const [hhRaw, mmRaw] = triggerTime.split(":").map((entry) => Number(entry || 0));
             const hh = Number.isFinite(hhRaw) ? Number(hhRaw) : 9;
             const mm = Number.isFinite(mmRaw) ? Number(mmRaw) : 0;
             const requestedStart = new Date(`${date}T00:00:00`);
@@ -1214,8 +1214,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const requestedEnd = new Date(requestedStart.getTime() + totalSeconds * 1000);
             const busyIntervals: Array<{ startMs: number; endMs: number }> = [];
             mockState.blocks
-                .filter((block: Unsafe) => block.date === date)
-                .forEach((block: Unsafe) => {
+                .filter((block) => block.date === date)
+                .forEach((block) => {
                 busyIntervals.push({
                     startMs: new Date(block.start_at).getTime(),
                     endMs: new Date(block.end_at).getTime(),
@@ -1223,23 +1223,23 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             });
             Object.values(mockState.syncedEventsByAccount)
                 .flat()
-                .forEach((event: Unsafe) => {
+                .forEach((event) => {
                 busyIntervals.push({
                     startMs: new Date(event.start_at).getTime(),
                     endMs: new Date(event.end_at).getTime(),
                 });
             });
-            const overlaps = (leftStart: Unsafe, leftEnd: Unsafe, rightStart: Unsafe, rightEnd: Unsafe) => leftStart < rightEnd && rightStart < leftEnd;
+            const overlaps = (leftStart: number, leftEnd: number, rightStart: number, rightEnd: number) => leftStart < rightEnd && rightStart < leftEnd;
             const requestedStartMs = requestedStart.getTime();
             const requestedEndMs = requestedEnd.getTime();
-            const conflictCount = busyIntervals.filter((interval: Unsafe) => overlaps(requestedStartMs, requestedEndMs, interval.startMs, interval.endMs)).length;
+            const conflictCount = busyIntervals.filter((interval) => overlaps(requestedStartMs, requestedEndMs, interval.startMs, interval.endMs)).length;
             let appliedStartMs = requestedStartMs;
             let appliedEndMs = requestedEndMs;
             let shifted = false;
             if (conflictCount > 0) {
                 const sorted = busyIntervals
-                    .filter((interval: Unsafe) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs) && interval.endMs > interval.startMs)
-                    .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs);
+                    .filter((interval) => Number.isFinite(interval.startMs) && Number.isFinite(interval.endMs) && interval.endMs > interval.startMs)
+                    .sort((left, right) => left.startMs - right.startMs);
                 let cursor = requestedStartMs;
                 for (const interval of sorted) {
                     if (cursor + totalSeconds * 1000 <= interval.startMs)
@@ -1300,7 +1300,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return task;
         }
         case "update_task": {
-            const task = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
+            const task = mockState.tasks.find((item) => item.id === payload.task_id);
             if (!task)
                 throw new Error("task not found");
             if (typeof payload.title === "string")
@@ -1315,14 +1315,14 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         }
         case "delete_task":
             unassignMockTask(payload.task_id);
-            mockState.tasks = mockState.tasks.filter((item: Unsafe) => item.id !== payload.task_id);
+            mockState.tasks = mockState.tasks.filter((item) => item.id !== payload.task_id);
             return true;
         case "split_task": {
             const parts = Number(payload.parts ?? 0);
             if (!Number.isInteger(parts) || parts < 2) {
                 throw new Error("parts must be >= 2");
             }
-            const parent = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
+            const parent = mockState.tasks.find((item) => item.id === payload.task_id);
             if (!parent)
                 throw new Error("task not found");
             const estimated = parent.estimated_pomodoros;
@@ -1354,22 +1354,22 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             if (!taskId || !fromBlockId) {
                 throw new Error("task_id and from_block_id are required");
             }
-            const task = mockState.tasks.find((item: Unsafe) => item.id === taskId);
+            const task = mockState.tasks.find((item) => item.id === taskId);
             if (!task)
                 throw new Error("task not found");
-            const fromBlock = mockState.blocks.find((item: Unsafe) => item.id === fromBlockId);
+            const fromBlock = mockState.blocks.find((item) => item.id === fromBlockId);
             if (!fromBlock)
                 throw new Error("block not found");
             const requested = Array.isArray(payload.candidate_block_ids)
-                ? payload.candidate_block_ids.map((value: Unsafe) => String(value || "").trim()).filter(Boolean)
+                ? payload.candidate_block_ids.map((value: unknown) => String(value || "").trim()).filter(Boolean)
                 : [];
             const candidates = [...mockState.blocks]
-                .filter((block: Unsafe) => block.id !== fromBlock.id)
-                .filter((block: Unsafe) => block.date === fromBlock.date)
-                .filter((block: Unsafe) => new Date(block.start_at).getTime() >= new Date(fromBlock.end_at).getTime())
-                .filter((block: Unsafe) => requested.length === 0 || requested.includes(block.id))
-                .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
-            const next = candidates.find((block: Unsafe) => !mockState.taskAssignmentsByBlock[block.id]);
+                .filter((block) => block.id !== fromBlock.id)
+                .filter((block) => block.date === fromBlock.date)
+                .filter((block) => new Date(block.start_at).getTime() >= new Date(fromBlock.end_at).getTime())
+                .filter((block) => requested.length === 0 || requested.includes(block.id))
+                .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+            const next = candidates.find((block) => !mockState.taskAssignmentsByBlock[block.id]);
             if (!next) {
                 throw new Error("no available block for carry-over");
             }
@@ -1385,7 +1385,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         case "list_blocks": {
             const date = payload.date || null;
             const blocks = date
-                ? mockState.blocks.filter((block: Unsafe) => block.date === date)
+                ? mockState.blocks.filter((block) => block.date === date)
                 : mockState.blocks;
             return [...blocks];
         }
@@ -1394,20 +1394,20 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const timeMin = new Date(payload.time_min || "1970-01-01T00:00:00.000Z").getTime();
             const timeMax = new Date(payload.time_max || "2999-12-31T23:59:59.000Z").getTime();
             const entries = payload.account_id == null
-                ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]: Unsafe) => events.map((event: Unsafe) => ({ ...event, account_id: entryAccountId })))
-                : (mockState.syncedEventsByAccount[accountId] || []).map((event: Unsafe) => ({
+                ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]) => events.map((event) => ({ ...event, account_id: entryAccountId })))
+                : (mockState.syncedEventsByAccount[accountId] || []).map((event) => ({
                     ...event,
                     account_id: accountId,
                 }));
             return entries
-                .filter((event: Unsafe) => {
+                .filter((event) => {
                 const startMs = new Date(event.start_at).getTime();
                 const endMs = new Date(event.end_at).getTime();
                 if (!Number.isFinite(startMs) || !Number.isFinite(endMs))
                     return false;
                 return endMs > timeMin && startMs < timeMax;
             })
-                .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
+                .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
         }
         case "generate_today_blocks":
             return mockInvoke("generate_blocks", { ...payload, date: payload.date || isoDate(new Date()) });
@@ -1415,7 +1415,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         case "generate_one_block": {
             ensureMockRecipesSeeded();
             const date = payload.date || isoDate(new Date());
-            const existing = mockState.blocks.filter((block: Unsafe) => block.date === date);
+            const existing = mockState.blocks.filter((block) => block.date === date);
             const isOneShot = name === "generate_one_block";
             const generated = [];
             for (let hour = 9; hour < 18; hour += 1) {
@@ -1424,7 +1424,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                 }
                 const startAt = new Date(`${date}T${String(hour).padStart(2, "0")}:00:00.000Z`);
                 const endAt = new Date(startAt.getTime() + 60 * 60000);
-                const collides = existing.some((block: Unsafe) => {
+                const collides = existing.some((block) => {
                     const startMs = new Date(block.start_at).getTime();
                     const endMs = new Date(block.end_at).getTime();
                     return startAt.getTime() < endMs && startMs < endAt.getTime();
@@ -1453,8 +1453,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return generated;
         }
         case "approve_blocks":
-            mockState.blocks = mockState.blocks.map((block: Unsafe) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
-            return mockState.blocks.filter((block: Unsafe) => payload.block_ids.includes(block.id));
+            mockState.blocks = mockState.blocks.map((block) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
+            return mockState.blocks.filter((block) => payload.block_ids.includes(block.id));
         case "delete_block":
             if (mockState.taskAssignmentsByBlock[String(payload.block_id)]) {
                 const taskId = mockState.taskAssignmentsByBlock[String(payload.block_id)];
@@ -1463,23 +1463,23 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                     delete mockState.taskAssignmentsByTask[taskId];
                 }
             }
-            mockState.blocks = mockState.blocks.filter((block: Unsafe) => block.id !== payload.block_id);
+            mockState.blocks = mockState.blocks.filter((block) => block.id !== payload.block_id);
             return true;
         case "adjust_block_time":
-            mockState.blocks = mockState.blocks.map((block: Unsafe) => block.id === payload.block_id
+            mockState.blocks = mockState.blocks.map((block) => block.id === payload.block_id
                 ? { ...block, start_at: payload.start_at, end_at: payload.end_at }
                 : block);
-            return mockState.blocks.find((block: Unsafe) => block.id === payload.block_id);
+            return mockState.blocks.find((block) => block.id === payload.block_id);
         case "start_block_timer":
         case "start_pomodoro":
             if (payload.task_id) {
                 assignMockTask(payload.task_id, payload.block_id);
-                const task = mockState.tasks.find((item: Unsafe) => item.id === payload.task_id);
+                const task = mockState.tasks.find((item) => item.id === payload.task_id);
                 if (task && task.status !== "completed") {
                     task.status = "in_progress";
                 }
             }
-            const targetBlock = mockState.blocks.find((block: Unsafe) => block.id === payload.block_id);
+            const targetBlock = mockState.blocks.find((block) => block.id === payload.block_id);
             const plan = targetBlock
                 ? mockSessionPlan(targetBlock)
                 : { totalCycles: 1, focusSeconds: 25 * 60, breakSeconds: 5 * 60 };
@@ -1557,7 +1557,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return { ...mockState.pomodoro };
         case "relocate_if_needed": {
             const accountId = normalizeAccountId(payload.account_id);
-            const block = mockState.blocks.find((item: Unsafe) => item.id === payload.block_id);
+            const block = mockState.blocks.find((item) => item.id === payload.block_id);
             if (!block)
                 throw new Error("block not found");
             const currentStartMs = new Date(block.start_at).getTime();
@@ -1565,7 +1565,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             if (!Number.isFinite(currentStartMs) || !Number.isFinite(currentEndMs) || currentEndMs <= currentStartMs) {
                 return null;
             }
-            const collisions = (mockState.syncedEventsByAccount[accountId] || []).filter((event: Unsafe) => {
+            const collisions = (mockState.syncedEventsByAccount[accountId] || []).filter((event) => {
                 const startMs = new Date(event.start_at).getTime();
                 const endMs = new Date(event.end_at).getTime();
                 return Number.isFinite(startMs) && Number.isFinite(endMs) && currentStartMs < endMs && startMs < currentEndMs;
@@ -1574,8 +1574,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                 return null;
             }
             const latestCollisionEnd = collisions
-                .map((event: Unsafe) => new Date(event.end_at).getTime())
-                .reduce((max: Unsafe, value: Unsafe) => Math.max(max, value), currentStartMs);
+                .map((event) => new Date(event.end_at).getTime())
+                .reduce((max, value) => Math.max(max, value), currentStartMs);
             const durationMs = currentEndMs - currentStartMs;
             block.start_at = new Date(latestCollisionEnd).toISOString();
             block.end_at = new Date(latestCollisionEnd + durationMs).toISOString();
