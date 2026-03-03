@@ -209,6 +209,14 @@ export interface PageRenderDeps {
     resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
     executeTimerAction: (action: unknown, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
+    buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
+    renderWeeklyPlannerCalendar: (model: unknown) => string;
+    renderTodaySequenceItems: () => string;
+    renderTodayLibraryLinks: () => string;
+    renderTodayStatusCard: () => string;
+    renderTodayTaskPanel: () => string;
+    renderTodayNotesPanel: () => string;
+    renderTodayAmbientPanel: () => string;
   };
   renderers: {
     renderDashboard: () => void;
