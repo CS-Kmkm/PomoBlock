@@ -1,6 +1,6 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderDayHourGuides as renderDayHourGuidesValue, renderDayTimeAxis as renderDayTimeAxisValue, } from "./calendar-render.js";
+import { renderCombinedDayLaneItems as renderCombinedDayLaneItemsValue, renderDayHourGuides as renderDayHourGuidesValue, renderDayLaneItems as renderDayLaneItemsValue, renderDayTimeAxis as renderDayTimeAxisValue, } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -922,68 +922,18 @@ function renderDayTimeAxis(dayStartMs: Unsafe, dayEndMs: Unsafe) {
     return renderDayTimeAxisValue(Number(dayStartMs), Number(dayEndMs), (milliseconds: number) => toClockText(milliseconds));
 }
 function renderDayLaneItems(kind: Unsafe, items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    const totalRange = Math.max(1, dayEndMs - dayStartMs);
-    return items
-        .map((item: Unsafe) => {
-        const top = ((item.startMs - dayStartMs) / totalRange) * 100;
-        const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
-        const minHeight = kind === "free" ? 2.2 : 3.2;
-        const height = Math.max(minHeight, baseHeight);
-        const compact = height < 7 ? "is-compact" : "";
-        const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
-        const dragClass = kind === "block" ? "is-draggable" : "";
-        return `
-        <button
-          type="button"
-          class="day-entry day-entry-${kind} ${selectedClass} ${compact} ${dragClass}"
-          style="top:${top}%;height:${height}%"
-          data-day-item-kind="${kind}"
-          data-day-item-id="${escapeHtml(item.id)}"
-          data-day-start-ms="${dayStartMs}"
-          data-day-end-ms="${dayEndMs}"
-          data-day-item-start-ms="${item.startMs}"
-          data-day-item-end-ms="${item.endMs}"
-          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
-        >
-          <span class="day-entry-title">${escapeHtml(item.title)}</span>
-          <span class="day-entry-time">${intervalRangeLabel(item)}</span>
-          <span class="day-entry-duration">${toDurationLabel(item.durationMinutes)}</span>
-        </button>
-      `;
-    })
-        .join("");
+    return renderDayLaneItemsValue(String(kind), items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+    });
 }
 function renderCombinedDayLaneItems(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe, selectedItem: Unsafe) {
-    const totalRange = Math.max(1, dayEndMs - dayStartMs);
-    return items
-        .map((item: Unsafe) => {
-        const top = ((item.startMs - dayStartMs) / totalRange) * 100;
-        const baseHeight = ((item.endMs - item.startMs) / totalRange) * 100;
-        const minHeight = item.kind === "free" ? 2.2 : 3.2;
-        const height = Math.max(minHeight, baseHeight);
-        const compact = height < 7 ? "is-compact" : "";
-        const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
-        const dragClass = item.kind === "block" ? "is-draggable" : "";
-        return `
-        <button
-          type="button"
-          class="day-entry day-entry-${item.kind} ${selectedClass} ${compact} ${dragClass}"
-          style="top:${top}%;height:${height}%"
-          data-day-item-kind="${item.kind}"
-          data-day-item-id="${escapeHtml(item.id)}"
-          data-day-start-ms="${dayStartMs}"
-          data-day-end-ms="${dayEndMs}"
-          data-day-item-start-ms="${item.startMs}"
-          data-day-item-end-ms="${item.endMs}"
-          title="${escapeHtml(`${item.title} | ${intervalRangeLabel(item)}`)}"
-        >
-          <span class="day-entry-title">${escapeHtml(item.title)}</span>
-          <span class="day-entry-time">${intervalRangeLabel(item)}</span>
-          <span class="day-entry-duration">${toDurationLabel(item.durationMinutes)}</span>
-        </button>
-      `;
-    })
-        .join("");
+    return renderCombinedDayLaneItemsValue(items as Unsafe[], Number(dayStartMs), Number(dayEndMs), (selectedItem as { key?: string; } | null), {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+    });
 }
 function renderWeeklyPlannerCalendar(model: Unsafe) {
     if (!model.days.length) {
