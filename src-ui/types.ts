@@ -177,6 +177,13 @@ export interface PageRenderDeps {
   setStatus: (message: string) => void;
   refreshCoreData: (date?: string) => Promise<void>;
   authenticateAndSyncCalendar: (date?: string, options?: Record<string, unknown>) => Promise<unknown>;
+  settingsPages: string[];
+  settingsPageLabels: Record<string, string>;
+  helpers: {
+    normalizeAccountId: (value: unknown) => string;
+    withAccount: (payload?: Record<string, unknown>) => Record<string, unknown>;
+    isoDate: (value: Date) => string;
+  };
   renderers: {
     renderDashboard: () => void;
     renderTodayDetailsPage: () => void;
