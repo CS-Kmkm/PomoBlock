@@ -1,6 +1,53 @@
+import { parseLocalDate, resolveDayBounds, shiftDateByDays, toLocalDateKey, toMonthDayLabel } from "./time.js";
+
 export type TimelineInterval = {
   startMs: number;
   endMs: number;
+};
+
+export type DayItemSelection = { kind: string; id: string } | null;
+
+type CalendarItem = {
+  kind: string;
+  id: string;
+  key: string;
+  title: string;
+  subtitle: string;
+  startMs: number;
+  endMs: number;
+  durationMinutes: number;
+  payload: unknown;
+};
+
+type DailyModel = {
+  dayStartMs: number;
+  dayEndMs: number;
+  blockIntervals: TimelineInterval[];
+  eventIntervals: TimelineInterval[];
+  busyIntervals: TimelineInterval[];
+  freeIntervals: TimelineInterval[];
+  blockItems: CalendarItem[];
+  eventItems: CalendarItem[];
+  freeItems: CalendarItem[];
+  selectedItem: CalendarItem | null;
+  selection: DayItemSelection;
+  totals: {
+    blockMinutes: number;
+    eventMinutes: number;
+    freeMinutes: number;
+  };
+};
+
+type BuildDailyOptions = {
+  syncSelection?: boolean;
+  preferredSelection?: DayItemSelection;
+  currentSelection?: DayItemSelection;
+  blockDisplayName: (block: unknown) => string;
+};
+
+type BuildWeeklyOptions = {
+  currentSelection?: DayItemSelection;
+  buildDaily: (dateKey: string, options: { syncSelection: boolean; preferredSelection?: DayItemSelection }) => DailyModel;
 };
 
 export function dayItemKey(kind: unknown, id: unknown): string {
@@ -97,4 +144,157 @@ export function invertTimelineIntervals(
 
 export function sumIntervalMinutes(intervals: TimelineInterval[]): number {
   return intervals.reduce((total, interval) => total + minutesBetween(interval.startMs, interval.endMs), 0);
+}
+
+export function buildDailyCalendarModel(
+  dateValue: unknown,
+  blocks: unknown[],
+  events: unknown[],
+  options: BuildDailyOptions
+): DailyModel {
+  const syncSelection = options.syncSelection !== false;
+  const preferredSelection = options.preferredSelection || null;
+  const { dayStart, dayEnd } = resolveDayBounds(String(dateValue ?? ""));
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayEnd.getTime();
+
+  const blockItems = (Array.isArray(blocks) ? blocks : [])
+    .map((block) => {
+      const typed = block as { id?: string; start_at?: string; end_at?: string; firmness?: string };
+      const interval = toClippedInterval(typed.start_at, typed.end_at, dayStartMs, dayEndMs);
+      if (!interval || typeof typed.id !== "string") {
+        return null;
+      }
+      return {
+        kind: "block",
+        id: typed.id,
+        key: dayItemKey("block", typed.id),
+        title: options.blockDisplayName(block),
+        subtitle: typed.firmness || "draft",
+        startMs: interval.startMs,
+        endMs: interval.endMs,
+        durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+        payload: block,
+      } satisfies CalendarItem;
+    })
+    .filter((item): item is CalendarItem => item !== null)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+
+  const eventItems = (Array.isArray(events) ? events : [])
+    .map((event) => {
+      const typed = event as { id?: string; start_at?: string; end_at?: string; title?: string; account_id?: string };
+      const interval = toClippedInterval(typed.start_at, typed.end_at, dayStartMs, dayEndMs);
+      if (!interval || typeof typed.id !== "string") {
+        return null;
+      }
+      return {
+        kind: "event",
+        id: typed.id,
+        key: dayItemKey("event", typed.id),
+        title: typed.title || "予定",
+        subtitle: typed.account_id || "default",
+        startMs: interval.startMs,
+        endMs: interval.endMs,
+        durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+        payload: event,
+      } satisfies CalendarItem;
+    })
+    .filter((item): item is CalendarItem => item !== null)
+    .sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+
+  const blockIntervals = toTimelineIntervals((Array.isArray(blocks) ? blocks : []) as Array<{ start_at: string; end_at: string }>, dayStartMs, dayEndMs);
+  const eventIntervals = toTimelineIntervals((Array.isArray(events) ? events : []) as Array<{ start_at: string; end_at: string }>, dayStartMs, dayEndMs);
+  const busyIntervals = mergeTimelineIntervals([...blockIntervals, ...eventIntervals]);
+  const freeIntervals = invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals);
+  const freeItems = freeIntervals
+    .filter((interval) => minutesBetween(interval.startMs, interval.endMs) >= 10)
+    .map((interval) => ({
+      kind: "free",
+      id: `${interval.startMs}-${interval.endMs}`,
+      key: dayItemKey("free", `${interval.startMs}-${interval.endMs}`),
+      title: "空き枠",
+      subtitle: "available",
+      startMs: interval.startMs,
+      endMs: interval.endMs,
+      durationMinutes: minutesBetween(interval.startMs, interval.endMs),
+      payload: interval,
+    } satisfies CalendarItem));
+
+  const allItems = [...blockItems, ...eventItems, ...freeItems];
+  const itemMap = new Map(allItems.map((item) => [item.key, item]));
+  const selectionSource =
+    preferredSelection && typeof preferredSelection.kind === "string" && typeof preferredSelection.id === "string"
+      ? preferredSelection
+      : options.currentSelection || null;
+
+  const selectedByState = selectionSource ? itemMap.get(dayItemKey(selectionSource.kind, selectionSource.id)) : null;
+  const selectedItem = selectedByState || blockItems[0] || eventItems[0] || freeItems[0] || null;
+  const selection = syncSelection && selectedItem ? { kind: selectedItem.kind, id: selectedItem.id } : syncSelection ? null : options.currentSelection || null;
+
+  return {
+    dayStartMs,
+    dayEndMs,
+    blockIntervals,
+    eventIntervals,
+    busyIntervals,
+    freeIntervals,
+    blockItems,
+    eventItems,
+    freeItems,
+    selectedItem,
+    selection,
+    totals: {
+      blockMinutes: sumIntervalMinutes(blockIntervals),
+      eventMinutes: sumIntervalMinutes(eventIntervals),
+      freeMinutes: sumIntervalMinutes(freeIntervals),
+    },
+  };
+}
+
+export function buildWeeklyPlannerModel(
+  dateValue: unknown,
+  options: BuildWeeklyOptions
+): { days: Array<DailyModel & { dayKey: string; dayDate: Date; dayNumber: string; weekdayLabel: string; isCurrent: boolean; combinedItems: CalendarItem[] }>; selectedItem: CalendarItem | null; weekLabel: string; selection: DayItemSelection } {
+  const dateKey = String(dateValue ?? "");
+  const anchor = parseLocalDate(dateKey);
+  const weekday = anchor.getDay();
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+  const weekStart = shiftDateByDays(anchor, mondayOffset);
+  const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const dayDate = shiftDateByDays(weekStart, index);
+    const dayKey = toLocalDateKey(dayDate);
+    const dailyModel = options.buildDaily(dayKey, { syncSelection: false });
+    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort(
+      (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
+    );
+    return {
+      ...dailyModel,
+      dayKey,
+      dayDate,
+      dayNumber: String(dayDate.getDate()).padStart(2, "0"),
+      weekdayLabel: weekdayLabels[dayDate.getDay()] || "N/A",
+      isCurrent: dayKey === dateKey,
+      combinedItems,
+    };
+  });
+
+  const allItems = days.flatMap((day) => day.combinedItems);
+  const itemMap = new Map(allItems.map((item) => [item.key, item]));
+  const selectedByState = options.currentSelection
+    ? itemMap.get(dayItemKey(options.currentSelection.kind, options.currentSelection.id))
+    : null;
+  const currentDay = days.find((day) => day.isCurrent) || days[0] || null;
+  const firstAvailable = days.find((day) => day.combinedItems.length > 0)?.combinedItems[0] || null;
+  const selectedItem = selectedByState || currentDay?.combinedItems[0] || firstAvailable || null;
+  const selection = selectedItem ? { kind: selectedItem.kind, id: selectedItem.id } : null;
+  const weekEnd = days[days.length - 1]?.dayDate || weekStart;
+  const weekLabel = `${weekStart.getFullYear()} ${toMonthDayLabel(weekStart)} - ${toMonthDayLabel(weekEnd)}`;
+
+  return {
+    days,
+    selectedItem,
+    weekLabel,
+    selection,
+  };
 }

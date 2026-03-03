@@ -1,5 +1,5 @@
 ﻿import { createCommandApi, isUnknownCommandError as isUnknownCommandErrorValue } from "./commands.js";
-import { dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
+import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
 import { getById } from "./dom.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, parseLocalDate as parseLocalDateValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, shiftDateByDays as shiftDateByDaysValue, toLocalDateKey as toLocalDateKeyValue, toLocalInputValue as toLocalInputValueValue, toMonthDayLabel as toMonthDayLabelValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
 import type { DayBlockDragState, MockState, Module, ProgressState, UiState, } from "./types.js";
@@ -884,98 +884,15 @@ function applyDayBlockPreview(entry: Unsafe, interval: Unsafe) {
     })} | ${timeText}`;
 }
 function buildDailyCalendarModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe, options: Unsafe = {}) {
-    const syncSelection = options.syncSelection !== false;
-    const preferredSelection = options.preferredSelection || null;
-    const { dayStart, dayEnd } = resolveDayBounds(dateValue);
-    const dayStartMs = dayStart.getTime();
-    const dayEndMs = dayEnd.getTime();
-    const blockItems = blocks
-        .map((block: Unsafe) => {
-        const interval = toClippedInterval(block.start_at, block.end_at, dayStartMs, dayEndMs);
-        if (!interval)
-            return null;
-        return {
-            kind: /** @type {DayItemKind} */ ("block"),
-            id: block.id,
-            key: dayItemKey("block", block.id),
-            title: blockDisplayName(block),
-            subtitle: block.firmness || "draft",
-            startMs: interval.startMs,
-            endMs: interval.endMs,
-            durationMinutes: minutesBetween(interval.startMs, interval.endMs),
-            payload: block,
-        };
-    })
-        .filter((item: Unsafe) => item !== null)
-        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
-    const eventItems = events
-        .map((event: Unsafe) => {
-        const interval = toClippedInterval(event.start_at, event.end_at, dayStartMs, dayEndMs);
-        if (!interval)
-            return null;
-        return {
-            kind: /** @type {DayItemKind} */ ("event"),
-            id: event.id,
-            key: dayItemKey("event", event.id),
-            title: event.title || "予定",
-            subtitle: event.account_id || "default",
-            startMs: interval.startMs,
-            endMs: interval.endMs,
-            durationMinutes: minutesBetween(interval.startMs, interval.endMs),
-            payload: event,
-        };
-    })
-        .filter((item: Unsafe) => item !== null)
-        .sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
-    const blockIntervals = toTimelineIntervals(blocks, dayStartMs, dayEndMs);
-    const eventIntervals = toTimelineIntervals(events, dayStartMs, dayEndMs);
-    const busyIntervals = mergeTimelineIntervals([...blockIntervals, ...eventIntervals]);
-    const freeIntervals = invertTimelineIntervals(dayStartMs, dayEndMs, busyIntervals);
-    const freeItems = freeIntervals
-        .filter((interval: Unsafe) => minutesBetween(interval.startMs, interval.endMs) >= 10)
-        .map((interval: Unsafe) => ({
-        kind: /** @type {DayItemKind} */ ("free"),
-        id: `${interval.startMs}-${interval.endMs}`,
-        key: dayItemKey("free", `${interval.startMs}-${interval.endMs}`),
-        title: "空き枠",
-        subtitle: "available",
-        startMs: interval.startMs,
-        endMs: interval.endMs,
-        durationMinutes: minutesBetween(interval.startMs, interval.endMs),
-        payload: interval,
-    }));
-    const allItems = [...blockItems, ...eventItems, ...freeItems];
-    const itemMap = new Map(allItems.map((item: Unsafe) => [item.key, item]));
-    const selectionSource = preferredSelection && typeof preferredSelection.kind === "string" && typeof preferredSelection.id === "string"
-        ? { kind: preferredSelection.kind, id: preferredSelection.id }
-        : uiState.dayCalendarSelection;
-    const selectedByState = selectionSource ? itemMap.get(dayItemKey(selectionSource.kind, selectionSource.id)) : null;
-    const selectedItem = selectedByState || blockItems[0] || eventItems[0] || freeItems[0] || null;
-    if (syncSelection) {
-        uiState.dayCalendarSelection = selectedItem
-            ? {
-                kind: selectedItem.kind,
-                id: selectedItem.id,
-            }
-            : null;
+    const model = buildDailyCalendarModelValue(dateValue, blocks, events, {
+        ...options,
+        currentSelection: uiState.dayCalendarSelection,
+        blockDisplayName,
+    });
+    if (options.syncSelection !== false) {
+        uiState.dayCalendarSelection = model.selection;
     }
-    return {
-        dayStartMs,
-        dayEndMs,
-        blockIntervals,
-        eventIntervals,
-        busyIntervals,
-        freeIntervals,
-        blockItems,
-        eventItems,
-        freeItems,
-        selectedItem,
-        totals: {
-            blockMinutes: sumIntervalMinutes(blockIntervals),
-            eventMinutes: sumIntervalMinutes(eventIntervals),
-            freeMinutes: sumIntervalMinutes(freeIntervals),
-        },
-    };
+    return model;
 }
 function parseLocalDate(dateValue: Unsafe) {
     return parseLocalDateValue(String(dateValue ?? ""));
@@ -990,47 +907,12 @@ function toMonthDayLabel(date: Unsafe) {
     return toMonthDayLabelValue(date as Date);
 }
 function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe) {
-    const anchor = parseLocalDate(dateValue);
-    const weekday = anchor.getDay();
-    const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
-    const weekStart = shiftDateByDays(anchor, mondayOffset);
-    const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-    const days = Array.from({ length: 7 }, (_: Unsafe, index: Unsafe) => {
-        const dayDate = shiftDateByDays(weekStart, index);
-        const dayKey = toLocalDateKey(dayDate);
-        const dailyModel = buildDailyCalendarModel(dayKey, blocks, events, { syncSelection: false });
-        const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort((left: Unsafe, right: Unsafe) => left.startMs - right.startMs || left.endMs - right.endMs);
-        return {
-            ...dailyModel,
-            dayKey,
-            dayDate,
-            dayNumber: String(dayDate.getDate()).padStart(2, "0"),
-            weekdayLabel: weekdayLabels[dayDate.getDay()],
-            isCurrent: dayKey === dateValue,
-            combinedItems,
-        };
+    const model = buildWeeklyPlannerModelValue(dateValue, {
+        currentSelection: uiState.dayCalendarSelection,
+        buildDaily: (dayKey: string, buildOptions: { syncSelection: boolean; preferredSelection?: Unsafe; }) => buildDailyCalendarModel(dayKey, blocks, events, buildOptions),
     });
-    const allItems = days.flatMap((day: Unsafe) => day.combinedItems);
-    const itemMap = new Map(allItems.map((item: Unsafe) => [item.key, item]));
-    const selectedByState = uiState.dayCalendarSelection
-        ? itemMap.get(dayItemKey(uiState.dayCalendarSelection.kind, uiState.dayCalendarSelection.id))
-        : null;
-    const currentDay = days.find((day: Unsafe) => day.isCurrent) || days[0] || null;
-    const firstAvailable = days.find((day: Unsafe) => day.combinedItems.length > 0)?.combinedItems[0] || null;
-    const selectedItem = selectedByState || currentDay?.combinedItems[0] || firstAvailable || null;
-    uiState.dayCalendarSelection = selectedItem
-        ? {
-            kind: selectedItem.kind,
-            id: selectedItem.id,
-        }
-        : null;
-    const weekEnd = days[days.length - 1]?.dayDate || weekStart;
-    const weekLabel = `${weekStart.getFullYear()} ${toMonthDayLabel(weekStart)} - ${toMonthDayLabel(weekEnd)}`;
-    return {
-        days,
-        selectedItem,
-        weekLabel,
-    };
+    uiState.dayCalendarSelection = model.selection;
+    return model;
 }
 function renderDayHourGuides() {
     return Array.from({ length: 25 }, (_: Unsafe, index: Unsafe) => {
