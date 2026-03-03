@@ -169,7 +169,7 @@ type DayItemSelection = {
     id: string;
 } | null;
 type DayCalendarViewMode = "grid" | "simple";
-const uiState: Unsafe = {
+const uiState: UiState = {
     auth: null,
     accountId: "default",
     dashboardDate: isoDate(new Date()),
@@ -196,6 +196,7 @@ const uiState: Unsafe = {
         assetsLoaded: false,
         assetsLoading: false,
         activeTab: "modules",
+        subPage: "editor",
         search: "",
         draftName: "Morning Deep Work",
         templateId: "rcp-routine-studio",
@@ -210,7 +211,10 @@ const uiState: Unsafe = {
         historyIndex: -1,
         dragInsertIndex: -1,
         selectedEntryId: "",
+        entryEditorEntryId: "",
         editingModuleId: "",
+        lastApplyResult: "",
+        bootstrapped: false,
         moduleEditor: null,
     },
     settings: {
@@ -222,7 +226,7 @@ const uiState: Unsafe = {
         gitRemote: "",
     },
 };
-const mockState: Unsafe = {
+const mockState: MockState = {
     sequence: 1,
     tasks: [],
     blocks: [],
@@ -246,7 +250,7 @@ const mockState: Unsafe = {
     },
     logs: [],
 };
-const progressState: Unsafe = {
+const progressState: ProgressState = {
     active: false,
     command: "",
     label: "",
@@ -983,7 +987,7 @@ function mockSessionPlan(block: Unsafe) {
 function appendMockPomodoroLog(phase: Unsafe, interruptionReason: Unsafe = null) {
     mockState.logs.push({
         id: nextMockId("pom"),
-        block_id: mockState.pomodoro.current_block_id,
+        block_id: mockState.pomodoro.current_block_id ?? "-",
         task_id: mockState.pomodoro.current_task_id,
         phase,
         start_time: mockState.pomodoro.start_time ?? nowIso(),
@@ -1035,12 +1039,14 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const afternoonEnd = new Date(afternoonStart.getTime() + 60 * 60 * 1000);
             mockState.syncedEventsByAccount[accountId] = [
                 {
+                    account_id: accountId,
                     id: nextMockId("evt"),
                     title: "Mock Event A",
                     start_at: morningStart.toISOString(),
                     end_at: morningEnd.toISOString(),
                 },
                 {
+                    account_id: accountId,
                     id: nextMockId("evt"),
                     title: "Mock Event B",
                     start_at: afternoonStart.toISOString(),
@@ -1171,7 +1177,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const recipe = mockState.recipes.find((entry: Unsafe) => entry.id === templateId);
             if (!recipe)
                 throw new Error("template not found");
-            const meta = recipe.studioMeta || recipe.studio_meta;
+            const meta = (recipe.studioMeta || recipe.studio_meta || null) as Record<string, unknown> | null;
             if (!meta || Number(meta.version) !== 1 || String(meta.kind || "").toLowerCase() !== "routine_studio") {
                 throw new Error("template is not a routine studio template");
             }
@@ -1428,10 +1434,12 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             mockState.blocks = mockState.blocks.map((block: Unsafe) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
             return mockState.blocks.filter((block: Unsafe) => payload.block_ids.includes(block.id));
         case "delete_block":
-            if (mockState.taskAssignmentsByBlock[payload.block_id]) {
-                const taskId = mockState.taskAssignmentsByBlock[payload.block_id];
-                delete mockState.taskAssignmentsByBlock[payload.block_id];
-                delete mockState.taskAssignmentsByTask[taskId];
+            if (mockState.taskAssignmentsByBlock[String(payload.block_id)]) {
+                const taskId = mockState.taskAssignmentsByBlock[String(payload.block_id)];
+                delete mockState.taskAssignmentsByBlock[String(payload.block_id)];
+                if (taskId) {
+                    delete mockState.taskAssignmentsByTask[taskId];
+                }
             }
             mockState.blocks = mockState.blocks.filter((block: Unsafe) => block.id !== payload.block_id);
             return true;
@@ -1500,7 +1508,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             mockState.pomodoro = { ...mockState.pomodoro, phase: "paused" };
             mockState.logs.push({
                 id: nextMockId("pom"),
-                block_id: mockState.pomodoro.current_block_id,
+                block_id: mockState.pomodoro.current_block_id ?? "-",
                 task_id: mockState.pomodoro.current_task_id,
                 phase: "focus",
                 start_time: nowIso(),
@@ -1520,11 +1528,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return { ...mockState.pomodoro };
         case "complete_pomodoro":
             mockState.pomodoro = {
-                current_block_id: null,
-                current_task_id: null,
-                phase: "idle",
-                remaining_seconds: 0,
-                start_time: null,
+                ...emptyMockPomodoroState(),
             };
             return { ...mockState.pomodoro };
         case "get_pomodoro_state":
@@ -2715,10 +2719,16 @@ function renderPomodoro() {
             const swapId = visibleIds[swapVisibleIndex];
             const nextOrder = [...uiState.nowUi.taskOrder];
             const sourceIndex = nextOrder.indexOf(taskId);
+            if (!swapId)
+                return;
             const targetIndex = nextOrder.indexOf(swapId);
             if (sourceIndex < 0 || targetIndex < 0)
                 return;
-            [nextOrder[sourceIndex], nextOrder[targetIndex]] = [nextOrder[targetIndex], nextOrder[sourceIndex]];
+            const sourceValue = nextOrder[sourceIndex];
+            const targetValue = nextOrder[targetIndex];
+            if (!sourceValue || !targetValue)
+                return;
+            [nextOrder[sourceIndex], nextOrder[targetIndex]] = [targetValue, sourceValue];
             uiState.nowUi.taskOrder = nextOrder;
             renderPomodoro();
         });
@@ -2726,9 +2736,6 @@ function renderPomodoro() {
 }
 function renderRoutines() {
     const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
-    if (!uiState.routineStudio || typeof uiState.routineStudio !== "object") {
-        uiState.routineStudio = {};
-    }
     const studio = uiState.routineStudio;
     studio.assetsLoaded = Boolean(studio.assetsLoaded);
     studio.assetsLoading = Boolean(studio.assetsLoading);
@@ -2743,7 +2750,7 @@ function renderRoutines() {
     studio.triggerTime =
         typeof studio.triggerTime === "string" && /^\d{2}:\d{2}$/.test(studio.triggerTime) ? studio.triggerTime : "09:00";
     studio.context =
-        typeof studio.context === "string" && studio.context.trim() ? studio.context : routineStudioContexts[0];
+        typeof studio.context === "string" && studio.context.trim() ? studio.context : (routineStudioContexts[0] || "Work - Deep Focus");
     studio.autoStart = Boolean(studio.autoStart);
     studio.modules = Array.isArray(studio.modules) ? studio.modules : [];
     studio.canvasEntries = Array.isArray(studio.canvasEntries) ? studio.canvasEntries : [];
@@ -2879,7 +2886,7 @@ function renderRoutines() {
         studio.bootstrapped = true;
         studio.history = [cloneValue(studio.canvasEntries)];
         studio.historyIndex = 0;
-        studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
     }
     if (studio.history.length === 0) {
         studio.history = [cloneValue(studio.canvasEntries)];
@@ -2889,7 +2896,7 @@ function renderRoutines() {
         studio.historyIndex = studio.history.length - 1;
     }
     if (!studio.selectedEntryId && studio.canvasEntries.length > 0) {
-        studio.selectedEntryId = studio.canvasEntries[0].entryId;
+        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
     }
     const addAssetToCanvas = (kind: Unsafe, id: Unsafe, replace: Unsafe = false, insertIndex: Unsafe = studio.canvasEntries.length) => {
         if (!id)
@@ -2949,11 +2956,11 @@ function renderRoutines() {
     const applyCanvasEntries = (nextEntries: Unsafe, recordHistory: Unsafe = true) => {
         studio.canvasEntries = (Array.isArray(nextEntries) ? nextEntries : []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
         if (studio.canvasEntries.length > 0 && !studio.selectedEntryId) {
-            studio.selectedEntryId = studio.canvasEntries[0].entryId;
+            studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
         }
         if (studio.selectedEntryId &&
             studio.canvasEntries.every((entry: Unsafe) => entry.entryId !== studio.selectedEntryId)) {
-            studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+            studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
         }
         if (recordHistory) {
             pushHistory();
@@ -3447,7 +3454,11 @@ function renderRoutines() {
             if (nextIndex < 0 || nextIndex >= studio.canvasEntries.length)
                 return;
             const nextEntries = [...studio.canvasEntries];
-            [nextEntries[index], nextEntries[nextIndex]] = [nextEntries[nextIndex], nextEntries[index]];
+            const current = nextEntries[index];
+            const target = nextEntries[nextIndex];
+            if (!current || !target)
+                return;
+            [nextEntries[index], nextEntries[nextIndex]] = [target, current];
             applyCanvasEntries(nextEntries, true);
             rerender();
         });
@@ -3502,7 +3513,7 @@ function renderRoutines() {
             return;
         studio.historyIndex -= 1;
         studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
-        studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
         rerender();
     });
     document.getElementById("studio-redo")?.addEventListener("click", () => {
@@ -3510,7 +3521,7 @@ function renderRoutines() {
             return;
         studio.historyIndex += 1;
         studio.canvasEntries = cloneValue(studio.history[studio.historyIndex] || []).map((entry: Unsafe, index: Unsafe) => normalizeEntry(entry, index));
-        studio.selectedEntryId = studio.canvasEntries[0]?.entryId || "";
+        studio.selectedEntryId = String((studio.canvasEntries[0] as Unsafe)?.entryId || "");
         rerender();
     });
     // ================================================================
@@ -3558,10 +3569,12 @@ function renderRoutines() {
             const target = Math.max(0, Math.min(insertIndex, studio.canvasEntries.length));
             const nextEntries = [...studio.canvasEntries];
             const [moved] = nextEntries.splice(sourceIndex, 1);
+            if (!moved)
+                return;
             const adjusted = target > sourceIndex ? target - 1 : target;
             nextEntries.splice(Math.max(0, adjusted), 0, moved);
             applyCanvasEntries(nextEntries, true);
-            studio.selectedEntryId = moved?.entryId || "";
+            studio.selectedEntryId = String((moved as Unsafe)?.entryId || "");
         }
         else {
             addAssetToCanvas(kind, id, false, insertIndex);

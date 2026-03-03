@@ -103,30 +103,34 @@ export type Module = {
   [key: string]: unknown;
 };
 
-export type DayItemKind = "block" | "event" | "free";
+export type DayItemKind = string;
 export type DayItemSelection = { kind: DayItemKind; id: string } | null;
 export type DayCalendarViewMode = "grid" | "simple";
 
 export interface RoutineStudioState {
-  assetsLoaded?: boolean;
-  assetsLoading?: boolean;
-  activeTab?: string;
-  search?: string;
-  draftName?: string;
-  templateId?: string;
-  triggerTime?: string;
-  context?: string;
-  autoStart?: boolean;
-  macroTargetMinutes?: number;
-  modules?: Module[];
-  hiddenTemplateCount?: number;
-  canvasEntries?: JsonObject[];
-  history?: JsonObject[];
-  historyIndex?: number;
-  dragInsertIndex?: number;
-  selectedEntryId?: string;
-  editingModuleId?: string;
-  moduleEditor?: JsonObject | null;
+  assetsLoaded: boolean;
+  assetsLoading: boolean;
+  activeTab: string;
+  subPage: string;
+  search: string;
+  draftName: string;
+  templateId: string;
+  triggerTime: string;
+  context: string;
+  autoStart: boolean;
+  macroTargetMinutes: number;
+  modules: Module[];
+  hiddenTemplateCount: number;
+  canvasEntries: Array<Record<string, unknown>>;
+  history: Array<Record<string, unknown>>;
+  historyIndex: number;
+  dragInsertIndex: number;
+  selectedEntryId: string;
+  entryEditorEntryId: string;
+  editingModuleId: string;
+  lastApplyResult: string;
+  bootstrapped: boolean;
+  moduleEditor: JsonObject | null;
   [key: string]: unknown;
 }
 

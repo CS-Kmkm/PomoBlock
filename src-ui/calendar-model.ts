@@ -1,11 +1,12 @@
 import { parseLocalDate, resolveDayBounds, shiftDateByDays, toLocalDateKey, toMonthDayLabel } from "./time.js";
+import type { DayItemSelection as UiDayItemSelection } from "./types.js";
 
 export type TimelineInterval = {
   startMs: number;
   endMs: number;
 };
 
-export type DayItemSelection = { kind: string; id: string } | null;
+export type DayItemSelection = UiDayItemSelection;
 
 type CalendarItem = {
   kind: string;
