@@ -122,7 +122,7 @@ export interface RoutineStudioState {
   modules: Module[];
   hiddenTemplateCount: number;
   canvasEntries: Array<Record<string, unknown>>;
-  history: Array<Record<string, unknown>>;
+  history: Array<Array<Record<string, unknown>>>;
   historyIndex: number;
   dragInsertIndex: number;
   selectedEntryId: string;

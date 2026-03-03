@@ -313,7 +313,7 @@ const commandApi = createCommandApi({
     },
     onFinish: finishLongRunningProgress,
 });
-function nextMockId(prefix: Unsafe) {
+function nextMockId(prefix: string) {
     const id = `${prefix}-${Date.now()}-${mockState.sequence}`;
     mockState.sequence += 1;
     return id;
@@ -350,43 +350,43 @@ function ensureMockRecipesSeeded() {
 function ensureMockModulesSeeded() {
     if (mockState.modules.length > 0)
         return;
-    mockState.modules = routineStudioSeedModules.map((module: Unsafe) => ({
+    mockState.modules = routineStudioSeedModules.map((module) => ({
         ...module,
         checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
         pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
         executionHints: module.executionHints ? { ...module.executionHints } : null,
     }));
 }
-function isoDate(value: Unsafe) {
-    return isoDateValue(value as Date);
+function isoDate(value: Date) {
+    return isoDateValue(value);
 }
 function nowIso() {
     return nowIsoValue();
 }
-function formatTime(value: Unsafe) {
-    return formatTimeValue(value as string | null | undefined);
+function formatTime(value: string | null | undefined) {
+    return formatTimeValue(value);
 }
-function formatHHmm(value: Unsafe) {
-    return formatHHmmValue(value as string | null | undefined);
+function formatHHmm(value: string | null | undefined) {
+    return formatHHmmValue(value);
 }
-function blockDisplayName(block: Unsafe) {
+function blockDisplayName(block: Pick<Block, "start_at" | "end_at"> & Partial<Block>) {
     const timeRange = `${formatHHmm(block?.start_at)}-${formatHHmm(block?.end_at)}`;
     const title = blockTitle(block);
     return title ? `${title} (${timeRange})` : timeRange;
 }
-function toLocalInputValue(rfc3339: Unsafe) {
-    return toLocalInputValueValue(rfc3339 as string | null | undefined);
+function toLocalInputValue(rfc3339: string | null | undefined) {
+    return toLocalInputValueValue(rfc3339);
 }
-function fromLocalInputValue(value: Unsafe) {
-    return fromLocalInputValueValue(value as string | null | undefined);
+function fromLocalInputValue(value: string | null | undefined) {
+    return fromLocalInputValueValue(value);
 }
-function toTimerText(seconds: Unsafe) {
-    return toTimerTextValue(seconds as number | null | undefined);
+function toTimerText(seconds: number | null | undefined) {
+    return toTimerTextValue(seconds);
 }
-function normalizePomodoroState(state: Unsafe): PomodoroState {
+function normalizePomodoroState(state: unknown): PomodoroState {
     return normalizePomodoroStateValue(state);
 }
-function pomodoroPhaseLabel(phase: Unsafe) {
+function pomodoroPhaseLabel(phase: unknown) {
     return pomodoroPhaseLabelValue(phase);
 }
 function blockDurationMinutes(block: Block) {
@@ -395,7 +395,7 @@ function blockDurationMinutes(block: Block) {
 function blockPomodoroTarget(block: Block) {
     return blockPomodoroTargetValue(block, Number(uiState.settings.breakDuration || 5));
 }
-function pomodoroProgressPercent(state: Unsafe) {
+function pomodoroProgressPercent(state: unknown) {
     return pomodoroProgressPercentValue(state);
 }
 function syncNowTaskOrder(tasksInput: Task[] = uiState.tasks as Task[]) {
@@ -416,7 +416,7 @@ function resolveNowAutoStartBlock(state: PomodoroState): Block | null {
 function resolveNowAutoStartTask(state: PomodoroState): Task | null {
     return resolveNowAutoStartTaskValue(uiState.nowUi as UiState["nowUi"], uiState.tasks, state);
 }
-function syncNowTimerDisplay(stateInput: Unsafe) {
+function syncNowTimerDisplay(stateInput: unknown) {
     syncNowTimerDisplayValue(uiState.nowUi as UiState["nowUi"], stateInput, uiState.pomodoro);
 }
 function nowBufferAvailableMinutes(reference: Date = new Date()) {
@@ -425,20 +425,20 @@ function nowBufferAvailableMinutes(reference: Date = new Date()) {
 function resolveCurrentFocusTask(stateInput: PomodoroState = uiState.pomodoro as PomodoroState): Task | null {
     return resolveCurrentFocusTaskValue(uiState.tasks, stateInput);
 }
-function resolveDayBounds(dateValue: Unsafe) {
+function resolveDayBounds(dateValue: string) {
     return resolveDayBoundsValue(String(dateValue ?? ""));
 }
-function resolveWeekBounds(dateValue: Unsafe) {
+function resolveWeekBounds(dateValue: string) {
     return resolveWeekBoundsValue(String(dateValue ?? ""));
 }
-function resolveWeekDateKeys(dateValue: Unsafe) {
+function resolveWeekDateKeys(dateValue: string) {
     return resolveWeekDateKeysValue(String(dateValue ?? ""));
 }
-function toSyncWindowPayload(dateValue: Unsafe, scope: Unsafe = "day") {
+function toSyncWindowPayload(dateValue: string, scope: "day" | "week" = "day") {
     const targetScope = scope === "week" ? "week" : "day";
     return toSyncWindowPayloadValue(String(dateValue ?? ""), targetScope);
 }
-function normalizeAccountId(value: Unsafe) {
+function normalizeAccountId(value: unknown) {
     const normalized = typeof value === "string" ? value.trim() : "";
     return normalized || "default";
 }
@@ -452,7 +452,7 @@ function loadBlockTitles(): Record<string, string> {
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object")
             return {};
-        return Object.fromEntries(Object.entries(parsed).filter(([key, value]: Unsafe) => typeof key === "string" && typeof value === "string")) as Record<string, string>;
+        return Object.fromEntries(Object.entries(parsed).filter(([key, value]: [string, unknown]) => typeof key === "string" && typeof value === "string")) as Record<string, string>;
     }
     catch {
         return {};
@@ -468,13 +468,13 @@ function persistBlockTitles() {
         // ignore storage errors
     }
 }
-function blockTitle(block: Unsafe) {
+function blockTitle(block: { id?: string } | null | undefined) {
     const blockId = typeof block?.id === "string" ? block.id.trim() : "";
     if (!blockId)
         return "";
     return uiState.blockTitles[blockId] || "";
 }
-function setBlockTitle(blockId: Unsafe, title: Unsafe) {
+function setBlockTitle(blockId: string, title: string) {
     const normalizedId = typeof blockId === "string" ? blockId.trim() : "";
     if (!normalizedId)
         return false;
@@ -488,23 +488,24 @@ function setBlockTitle(blockId: Unsafe, title: Unsafe) {
     persistBlockTitles();
     return true;
 }
-function withAccount(payload: Unsafe = {}) {
+function withAccount(payload: Record<string, unknown> = {}) {
     return {
         ...payload,
         account_id: normalizeAccountId(uiState.accountId),
     };
 }
-async function resetBlocksForDate(date: Unsafe) {
+async function resetBlocksForDate(date: string) {
     const targetDate = typeof date === "string" && date.trim() ? date.trim() : uiState.dashboardDate;
     const existingBlocks = await safeInvoke("list_blocks", { date: targetDate });
-    if (existingBlocks.length > 0) {
-        await Promise.all(existingBlocks.map((block: Unsafe) => safeInvoke("delete_block", {
-            block_id: block.id,
+    const blocks = Array.isArray(existingBlocks) ? existingBlocks as Array<{ id?: string }> : [];
+    if (blocks.length > 0) {
+        await Promise.all(blocks.map((block) => safeInvoke("delete_block", {
+            block_id: String(block.id || ""),
         })));
     }
-    return existingBlocks.length;
+    return blocks.length;
 }
-function toClockText(milliseconds: Unsafe, options: Unsafe = {}) {
+function toClockText(milliseconds: number, options: Intl.DateTimeFormatOptions = {}) {
     return new Date(milliseconds).toLocaleTimeString("ja-JP", {
         hour: "2-digit",
         minute: "2-digit",
@@ -520,7 +521,7 @@ function timezoneOffsetLabel() {
     const minutes = String(absoluteMinutes % 60).padStart(2, "0");
     return `GMT${sign}${hours}${minutes === "00" ? "" : `:${minutes}`}`;
 }
-function escapeHtml(value: Unsafe) {
+function escapeHtml(value: unknown) {
     return String(value ?? "")
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -528,13 +529,13 @@ function escapeHtml(value: Unsafe) {
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#39;");
 }
-function dayItemKey(kind: Unsafe, id: Unsafe) {
+function dayItemKey(kind: string, id: string) {
     return dayItemKeyValue(kind, id);
 }
-function minutesBetween(startMs: Unsafe, endMs: Unsafe) {
+function minutesBetween(startMs: number, endMs: number) {
     return minutesBetweenValue(startMs, endMs);
 }
-function toDurationLabel(totalMinutes: Unsafe) {
+function toDurationLabel(totalMinutes: number) {
     if (totalMinutes <= 0)
         return "0m";
     const hours = Math.floor(totalMinutes / 60);
@@ -550,49 +551,52 @@ function nextRoutineStudioEntryId() {
     routineStudioSequence += 1;
     return id;
 }
-function routineStudioStepDurationMinutes(step: Unsafe) {
-    const durationSeconds = Number(step?.durationSeconds ?? step?.duration_seconds ?? 300);
+function routineStudioStepDurationMinutes(step: unknown) {
+    const source = (step ?? {}) as Record<string, unknown>;
+    const durationSeconds = Number(source.durationSeconds ?? source.duration_seconds ?? 300);
     if (!Number.isFinite(durationSeconds) || durationSeconds <= 0)
         return 5;
     return Math.max(1, Math.round(durationSeconds / 60));
 }
-function routineStudioSlug(value: Unsafe) {
+function routineStudioSlug(value: string) {
     return String(value || "")
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 48);
 }
-function isRoutineStudioRecipe(recipe: Unsafe) {
-    const meta = recipe?.studioMeta || recipe?.studio_meta;
+function isRoutineStudioRecipe(recipe: unknown) {
+    const source = (recipe ?? {}) as Record<string, unknown>;
+    const meta = (source.studioMeta || source.studio_meta || null) as Record<string, unknown> | null;
     return Number(meta?.version) === 1 && String(meta?.kind || "").toLowerCase() === "routine_studio";
 }
-function cloneValue(value: Unsafe) {
-    return JSON.parse(JSON.stringify(value));
+function cloneValue<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
 }
-function toClippedInterval(startAt: Unsafe, endAt: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
+function toClippedInterval(startAt: string, endAt: string, dayStartMs: number, dayEndMs: number) {
     return toClippedIntervalValue(startAt, endAt, dayStartMs, dayEndMs);
 }
-function toTimelineIntervals(items: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
-    return toTimelineIntervalsValue(items as Array<{ start_at: string; end_at: string }>, dayStartMs, dayEndMs);
+function toTimelineIntervals(items: Array<{ start_at: string; end_at: string }>, dayStartMs: number, dayEndMs: number) {
+    return toTimelineIntervalsValue(items, dayStartMs, dayEndMs);
 }
-function mergeTimelineIntervals(intervals: Unsafe) {
+function mergeTimelineIntervals(intervals: Array<{ startMs: number; endMs: number }>) {
     return mergeTimelineIntervalsValue(intervals);
 }
-function invertTimelineIntervals(dayStartMs: Unsafe, dayEndMs: Unsafe, busyIntervals: Unsafe) {
+function invertTimelineIntervals(dayStartMs: number, dayEndMs: number, busyIntervals: Array<{ startMs: number; endMs: number }>) {
     return invertTimelineIntervalsValue(dayStartMs, dayEndMs, busyIntervals);
 }
-function sumIntervalMinutes(intervals: Unsafe) {
+function sumIntervalMinutes(intervals: Array<{ startMs: number; endMs: number }>) {
     return sumIntervalMinutesValue(intervals);
 }
-function intervalRangeLabel(interval: Unsafe) {
-    return `${toClockText(interval.startMs)} - ${toClockText(interval.endMs)}`;
+function intervalRangeLabel(interval: unknown) {
+    const source = (interval ?? {}) as { startMs?: number; endMs?: number };
+    return `${toClockText(Number(source.startMs || 0))} - ${toClockText(Number(source.endMs || 0))}`;
 }
-function snapToMinutes(milliseconds: Unsafe, minutes: Unsafe) {
+function snapToMinutes(milliseconds: number, minutes: number) {
     const step = Math.max(1, Math.floor(minutes)) * 60000;
     return Math.round(milliseconds / step) * step;
 }
-function clampBlockIntervalToDay(startMs: Unsafe, durationMs: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
+function clampBlockIntervalToDay(startMs: number, durationMs: number, dayStartMs: number, dayEndMs: number) {
     const safeDuration = Math.max(60000, durationMs);
     const maxStartMs = Math.max(dayStartMs, dayEndMs - safeDuration);
     const clampedStartMs = Math.min(Math.max(startMs, dayStartMs), maxStartMs);
@@ -601,7 +605,7 @@ function clampBlockIntervalToDay(startMs: Unsafe, durationMs: Unsafe, dayStartMs
         endMs: clampedStartMs + safeDuration,
     };
 }
-function snapAndClampBlockInterval(startMs: Unsafe, durationMs: Unsafe, dayStartMs: Unsafe, dayEndMs: Unsafe) {
+function snapAndClampBlockInterval(startMs: number, durationMs: number, dayStartMs: number, dayEndMs: number) {
     const snappedStartMs = snapToMinutes(startMs, DAY_BLOCK_DRAG_SNAP_MINUTES);
     return clampBlockIntervalToDay(snappedStartMs, durationMs, dayStartMs, dayEndMs);
 }
@@ -616,7 +620,7 @@ function clearDayBlockDragDocumentListeners() {
         dayBlockDragState.onUp = null;
     }
 }
-function setHoveredFreeEntry(entry: Unsafe) {
+function setHoveredFreeEntry(entry: HTMLElement | null) {
     if (dayBlockDragState.hoveredFreeEntry === entry)
         return;
     if (dayBlockDragState.hoveredFreeEntry) {
