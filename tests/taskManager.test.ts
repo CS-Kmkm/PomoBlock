@@ -13,7 +13,7 @@ function createContext() {
   const dbPath = join(tempDir, "pomblock.sqlite");
   const storage = new LocalStorageRepository(dbPath);
   storage.initSchema();
-  const taskRepository = new TaskRepository(storage as Unsafe);
+  const taskRepository = new TaskRepository(storage);
   const taskManager = new TaskManager({
     taskRepository,
     storageRepository: storage,
@@ -80,7 +80,7 @@ test("Feature: blocksched, Property 19/20: task assignment links task to block a
     }
 
     const logs = context.taskRepository.listTaskAuditLogs(500);
-    const selectedLogs = logs.filter((row: Unsafe) => row.eventType === "task_selected");
+    const selectedLogs = logs.filter((row) => row.eventType === "task_selected");
     assert.equal(selectedLogs.length >= 100, true);
   } finally {
     cleanupContext(context);
@@ -106,15 +106,16 @@ test("Feature: blocksched, Property 24/26: carry-over re-links task to next bloc
     const task = context.taskManager.createTask("Carry task", null, 3);
     context.taskManager.assignTaskToBlock(task.id, "block-from");
     const nextBlock = context.storage.loadBlockById("block-next");
+    assert.ok(nextBlock);
     const nextBlockId = context.taskManager.carryOverTask(task.id, "block-from", [
-      { ...(nextBlock as Unsafe) },
+      { ...nextBlock },
     ]);
 
     assert.equal(nextBlockId, "block-next");
     assert.equal(context.storage.loadBlockById("block-next")?.taskId, task.id);
 
     const logs = context.taskRepository.listTaskAuditLogs();
-    assert.equal(logs.some((row: Unsafe) => row.eventType === "task_carried_over"), true);
+    assert.equal(logs.some((row) => row.eventType === "task_carried_over"), true);
   } finally {
     cleanupContext(context);
   }
@@ -127,14 +128,14 @@ test("Feature: blocksched, Property 25/26: task split creates children and logs 
     const children = context.taskManager.splitTask(parent.id, 4);
 
     assert.equal(children.length, 4);
-    assert.equal(children.every((child: Unsafe) => child.title.startsWith("Large task")), true);
-    assert.equal(children.every((child: Unsafe) => child.estimatedPomodoros === 2), true);
+    assert.equal(children.every((child) => child.title.startsWith("Large task")), true);
+    assert.equal(children.every((child) => child.estimatedPomodoros === 2), true);
 
     const refreshedParent = context.taskRepository.getById(parent.id);
     assert.equal(refreshedParent?.status, "deferred");
 
     const logs = context.taskRepository.listTaskAuditLogs();
-    assert.equal(logs.some((row: Unsafe) => row.eventType === "task_split"), true);
+    assert.equal(logs.some((row) => row.eventType === "task_split"), true);
   } finally {
     cleanupContext(context);
   }

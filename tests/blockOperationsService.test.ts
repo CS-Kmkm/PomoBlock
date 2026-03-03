@@ -2,21 +2,22 @@
 import assert from "node:assert/strict";
 import { BlockOperationsService } from "../src/application/blockOperationsService.js";
 import { createBlock } from "../src/domain/models.js";
+import type { Block } from "../src/domain/models.js";
 
 class MemoryStorageRepository {
-  private readonly blocks: Map<string, Unsafe>;
+  private readonly blocks: Map<string, Block>;
 
   constructor() {
     this.blocks = new Map();
   }
 
-  saveBlock(input: Unsafe): Unsafe {
+  saveBlock(input: Partial<Block> & Pick<Block, "startAt" | "endAt">): Block {
     const block = createBlock(input);
     this.blocks.set(block.id, block);
     return block;
   }
 
-  loadBlockById(blockId: string): Unsafe {
+  loadBlockById(blockId: string): Block | null {
     return this.blocks.get(blockId) ?? null;
   }
 
@@ -27,7 +28,7 @@ class MemoryStorageRepository {
 
 test("Feature: blocksched, Property 12: approving block updates firmness and calendar event", () => {
   const storage = new MemoryStorageRepository();
-  const updates: Array<{ eventId: string; block: Unsafe }> = [];
+  const updates: Array<{ eventId: string; block: Block }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
@@ -94,7 +95,7 @@ test("Feature: blocksched, Property 13: deleting block is reflected in calendar"
 
 test("Feature: blocksched, Property 14: adjusting block time updates calendar event time", () => {
   const storage = new MemoryStorageRepository();
-  const updates: Array<{ eventId: string; block: Unsafe }> = [];
+  const updates: Array<{ eventId: string; block: Block }> = [];
   const service = new BlockOperationsService({
     storageRepository: storage,
     calendarGateway: {
