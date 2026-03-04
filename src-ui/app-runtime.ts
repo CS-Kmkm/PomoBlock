@@ -12,8 +12,9 @@ import { renderNowPage } from "./pages/now-page.js";
 import { renderRoutinesPage } from "./pages/routines-page.js";
 import { renderSettingsPage } from "./pages/settings-page.js";
 import { renderTodayPage } from "./pages/today-page.js";
+import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTextValue, toDurationLabel as toDurationLabelValue } from "./calendar-view-helpers.js";
 import { renderTodayAmbientPanel as renderTodayAmbientPanelView, renderTodayLibraryLinks as renderTodayLibraryLinksView, renderTodayNotesPanel as renderTodayNotesPanelView, renderTodaySequenceItems as renderTodaySequenceItemsView, renderTodayStatusCard as renderTodayStatusCardView, renderTodayTaskPanel as renderTodayTaskPanelView, } from "./today-renderers.js";
-import type { Block, DayBlockDragState, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Task, UiState, } from "./types.js";
+import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
 const progressChip = getById<HTMLElement>("global-progress");
@@ -284,7 +285,7 @@ const progressState: ProgressState = {
     timerId: 0,
     hideTimerId: 0,
 };
-const dayBlockDragState: Unsafe = {
+const dayBlockDragState: DayBlockDragState = {
     active: false,
     moved: false,
     pointerId: null,
@@ -515,12 +516,7 @@ async function resetBlocksForDate(date: string) {
     return blocks.length;
 }
 function toClockText(milliseconds: number, options: Intl.DateTimeFormatOptions = {}) {
-    return new Date(milliseconds).toLocaleTimeString("ja-JP", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        ...options,
-    });
+    return toClockTextValue(milliseconds, options);
 }
 function timezoneOffsetLabel() {
     const offsetMinutes = -new Date().getTimezoneOffset();
@@ -545,15 +541,7 @@ function minutesBetween(startMs: number, endMs: number) {
     return minutesBetweenValue(startMs, endMs);
 }
 function toDurationLabel(totalMinutes: number) {
-    if (totalMinutes <= 0)
-        return "0m";
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    if (hours > 0 && minutes > 0)
-        return `${hours}h ${minutes}m`;
-    if (hours > 0)
-        return `${hours}h`;
-    return `${minutes}m`;
+    return toDurationLabelValue(totalMinutes);
 }
 function nextRoutineStudioEntryId() {
     const id = `studio-entry-${routineStudioSequence}`;
@@ -598,8 +586,7 @@ function sumIntervalMinutes(intervals: Array<{ startMs: number; endMs: number }>
     return sumIntervalMinutesValue(intervals);
 }
 function intervalRangeLabel(interval: unknown) {
-    const source = (interval ?? {}) as { startMs?: number; endMs?: number };
-    return `${toClockText(Number(source.startMs || 0))} - ${toClockText(Number(source.endMs || 0))}`;
+    return intervalRangeLabelValue(interval);
 }
 function snapToMinutes(milliseconds: number, minutes: number) {
     const step = Math.max(1, Math.floor(minutes)) * 60000;
@@ -653,7 +640,15 @@ function resetDayBlockDragVisualState() {
         }
     }
 }
-async function commitDayBlockMove(rerender: Unsafe, snapshot: Unsafe) {
+async function commitDayBlockMove(rerender: () => void, snapshot: {
+    blockId: string;
+    dayStartMs: number;
+    dayEndMs: number;
+    originStartMs: number;
+    originEndMs: number;
+    previewStartMs: number;
+    previewEndMs: number;
+}) {
     const blockId = snapshot.blockId;
     if (!blockId)
         return;
@@ -677,7 +672,7 @@ async function commitDayBlockMove(rerender: Unsafe, snapshot: Unsafe) {
         rerender();
     });
 }
-function finishDayBlockDrag(rerender: Unsafe) {
+function finishDayBlockDrag(rerender: () => void) {
     clearDayBlockDragDocumentListeners();
     if (!dayBlockDragState.active)
         return;
@@ -698,9 +693,9 @@ function finishDayBlockDrag(rerender: Unsafe) {
     }
     const releaseEntry = dayBlockDragState.entry;
     const pointerId = dayBlockDragState.pointerId;
-    if (releaseEntry && Number.isInteger(pointerId)) {
+    if (releaseEntry && typeof pointerId === "number" && Number.isInteger(pointerId)) {
         try {
-            releaseEntry.releasePointerCapture(/** @type {number} */ (pointerId));
+            releaseEntry.releasePointerCapture(pointerId);
         }
         catch {
             // ignore unsupported or already released capture
@@ -732,7 +727,7 @@ function finishDayBlockDrag(rerender: Unsafe) {
         void commitDayBlockMove(rerender, commitSnapshot);
     }
 }
-function applyDayBlockPreview(entry: Unsafe, interval: Unsafe) {
+function applyDayBlockPreview(entry: HTMLButtonElement, interval: { startMs: number; endMs: number; }) {
     if (!dayBlockDragState.rangeMs || dayBlockDragState.rangeMs <= 0)
         return;
     dayBlockDragState.previewStartMs = interval.startMs;
@@ -754,32 +749,35 @@ function applyDayBlockPreview(entry: Unsafe, interval: Unsafe) {
         date: uiState.dashboardDate,
     })} | ${timeText}`;
 }
-function buildDailyCalendarModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe, options: Unsafe = {}) {
-    const model = buildDailyCalendarModelValue(dateValue, blocks, events, {
+function buildDailyCalendarModel(dateValue: unknown, blocks: unknown, events: unknown, options: { syncSelection?: boolean; preferredSelection?: DayItemSelection; } = {}) {
+    const model = buildDailyCalendarModelValue(dateValue, (Array.isArray(blocks) ? blocks : []) as unknown[], (Array.isArray(events) ? events : []) as unknown[], {
         ...options,
         currentSelection: uiState.dayCalendarSelection,
-        blockDisplayName,
+        blockDisplayName: (block: unknown) => blockDisplayName(block as Pick<Block, "start_at" | "end_at"> & Partial<Block>),
     });
     if (options.syncSelection !== false) {
         uiState.dayCalendarSelection = model.selection;
     }
     return model;
 }
-function buildWeeklyPlannerModel(dateValue: Unsafe, blocks: Unsafe, events: Unsafe) {
+function buildWeeklyPlannerModel(dateValue: unknown, blocks: unknown, events: unknown) {
     const model = buildWeeklyPlannerModelValue(dateValue, {
         currentSelection: uiState.dayCalendarSelection,
-        buildDaily: (dayKey: string, buildOptions: { syncSelection: boolean; preferredSelection?: Unsafe; }) => buildDailyCalendarModel(dayKey, blocks, events, buildOptions),
+        buildDaily: (dayKey: string, buildOptions: { syncSelection: boolean; preferredSelection?: unknown; }) => buildDailyCalendarModel(dayKey, blocks, events, {
+            syncSelection: buildOptions.syncSelection,
+            preferredSelection: buildOptions.preferredSelection as DayItemSelection,
+        }),
     });
     uiState.dayCalendarSelection = model.selection;
     return model;
 }
-function renderWeeklyPlannerCalendar(model: Unsafe) {
-    return renderWeeklyPlannerCalendarValue(model as {
+function renderWeeklyPlannerCalendar(model: unknown) {
+    return renderWeeklyPlannerCalendarValue(model as Parameters<typeof renderWeeklyPlannerCalendarValue>[0] & {
         days: Array<{
             isCurrent: boolean;
             dayNumber: string;
             weekdayLabel: string;
-            combinedItems: Array<Unsafe & { kind: string; }>;
+            combinedItems: Array<Record<string, unknown> & { kind: string; }>;
             dayStartMs: number;
             dayEndMs: number;
         }>;
@@ -791,29 +789,34 @@ function renderWeeklyPlannerCalendar(model: Unsafe) {
         toClockText: (milliseconds: number) => toClockText(milliseconds),
     });
 }
-function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
-    const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents, {
-        syncSelection: options.syncSelection,
-        preferredSelection: options.preferredSelection,
-    });
-    const mode = options.forceMode === "grid" || options.forceMode === "simple"
-        ? options.forceMode
+function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
+    const optionsRecord = (options ?? {}) as Record<string, unknown>;
+    const dailyOptions: { syncSelection?: boolean; preferredSelection?: DayItemSelection; } = {};
+    if (typeof optionsRecord.syncSelection === "boolean") {
+        dailyOptions.syncSelection = optionsRecord.syncSelection;
+    }
+    if ("preferredSelection" in optionsRecord) {
+        dailyOptions.preferredSelection = optionsRecord.preferredSelection as DayItemSelection;
+    }
+    const model = buildDailyCalendarModel(dateValue, uiState.blocks, uiState.calendarEvents, dailyOptions);
+    const mode = optionsRecord.forceMode === "grid" || optionsRecord.forceMode === "simple"
+        ? optionsRecord.forceMode
         : uiState.dayCalendarViewMode === "simple"
             ? "simple"
             : "grid";
-    const panelClass = typeof options.panelClass === "string" && options.panelClass.trim() ? ` ${options.panelClass}` : "";
-    const showHeader = options.showHeader !== false;
-    const showMetrics = options.showMetrics !== false;
-    const showViewToggle = options.showViewToggle !== false;
-    const includeDetail = options.includeDetail !== false;
-    const includeBoard = options.includeBoard !== false;
-    const includeTimeline = options.includeTimeline !== false;
+    const panelClass = typeof optionsRecord.panelClass === "string" && optionsRecord.panelClass.trim() ? ` ${optionsRecord.panelClass}` : "";
+    const showHeader = optionsRecord.showHeader !== false;
+    const showMetrics = optionsRecord.showMetrics !== false;
+    const showViewToggle = optionsRecord.showViewToggle !== false;
+    const includeDetail = optionsRecord.includeDetail !== false;
+    const includeBoard = optionsRecord.includeBoard !== false;
+    const includeTimeline = optionsRecord.includeTimeline !== false;
     const typedModel = model as DayCalendarModel & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; };
     const renderDailyDetail = (selected: unknown) => renderDailyDetailValue(selected, {
         escapeHtml,
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
-        blockTitle: (block: unknown) => blockTitle(block as Unsafe),
+        blockTitle: (block: unknown) => blockTitle(block as { id?: string } | null | undefined),
     });
     return renderDailyCalendarValue({
         dateValue: String(dateValue),
@@ -847,9 +850,9 @@ function renderDailyCalendar(dateValue: Unsafe, options: Unsafe = {}) {
         }),
     });
 }
-function setStatus(message: Unsafe) {
+function setStatus(message: unknown) {
     if (statusChip) {
-        statusChip.textContent = message;
+        statusChip.textContent = String(message ?? "");
     }
 }
 function clearProgressTimers() {
@@ -954,16 +957,16 @@ function markActiveRoute(route: string) {
         }
     });
 }
-async function invokeCommand(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+async function invokeCommand(name: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     return await commandService.invokeCommand(name, payload);
 }
 function isTauriRuntimeAvailable() {
     return commandService.isTauriRuntimeAvailable();
 }
-async function safeInvoke(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+async function safeInvoke(name: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     return await commandService.safeInvoke(name, payload);
 }
-async function safeInvokeWithFallback(primaryName: string, payload: Record<string, unknown>, fallbackName: string, fallbackPayload: Record<string, unknown> = payload): Promise<Unsafe> {
+async function safeInvokeWithFallback(primaryName: string, payload: Record<string, unknown>, fallbackName: string, fallbackPayload: Record<string, unknown> = payload): Promise<unknown> {
     return await commandService.safeInvokeWithFallback(primaryName, payload, fallbackName, fallbackPayload);
 }
 async function runUiAction(action: () => Promise<void>): Promise<void> {
@@ -976,7 +979,7 @@ async function runUiAction(action: () => Promise<void>): Promise<void> {
         console.error(error);
     }
 }
-async function invokeCommandWithProgress(name: string, payload: Record<string, unknown> = {}): Promise<Unsafe> {
+async function invokeCommandWithProgress(name: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     return await commandService.invokeCommandWithProgress(name, payload);
 }
 function isUnknownCommandError(error: unknown): boolean {
@@ -1042,15 +1045,39 @@ function assignMockTask(taskId: string, blockId: string) {
     mockState.taskAssignmentsByTask[taskId] = blockId;
     mockState.taskAssignmentsByBlock[blockId] = taskId;
 }
-async function mockInvoke(name: Unsafe, payload: Unsafe) {
+function toRecord(value: unknown): Record<string, unknown> {
+    return value != null && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+function readString(payload: Record<string, unknown>, key: string, fallback = ""): string {
+    const value = payload[key];
+    return typeof value === "string" ? value : fallback;
+}
+function readStringArray(payload: Record<string, unknown>, key: string): string[] {
+    const value = payload[key];
+    if (!Array.isArray(value))
+        return [];
+    return value.map((entry) => String(entry ?? "").trim()).filter(Boolean);
+}
+function readNestedPayload(payload: Record<string, unknown>): Record<string, unknown> {
+    const nested = payload.payload;
+    return nested != null && typeof nested === "object" ? nested as Record<string, unknown> : payload;
+}
+function toJsonObject(value: unknown): JsonObject | null {
+    if (value == null || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    return value as JsonObject;
+}
+async function mockInvoke(name: string, payload: Record<string, unknown>) {
+    const args = toRecord(payload);
     switch (name) {
         case "bootstrap":
             return { workspace_root: "mock", database_path: "mock.sqlite" };
         case "authenticate_google": {
-            const accountId = normalizeAccountId(payload.account_id);
+            const accountId = normalizeAccountId(args.account_id);
             return {
                 account_id: accountId,
-                status: payload.authorization_code ? "authenticated" : "reauthentication_required",
+                status: args.authorization_code ? "authenticated" : "reauthentication_required",
                 authorization_url: "https://accounts.google.com/o/oauth2/v2/auth",
                 expires_at: new Date(Date.now() + 3600000).toISOString(),
             };
@@ -1059,8 +1086,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             throw new Error("Google SSO is unavailable in mock mode. Run the desktop app with `cargo tauri dev`.");
         }
         case "sync_calendar": {
-            const accountId = normalizeAccountId(payload.account_id);
-            const seed = typeof payload.time_min === "string" ? payload.time_min : nowIso();
+            const accountId = normalizeAccountId(args.account_id);
+            const seed = typeof args.time_min === "string" ? args.time_min : nowIso();
             const parsed = new Date(seed);
             const dayStart = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
             dayStart.setHours(0, 0, 0, 0);
@@ -1098,43 +1125,64 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return [...mockState.recipes];
         case "create_recipe": {
             ensureMockRecipesSeeded();
-            const payloadRecipe = payload.payload || payload;
+            const payloadRecipe = readNestedPayload(args);
             if (!payloadRecipe?.id) {
                 throw new Error("recipe id is required");
             }
             if (mockState.recipes.some((recipe) => recipe.id === payloadRecipe.id)) {
                 throw new Error("recipe already exists");
             }
-            const recipe = {
+            const recipe: Recipe = {
                 id: String(payloadRecipe.id),
                 name: String(payloadRecipe.name || payloadRecipe.id),
                 auto_drive_mode: String(payloadRecipe.autoDriveMode || payloadRecipe.auto_drive_mode || "manual"),
                 steps: Array.isArray(payloadRecipe.steps) ? payloadRecipe.steps : [],
-                studioMeta: payloadRecipe.studioMeta || payloadRecipe.studio_meta || null,
             };
+            const studioMeta = toJsonObject(payloadRecipe.studioMeta || payloadRecipe.studio_meta || null);
+            if (studioMeta) {
+                recipe.studioMeta = studioMeta;
+            }
             mockState.recipes.push(recipe);
             return recipe;
         }
         case "update_recipe": {
             ensureMockRecipesSeeded();
-            const payloadRecipe = payload.payload || payload;
-            const recipeId = String(payload.recipe_id || "").trim();
+            const payloadRecipe = readNestedPayload(args);
+            const recipeId = readString(args, "recipe_id").trim();
             if (!recipeId)
                 throw new Error("recipe_id is required");
             const index = mockState.recipes.findIndex((recipe) => recipe.id === recipeId);
             if (index < 0)
                 throw new Error("recipe not found");
-            const updated = {
-                ...mockState.recipes[index],
-                ...payloadRecipe,
+            const baseRecipe = mockState.recipes[index]!;
+            const updated: Recipe = {
+                ...baseRecipe,
                 id: recipeId,
+                name: baseRecipe.name,
+                steps: baseRecipe.steps,
             };
+            if (typeof payloadRecipe.name === "string") {
+                updated.name = payloadRecipe.name;
+            }
+            if (typeof payloadRecipe.auto_drive_mode === "string") {
+                updated.auto_drive_mode = payloadRecipe.auto_drive_mode;
+            }
+            else if (typeof payloadRecipe.autoDriveMode === "string") {
+                updated.auto_drive_mode = payloadRecipe.autoDriveMode;
+            }
+            if (Array.isArray(payloadRecipe.steps)) {
+                updated.steps = payloadRecipe.steps as Recipe["steps"];
+            }
+            const studioMeta = toJsonObject(payloadRecipe.studioMeta || payloadRecipe.studio_meta || null);
+            if (studioMeta) {
+                updated.studioMeta = studioMeta;
+            }
             mockState.recipes[index] = updated;
             return updated;
         }
         case "delete_recipe": {
             ensureMockRecipesSeeded();
-            const recipeId = String(payload.recipe_id || "").trim();
+            const recipeId = readString(args, "recipe_id").trim();
             const before = mockState.recipes.length;
             mockState.recipes = mockState.recipes.filter((recipe) => recipe.id !== recipeId);
             return before !== mockState.recipes.length;
@@ -1144,7 +1192,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return [...mockState.modules];
         case "create_module": {
             ensureMockModulesSeeded();
-            const payloadModule = payload.payload || payload;
+            const payloadModule = readNestedPayload(args);
             if (!payloadModule?.id) {
                 throw new Error("module id is required");
             }
@@ -1172,19 +1220,65 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         }
         case "update_module": {
             ensureMockModulesSeeded();
-            const moduleId = String(payload.module_id || "").trim();
+            const moduleId = readString(args, "module_id").trim();
             if (!moduleId)
                 throw new Error("module_id is required");
-            const payloadModule = payload.payload || payload;
+            const payloadModule = readNestedPayload(args);
             const index = mockState.modules.findIndex((module) => module.id === moduleId);
             if (index < 0)
                 throw new Error("module not found");
-            const updated = {
-                ...mockState.modules[index],
-                ...payloadModule,
+            const baseModule = mockState.modules[index]!;
+            const updated: Module = {
+                ...baseModule,
                 id: moduleId,
+                name: baseModule.name,
             };
-            updated.durationMinutes = Math.max(1, Number(updated.durationMinutes || updated.duration_minutes || 1));
+            if (typeof payloadModule.name === "string") {
+                updated.name = payloadModule.name;
+            }
+            if (typeof payloadModule.category === "string") {
+                updated.category = payloadModule.category;
+            }
+            if (typeof payloadModule.description === "string") {
+                updated.description = payloadModule.description;
+            }
+            if (typeof payloadModule.icon === "string") {
+                updated.icon = payloadModule.icon;
+            }
+            if (typeof payloadModule.stepType === "string") {
+                updated.stepType = payloadModule.stepType;
+            }
+            else if (typeof payloadModule.step_type === "string") {
+                updated.stepType = payloadModule.step_type;
+            }
+            if (Array.isArray(payloadModule.checklist)) {
+                updated.checklist = payloadModule.checklist.map(String).filter(Boolean);
+            }
+            if (payloadModule.pomodoro === null) {
+                updated.pomodoro = null;
+            }
+            else if (toJsonObject(payloadModule.pomodoro)) {
+                updated.pomodoro = { ...toJsonObject(payloadModule.pomodoro) };
+            }
+            if (typeof payloadModule.overrunPolicy === "string") {
+                updated.overrunPolicy = payloadModule.overrunPolicy;
+            }
+            else if (typeof payloadModule.overrun_policy === "string") {
+                updated.overrunPolicy = payloadModule.overrun_policy;
+            }
+            if (payloadModule.executionHints === null) {
+                updated.executionHints = null;
+            }
+            else if (toJsonObject(payloadModule.executionHints)) {
+                updated.executionHints = { ...toJsonObject(payloadModule.executionHints) };
+            }
+            const durationMinutesSnake = payloadModule["duration_minutes"];
+            const rawDuration = typeof updated.durationMinutes === "number"
+                ? updated.durationMinutes
+                : typeof durationMinutesSnake === "number"
+                    ? durationMinutesSnake
+                    : 1;
+            updated.durationMinutes = Math.max(1, Number(rawDuration));
             updated.checklist = Array.isArray(updated.checklist) ? updated.checklist.map(String).filter(Boolean) : [];
             updated.pomodoro = updated.pomodoro ? { ...updated.pomodoro } : null;
             updated.executionHints = updated.executionHints
@@ -1195,16 +1289,16 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         }
         case "delete_module": {
             ensureMockModulesSeeded();
-            const moduleId = String(payload.module_id || "").trim();
+            const moduleId = readString(args, "module_id").trim();
             const before = mockState.modules.length;
             mockState.modules = mockState.modules.filter((module) => module.id !== moduleId);
             return before !== mockState.modules.length;
         }
         case "apply_studio_template_to_today": {
             ensureMockRecipesSeeded();
-            const templateId = String(payload.template_id || "").trim();
-            const date = String(payload.date || isoDate(new Date()));
-            const triggerTime = String(payload.trigger_time || "09:00");
+            const templateId = readString(args, "template_id").trim();
+            const date = readString(args, "date", isoDate(new Date()));
+            const triggerTime = readString(args, "trigger_time", "09:00");
             const recipe = mockState.recipes.find((entry) => entry.id === templateId);
             if (!recipe)
                 throw new Error("template not found");
@@ -1298,9 +1392,9 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         case "create_task": {
             const task = {
                 id: nextMockId("tsk"),
-                title: payload.title,
-                description: payload.description ?? null,
-                estimated_pomodoros: payload.estimated_pomodoros ?? null,
+                title: readString(args, "title", "New Task"),
+                description: typeof args.description === "string" ? args.description : null,
+                estimated_pomodoros: typeof args.estimated_pomodoros === "number" ? args.estimated_pomodoros : null,
                 completed_pomodoros: 0,
                 status: "pending",
                 created_at: nowIso(),
@@ -1309,29 +1403,30 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return task;
         }
         case "update_task": {
-            const task = mockState.tasks.find((item) => item.id === payload.task_id);
+            const taskId = readString(args, "task_id");
+            const task = mockState.tasks.find((item) => item.id === taskId);
             if (!task)
                 throw new Error("task not found");
-            if (typeof payload.title === "string")
-                task.title = payload.title;
-            if (typeof payload.description === "string")
-                task.description = payload.description || null;
-            if (typeof payload.status === "string")
-                task.status = payload.status;
-            if (typeof payload.estimated_pomodoros === "number")
-                task.estimated_pomodoros = payload.estimated_pomodoros;
+            if (typeof args.title === "string")
+                task.title = args.title;
+            if (typeof args.description === "string")
+                task.description = args.description || null;
+            if (typeof args.status === "string")
+                task.status = args.status;
+            if (typeof args.estimated_pomodoros === "number")
+                task.estimated_pomodoros = args.estimated_pomodoros;
             return { ...task };
         }
         case "delete_task":
-            unassignMockTask(payload.task_id);
-            mockState.tasks = mockState.tasks.filter((item) => item.id !== payload.task_id);
+            unassignMockTask(readString(args, "task_id"));
+            mockState.tasks = mockState.tasks.filter((item) => item.id !== readString(args, "task_id"));
             return true;
         case "split_task": {
-            const parts = Number(payload.parts ?? 0);
+            const parts = Number(args.parts ?? 0);
             if (!Number.isInteger(parts) || parts < 2) {
                 throw new Error("parts must be >= 2");
             }
-            const parent = mockState.tasks.find((item) => item.id === payload.task_id);
+            const parent = mockState.tasks.find((item) => item.id === readString(args, "task_id"));
             if (!parent)
                 throw new Error("task not found");
             const estimated = parent.estimated_pomodoros;
@@ -1358,8 +1453,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return children;
         }
         case "carry_over_task": {
-            const taskId = String(payload.task_id ?? "").trim();
-            const fromBlockId = String(payload.from_block_id ?? "").trim();
+            const taskId = readString(args, "task_id").trim();
+            const fromBlockId = readString(args, "from_block_id").trim();
             if (!taskId || !fromBlockId) {
                 throw new Error("task_id and from_block_id are required");
             }
@@ -1369,9 +1464,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             const fromBlock = mockState.blocks.find((item) => item.id === fromBlockId);
             if (!fromBlock)
                 throw new Error("block not found");
-            const requested = Array.isArray(payload.candidate_block_ids)
-                ? payload.candidate_block_ids.map((value: unknown) => String(value || "").trim()).filter(Boolean)
-                : [];
+            const requested = readStringArray(args, "candidate_block_ids");
             const candidates = [...mockState.blocks]
                 .filter((block) => block.id !== fromBlock.id)
                 .filter((block) => block.date === fromBlock.date)
@@ -1392,17 +1485,17 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             };
         }
         case "list_blocks": {
-            const date = payload.date || null;
+            const date = readString(args, "date") || null;
             const blocks = date
                 ? mockState.blocks.filter((block) => block.date === date)
                 : mockState.blocks;
             return [...blocks];
         }
         case "list_synced_events": {
-            const accountId = normalizeAccountId(payload.account_id);
-            const timeMin = new Date(payload.time_min || "1970-01-01T00:00:00.000Z").getTime();
-            const timeMax = new Date(payload.time_max || "2999-12-31T23:59:59.000Z").getTime();
-            const entries = payload.account_id == null
+            const accountId = normalizeAccountId(args.account_id);
+            const timeMin = new Date(readString(args, "time_min", "1970-01-01T00:00:00.000Z")).getTime();
+            const timeMax = new Date(readString(args, "time_max", "2999-12-31T23:59:59.000Z")).getTime();
+            const entries = args.account_id == null
                 ? Object.entries(mockState.syncedEventsByAccount).flatMap(([entryAccountId, events]) => events.map((event) => ({ ...event, account_id: entryAccountId })))
                 : (mockState.syncedEventsByAccount[accountId] || []).map((event) => ({
                     ...event,
@@ -1419,11 +1512,11 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                 .sort((left, right) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime());
         }
         case "generate_today_blocks":
-            return mockInvoke("generate_blocks", { ...payload, date: payload.date || isoDate(new Date()) });
+            return mockInvoke("generate_blocks", { ...args, date: readString(args, "date", isoDate(new Date())) });
         case "generate_blocks":
         case "generate_one_block": {
             ensureMockRecipesSeeded();
-            const date = payload.date || isoDate(new Date());
+            const date = readString(args, "date", isoDate(new Date()));
             const existing = mockState.blocks.filter((block) => block.date === date);
             const isOneShot = name === "generate_one_block";
             const generated = [];
@@ -1462,39 +1555,39 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             return generated;
         }
         case "approve_blocks":
-            mockState.blocks = mockState.blocks.map((block) => payload.block_ids.includes(block.id) ? { ...block, firmness: "soft" } : block);
-            return mockState.blocks.filter((block) => payload.block_ids.includes(block.id));
+            mockState.blocks = mockState.blocks.map((block) => readStringArray(args, "block_ids").includes(block.id) ? { ...block, firmness: "soft" } : block);
+            return mockState.blocks.filter((block) => readStringArray(args, "block_ids").includes(block.id));
         case "delete_block":
-            if (mockState.taskAssignmentsByBlock[String(payload.block_id)]) {
-                const taskId = mockState.taskAssignmentsByBlock[String(payload.block_id)];
-                delete mockState.taskAssignmentsByBlock[String(payload.block_id)];
+            if (mockState.taskAssignmentsByBlock[readString(args, "block_id")]) {
+                const taskId = mockState.taskAssignmentsByBlock[readString(args, "block_id")];
+                delete mockState.taskAssignmentsByBlock[readString(args, "block_id")];
                 if (taskId) {
                     delete mockState.taskAssignmentsByTask[taskId];
                 }
             }
-            mockState.blocks = mockState.blocks.filter((block) => block.id !== payload.block_id);
+            mockState.blocks = mockState.blocks.filter((block) => block.id !== readString(args, "block_id"));
             return true;
         case "adjust_block_time":
-            mockState.blocks = mockState.blocks.map((block) => block.id === payload.block_id
-                ? { ...block, start_at: payload.start_at, end_at: payload.end_at }
+            mockState.blocks = mockState.blocks.map((block) => block.id === readString(args, "block_id")
+                ? { ...block, start_at: readString(args, "start_at"), end_at: readString(args, "end_at") }
                 : block);
-            return mockState.blocks.find((block) => block.id === payload.block_id);
+            return mockState.blocks.find((block) => block.id === readString(args, "block_id"));
         case "start_block_timer":
         case "start_pomodoro":
-            if (payload.task_id) {
-                assignMockTask(payload.task_id, payload.block_id);
-                const task = mockState.tasks.find((item) => item.id === payload.task_id);
+            if (typeof args.task_id === "string" && args.task_id) {
+                assignMockTask(args.task_id, readString(args, "block_id"));
+                const task = mockState.tasks.find((item) => item.id === args.task_id);
                 if (task && task.status !== "completed") {
                     task.status = "in_progress";
                 }
             }
-            const targetBlock = mockState.blocks.find((block) => block.id === payload.block_id);
+            const targetBlock = mockState.blocks.find((block) => block.id === readString(args, "block_id"));
             const plan = targetBlock
                 ? mockSessionPlan(targetBlock)
                 : { totalCycles: 1, focusSeconds: 25 * 60, breakSeconds: 5 * 60 };
             mockState.pomodoro = {
-                current_block_id: payload.block_id,
-                current_task_id: payload.task_id ?? null,
+                current_block_id: readString(args, "block_id"),
+                current_task_id: typeof args.task_id === "string" ? args.task_id : null,
                 phase: "focus",
                 remaining_seconds: plan.focusSeconds,
                 start_time: nowIso(),
@@ -1544,7 +1637,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
                 phase: "focus",
                 start_time: nowIso(),
                 end_time: nowIso(),
-                interruption_reason: payload.reason ?? "paused",
+                interruption_reason: readString(args, "reason", "paused"),
             });
             return { ...mockState.pomodoro };
         case "resume_timer":
@@ -1552,7 +1645,7 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             mockState.pomodoro = { ...mockState.pomodoro, phase: "focus" };
             return { ...mockState.pomodoro };
         case "interrupt_timer":
-            appendMockPomodoroLog(mockState.pomodoro.phase || "focus", payload.reason ?? "interrupted");
+            appendMockPomodoroLog(mockState.pomodoro.phase || "focus", readString(args, "reason", "interrupted"));
             mockState.pomodoro = {
                 ...emptyMockPomodoroState(),
             };
@@ -1565,8 +1658,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         case "get_pomodoro_state":
             return { ...mockState.pomodoro };
         case "relocate_if_needed": {
-            const accountId = normalizeAccountId(payload.account_id);
-            const block = mockState.blocks.find((item) => item.id === payload.block_id);
+            const accountId = normalizeAccountId(args.account_id);
+            const block = mockState.blocks.find((item) => item.id === readString(args, "block_id"));
             if (!block)
                 throw new Error("block not found");
             const currentStartMs = new Date(block.start_at).getTime();
@@ -1592,8 +1685,8 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
         }
         case "get_reflection_summary":
             return {
-                start: payload.start ?? new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
-                end: payload.end ?? nowIso(),
+                start: readString(args, "start", new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()),
+                end: readString(args, "end", nowIso()),
                 completed_count: 1,
                 interrupted_count: mockState.logs.length,
                 total_focus_minutes: 42,
@@ -1603,14 +1696,14 @@ async function mockInvoke(name: Unsafe, payload: Unsafe) {
             throw new Error(`mock command not implemented: ${name}`);
     }
 }
-async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
+async function refreshCoreData(date: string = isoDate(new Date())) {
     const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
     const syncWindow = toSyncWindowPayload(normalizedDate, "week");
     const weekDateKeys = resolveWeekDateKeys(normalizedDate);
-    const weeklyBlocksPromise = Promise.all(weekDateKeys.map((dateKey: Unsafe) => safeInvoke("list_blocks", { date: dateKey }))).then((dailyBlocks: Unsafe) => {
-        const merged = dailyBlocks.flat();
+    const weeklyBlocksPromise = Promise.all(weekDateKeys.map((dateKey: string) => safeInvoke("list_blocks", { date: dateKey }))).then((dailyBlocks: unknown[]) => {
+        const merged = dailyBlocks.flat() as Array<{ id?: string } & Block>;
         const seen = new Set();
-        return merged.filter((block: Unsafe) => {
+        return merged.filter((block) => {
             if (!block?.id || seen.has(block.id))
                 return false;
             seen.add(block.id);
@@ -1627,7 +1720,7 @@ async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
     ]);
     const refreshErrors = [];
     if (tasksResult.status === "fulfilled") {
-        uiState.tasks = tasksResult.value;
+        uiState.tasks = tasksResult.value as Task[];
         syncNowTaskOrder(uiState.tasks);
     }
     else {
@@ -1635,14 +1728,14 @@ async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
         refreshErrors.push(`list_tasks: ${message}`);
     }
     if (blocksResult.status === "fulfilled") {
-        uiState.blocks = blocksResult.value;
+        uiState.blocks = blocksResult.value as Block[];
     }
     else {
         const message = blocksResult.reason instanceof Error ? blocksResult.reason.message : String(blocksResult.reason);
         refreshErrors.push(`list_blocks: ${message}`);
     }
     if (calendarEventsResult.status === "fulfilled") {
-        uiState.calendarEvents = calendarEventsResult.value;
+        uiState.calendarEvents = calendarEventsResult.value as typeof uiState.calendarEvents;
     }
     else {
         const message = calendarEventsResult.reason instanceof Error
@@ -1651,7 +1744,7 @@ async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
         refreshErrors.push(`list_synced_events: ${message}`);
     }
     if (pomodoroResult.status === "fulfilled") {
-        uiState.pomodoro = pomodoroResult.value;
+        uiState.pomodoro = pomodoroResult.value as PomodoroState;
         syncNowTimerDisplay(uiState.pomodoro);
     }
     else {
@@ -1659,7 +1752,7 @@ async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
         refreshErrors.push(`get_pomodoro_state: ${message}`);
     }
     if (recipesResult.status === "fulfilled") {
-        uiState.recipes = recipesResult.value;
+        uiState.recipes = recipesResult.value as typeof uiState.recipes;
     }
     else {
         const message = recipesResult.reason instanceof Error ? recipesResult.reason.message : String(recipesResult.reason);
@@ -1670,37 +1763,37 @@ async function refreshCoreData(date: Unsafe = isoDate(new Date())) {
         setStatus(`refresh partially failed: ${refreshErrors.join(" | ")}`);
     }
 }
-async function authenticateAndSyncCalendar(date: Unsafe = uiState.dashboardDate || isoDate(new Date()), options: Unsafe = {}) {
+async function authenticateAndSyncCalendar(date: string = uiState.dashboardDate || isoDate(new Date()), options: { forceReauth?: boolean; [key: string]: unknown; } = {}) {
     if (options.forceReauth && !isTauriRuntimeAvailable()) {
         throw new Error("SSO login requires the Tauri desktop runtime. Start it with `cd src-tauri && cargo tauri dev`.");
     }
     const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
     uiState.dashboardDate = normalizedDate;
-    uiState.auth = await invokeCommandWithProgress("authenticate_google_sso", withAccount({ force_reauth: Boolean(options.forceReauth) }));
+    uiState.auth = await invokeCommandWithProgress("authenticate_google_sso", withAccount({ force_reauth: Boolean(options.forceReauth) })) as UiState["auth"];
     const syncResult = await invokeCommandWithProgress("sync_calendar", withAccount(toSyncWindowPayload(normalizedDate)));
     uiState.auth = {
         ...uiState.auth,
         synced_at: nowIso(),
-        sync_result: syncResult,
-    };
+        sync_result: syncResult as never,
+    } as UiState["auth"];
     return { normalizedDate, syncResult };
 }
-async function refreshNowPanelState(includeReflection: Unsafe = false) {
+async function refreshNowPanelState(includeReflection: boolean = false) {
     const operations = [safeInvoke("get_pomodoro_state"), safeInvoke("list_tasks")];
     if (includeReflection) {
         operations.push(safeInvoke("get_reflection_summary", {}));
     }
-    const [pomodoroResult, tasksResult, reflectionResult] = (await Promise.allSettled(operations)) as PromiseSettledResult<Unsafe>[];
+    const [pomodoroResult, tasksResult, reflectionResult] = (await Promise.allSettled(operations)) as PromiseSettledResult<unknown>[];
     if (pomodoroResult && pomodoroResult.status === "fulfilled") {
-        uiState.pomodoro = pomodoroResult.value;
+        uiState.pomodoro = pomodoroResult.value as PomodoroState;
         syncNowTimerDisplay(uiState.pomodoro);
     }
     if (tasksResult && tasksResult.status === "fulfilled") {
-        uiState.tasks = tasksResult.value;
+        uiState.tasks = tasksResult.value as Task[];
         syncNowTaskOrder(uiState.tasks);
     }
     if (includeReflection && reflectionResult?.status === "fulfilled") {
-        uiState.reflection = reflectionResult.value;
+        uiState.reflection = reflectionResult.value as typeof uiState.reflection;
         uiState.nowUi.lastReflectionSyncEpochMs = Date.now();
     }
 }
@@ -1925,7 +2018,7 @@ function renderTodayTaskPanel() {
 }
 function renderTodayTimelinePanel() {
     const timelineBlocks = [...uiState.blocks]
-        .sort((left: Unsafe, right: Unsafe) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
+        .sort((left: Block, right: Block) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
         .slice(0, 10);
     return `
     <section class="today-timeline-panel">
@@ -1937,7 +2030,7 @@ function renderTodayTimelinePanel() {
         ${timelineBlocks.length === 0
         ? '<li class="today-timeline-empty">予定はまだありません。</li>'
         : timelineBlocks
-            .map((block: Unsafe) => {
+            .map((block: Block) => {
             const title = blockTitle(block) || "Untitled Block";
             const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
             return `
@@ -2256,11 +2349,11 @@ export function startApp(): void {
                 invokeCommand("list_tasks", {}),
             ]);
             if (pomodoroResult.status === "fulfilled") {
-                uiState.pomodoro = pomodoroResult.value;
+                uiState.pomodoro = pomodoroResult.value as PomodoroState;
                 syncNowTimerDisplay(uiState.pomodoro);
             }
             if (tasksResult.status === "fulfilled") {
-                uiState.tasks = tasksResult.value;
+                uiState.tasks = tasksResult.value as Task[];
                 syncNowTaskOrder(uiState.tasks);
             }
             if (route === "now") {
@@ -2311,7 +2404,7 @@ export function startApp(): void {
                 await invokeCommandWithProgress("generate_blocks", withAccount({ date: today }));
             }
             await refreshCoreData();
-            uiState.reflection = await safeInvoke("get_reflection_summary", {});
+            uiState.reflection = await safeInvoke("get_reflection_summary", {}) as typeof uiState.reflection;
             uiState.nowUi.lastReflectionSyncEpochMs = Date.now();
         }
         catch {
