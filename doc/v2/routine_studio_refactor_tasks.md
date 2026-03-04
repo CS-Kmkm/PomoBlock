@@ -23,6 +23,18 @@
 | RSR-009 | 不要定義整理 | `routineStudioMacroTargets` など未使用定義の削除または利用先追加 | 未使用警告が解消され、不要定義が残らない | RSR-005 | P2 | 0.25日 |
 | RSR-010 | 回帰確認（最小E2E） | 追加/削除/並び替え/Undo/Redo/保存/今日適用を確認するテストまたは手動検証手順を追加（`doc/v2/routine_studio_regression_checklist.md`） | 上記の主要フローが再現可能で、分割後も動作維持を確認できる | RSR-004,RSR-005,RSR-007,RSR-008 | P0 | 1日 |
 
+## 2.1 実装状況（2026-03-04）
+- RSR-001: 完了
+- RSR-002: 完了
+- RSR-003: 完了
+- RSR-004: 完了
+- RSR-005: 完了
+- RSR-006: 完了
+- RSR-007: 完了
+- RSR-008: 完了
+- RSR-009: 完了（`src-ui/pages/routines-model.ts` および `src-ui/app-runtime.ts` の未使用 `routineStudioMacroTargets` を整理）
+- RSR-010: 完了（`doc/v2/routine_studio_regression_checklist.md` を追加）
+
 ## 3. 実行順（推奨）
 1. RSR-001
 2. RSR-002

@@ -169,7 +169,6 @@ const routineStudioSeedModules: Module[] = [
     },
 ];
 const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
-const routineStudioMacroTargets = [30, 45, 60, 90];
 let routineStudioSequence = 1;
 type DayItemKind = "block" | "event" | "free";
 type DayItemSelection = {
