@@ -197,7 +197,7 @@ export interface PageRenderDeps {
   calendarHelpers: {
     renderDailyCalendar: (dateValue: unknown, options?: unknown) => string;
     bindDailyCalendarInteractions: (rerender: () => void) => void;
-    blockRows: (blocks: unknown) => string;
+    blockRows: (blocks: Block[]) => string;
     resetBlocksForDate: (date: string) => Promise<number>;
     buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
     renderWeeklyPlannerCalendar: (model: unknown) => string;
@@ -213,7 +213,7 @@ export interface PageRenderDeps {
     pomodoroPhaseLabel: (phase: unknown) => string;
     nowBufferAvailableMinutes: () => number;
     resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
-    executeTimerAction: (action: unknown, rerender: () => void) => Promise<void>;
+    executeTimerAction: (action: string, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
   };
   routineHelpers: {

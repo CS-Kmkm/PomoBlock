@@ -12,6 +12,7 @@ import { renderNowPage } from "./pages/now-page.js";
 import { renderRoutinesPage } from "./pages/routines-page.js";
 import { renderSettingsPage } from "./pages/settings-page.js";
 import { renderTodayPage } from "./pages/today-page.js";
+import { renderTodayAmbientPanel as renderTodayAmbientPanelView, renderTodayLibraryLinks as renderTodayLibraryLinksView, renderTodayNotesPanel as renderTodayNotesPanelView, renderTodaySequenceItems as renderTodaySequenceItemsView, renderTodayStatusCard as renderTodayStatusCardView, renderTodayTaskPanel as renderTodayTaskPanelView, } from "./today-renderers.js";
 import type { Block, DayBlockDragState, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -1805,87 +1806,24 @@ function render() {
     }
 }
 function renderTodaySequenceItems() {
-    const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
-    if (recipes.length === 0) {
-        return '<p class="small">シーケンスがありません。Routinesで追加してください。</p>';
-    }
-    return recipes
-        .slice(0, 8)
-        .map((recipe: Unsafe) => {
-        const name = typeof recipe?.name === "string" && recipe.name.trim() ? recipe.name.trim() : "Untitled";
-        const autoDriveMode = typeof recipe?.auto_drive_mode === "string" && recipe.auto_drive_mode.trim()
-            ? recipe.auto_drive_mode.trim()
-            : "manual";
-        const stepCount = Array.isArray(recipe?.steps) ? recipe.steps.length : 0;
-        return `
-        <article class="today-sequence-item">
-          <div class="today-sequence-icon" aria-hidden="true">${escapeHtml(name.slice(0, 1).toUpperCase())}</div>
-          <div class="today-sequence-content">
-            <p class="today-sequence-title">${escapeHtml(name)}</p>
-            <p class="today-sequence-meta">${escapeHtml(autoDriveMode)} / ${stepCount} steps</p>
-          </div>
-        </article>
-      `;
-    })
-        .join("");
+    return renderTodaySequenceItemsView({ uiState, escapeHtml });
 }
 function renderTodayLibraryLinks() {
-    return `
-    <ul class="today-library-links">
-      <li><a href="#/insights">History</a></li>
-      <li><a href="#/routines">Templates</a></li>
-    </ul>
-  `;
+    return renderTodayLibraryLinksView();
 }
 function renderTodayStatusCard() {
-    const state = normalizePomodoroState(uiState.pomodoro || {});
-    const controls = resolveTimerControlModel(state);
-    const phaseLabel = pomodoroPhaseLabel(state.phase);
-    const focusTask = resolveCurrentFocusTask(state);
-    const currentBlock = state.current_block_id
-        ? uiState.blocks.find((block: Unsafe) => block.id === state.current_block_id) || null
-        : null;
-    const currentTitle = currentBlock ? blockTitle(currentBlock) || currentBlock.id : "-";
-    const progressPercent = pomodoroProgressPercent(state);
-    const displayRemainingSeconds = uiState.nowUi.lastSyncEpochMs > 0
-        ? Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0))
-        : Math.max(0, Math.floor(state.remaining_seconds || 0));
-    return `
-    <section class="today-right-section today-right-section--status">
-      <h3>Current Status</h3>
-      <div class="today-status-card">
-        <span class="pill today-status-pill">${phaseLabel}</span>
-        <p class="today-status-title">${escapeHtml(currentTitle)}</p>
-        <p class="today-status-subtitle">Block: ${escapeHtml(state.current_block_id || "-")}</p>
-        <p class="today-status-subtitle">Task: ${escapeHtml(focusTask?.title || "-")}</p>
-        <div class="today-status-time" data-today-status-time>${toTimerText(displayRemainingSeconds)}</div>
-        <div class="today-status-controls">
-          <button
-            class="today-status-action today-status-action--secondary"
-            data-today-timer-action="${controls.leftAction}"
-            aria-label="${controls.leftLabel}"
-            title="${controls.leftLabel}"
-            ${controls.leftDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${controls.leftIcon}</span><span class="now-visually-hidden">${controls.leftLabel}</span></button>
-          <button
-            class="today-status-action today-status-action--primary"
-            data-today-timer-action="${controls.primaryAction}"
-            aria-label="${controls.primaryLabel}"
-            title="${controls.primaryLabel}"
-            ${controls.primaryDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${controls.primaryIcon}</span><span class="now-visually-hidden">${controls.primaryLabel}</span></button>
-          <button
-            class="today-status-action today-status-action--secondary"
-            data-today-timer-action="${controls.rightAction}"
-            aria-label="${controls.rightLabel}"
-            title="${controls.rightLabel}"
-            ${controls.rightDisabled ? "disabled" : ""}
-          ><span class="now-control-icon" aria-hidden="true">${controls.rightIcon}</span><span class="now-visually-hidden">${controls.rightLabel}</span></button>
-        </div>
-        <div class="bar-track"><div class="bar-fill" style="width:${progressPercent}%"></div></div>
-      </div>
-    </section>
-  `;
+    return renderTodayStatusCardView({
+        uiState,
+        escapeHtml,
+        blockTitle,
+        formatHHmm,
+        normalizePomodoroState,
+        pomodoroPhaseLabel,
+        pomodoroProgressPercent,
+        resolveCurrentFocusTask,
+        resolveTimerControlModel,
+        toTimerText,
+    });
 }
 function refreshTodayStatusTimerDisplay() {
     if (getRoute() !== "today") {
@@ -1901,7 +1839,7 @@ function refreshTodayStatusTimerDisplay() {
         : Math.max(0, Math.floor(state.remaining_seconds || 0));
     statusTime.textContent = toTimerText(displayRemainingSeconds);
 }
-function resolveTimerControlModel(stateInput: Unsafe = uiState.pomodoro) {
+function resolveTimerControlModel(stateInput: unknown = uiState.pomodoro) {
     const state = normalizePomodoroState(stateInput || {});
     const canStart = state.phase === "idle" && Boolean(resolveNowAutoStartBlock(state));
     const isRunningPhase = state.phase === "focus" || state.phase === "break";
@@ -1932,7 +1870,7 @@ function resolveTimerControlModel(stateInput: Unsafe = uiState.pomodoro) {
             (primaryAction === "resume" && !canResume),
     };
 }
-async function executeTimerAction(action: Unsafe, rerender: Unsafe) {
+async function executeTimerAction(action: string, rerender: () => void) {
     if (!action || uiState.nowUi.actionInFlight)
         return;
     uiState.nowUi.actionInFlight = true;
@@ -1978,33 +1916,12 @@ async function executeTimerAction(action: Unsafe, rerender: Unsafe) {
     rerender();
 }
 function renderTodayTaskPanel() {
-    const state = normalizePomodoroState(uiState.pomodoro || {});
-    const focusTask = resolveCurrentFocusTask(state);
-    const focusTaskId = focusTask?.id || "";
-    const activeTasks = uiState.tasks.filter((task: Unsafe) => task.status !== "completed");
-    const visibleTasks = activeTasks.slice(0, 5);
-    const overflowCount = Math.max(0, activeTasks.length - visibleTasks.length);
-    return `
-    <section class="today-right-section today-right-section--tasks">
-      <div class="row spread">
-        <h3>Active Micro-Tasks</h3>
-        <span class="small">${focusTask ? `Current: ${escapeHtml(focusTask.title || "(untitled)")}` : "Current: -"}</span>
-      </div>
-      <ul class="today-task-list">
-        ${visibleTasks.length === 0
-        ? '<li class="today-task-empty">未完了タスクはありません。</li>'
-        : visibleTasks
-            .map((task: Unsafe) => `
-            <li class="today-task-item">
-              <span class="today-task-bullet ${task.id === focusTaskId ? "is-active" : ""}" aria-hidden="true"></span>
-              <span>${escapeHtml(task.title || "(untitled)")}</span>
-            </li>
-          `)
-            .join("")}
-      </ul>
-      ${overflowCount > 0 ? `<p class="small">他 ${overflowCount} 件</p>` : ""}
-    </section>
-  `;
+    return renderTodayTaskPanelView({
+        uiState,
+        normalizePomodoroState,
+        resolveCurrentFocusTask,
+        escapeHtml,
+    });
 }
 function renderTodayTimelinePanel() {
     const timelineBlocks = [...uiState.blocks]
@@ -2039,33 +1956,19 @@ function renderTodayTimelinePanel() {
   `;
 }
 function renderTodayNotesPanel() {
-    const activeTask = resolveCurrentFocusTask(normalizePomodoroState(uiState.pomodoro || {})) || null;
-    const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
-    return `
-    <section class="today-right-section today-right-section--notes">
-      <div class="row spread">
-        <h3>Session Notes</h3>
-        <span class="small">${activeTask ? "active task linked" : "free form"}</span>
-      </div>
-      <textarea class="today-notes-input" placeholder="${escapeHtml(defaultNote)}"></textarea>
-    </section>
-  `;
+    return renderTodayNotesPanelView({
+        uiState,
+        normalizePomodoroState,
+        resolveCurrentFocusTask,
+        escapeHtml,
+    });
 }
 function renderTodayAmbientPanel() {
-    return `
-    <section class="today-right-footer">
-      <div class="today-ambient-cover" aria-hidden="true">A</div>
-      <div class="today-ambient-meta">
-        <p class="today-ambient-title">Deep Focus Ambient</p>
-        <p class="today-ambient-source">Brain.fm</p>
-      </div>
-      <div class="today-ambient-controls" aria-hidden="true">| |</div>
-    </section>
-  `;
+    return renderTodayAmbientPanelView();
 }
-function blockRows(blocks: Unsafe) {
+function blockRows(blocks: Block[]) {
     return blocks
-        .map((block: Unsafe) => `
+        .map((block: Block) => `
       <tr>
         <td>${blockDisplayName(block)}</td>
         <td>${formatTime(block.start_at)}</td>
@@ -2074,13 +1977,13 @@ function blockRows(blocks: Unsafe) {
       </tr>`)
         .join("");
 }
-function bindDailyCalendarInteractions(rerender: Unsafe) {
-    appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node: Unsafe) => {
-        node.addEventListener("pointerdown", (event: Unsafe) => {
-            const pointerEvent = /** @type {PointerEvent} */ (event);
+function bindDailyCalendarInteractions(rerender: () => void) {
+    appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node) => {
+        node.addEventListener("pointerdown", (event: Event) => {
+            const pointerEvent = event as PointerEvent;
             if (pointerEvent.button !== 0)
                 return;
-            const entry = /** @type {HTMLButtonElement} */ (node);
+            const entry = node as HTMLButtonElement;
             const blockId = entry.dataset.dayItemId;
             const dayStartMs = Number(entry.dataset.dayStartMs || "");
             const dayEndMs = Number(entry.dataset.dayEndMs || "");
@@ -2128,7 +2031,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             catch {
                 // ignore unsupported pointer capture
             }
-            const onMove = (moveEvent: Unsafe) => {
+            const onMove = (moveEvent: PointerEvent) => {
                 if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
@@ -2171,7 +2074,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
                         Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
                 moveEvent.preventDefault();
             };
-            const onUp = (upEvent: Unsafe) => {
+            const onUp = (upEvent: PointerEvent) => {
                 if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 finishDayBlockDrag(rerender);
@@ -2184,12 +2087,12 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             pointerEvent.preventDefault();
         });
     });
-    appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node: Unsafe) => {
-        node.addEventListener("pointerdown", (event: Unsafe) => {
-            const pointerEvent = /** @type {PointerEvent} */ (event);
+    appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node) => {
+        node.addEventListener("pointerdown", (event: Event) => {
+            const pointerEvent = event as PointerEvent;
             if (pointerEvent.button !== 0)
                 return;
-            const entry = /** @type {HTMLButtonElement} */ (node);
+            const entry = node as HTMLButtonElement;
             const blockId = entry.dataset.dayItemId;
             const dayStartMs = Number(entry.dataset.dayStartMs || "");
             const dayEndMs = Number(entry.dataset.dayEndMs || "");
@@ -2237,7 +2140,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             catch {
                 // ignore unsupported pointer capture
             }
-            const onMove = (moveEvent: Unsafe) => {
+            const onMove = (moveEvent: PointerEvent) => {
                 if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 const deltaX = moveEvent.clientX - dayBlockDragState.originClientX;
@@ -2253,7 +2156,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
                         Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
                 moveEvent.preventDefault();
             };
-            const onUp = (upEvent: Unsafe) => {
+            const onUp = (upEvent: PointerEvent) => {
                 if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
                     return;
                 finishDayBlockDrag(rerender);
@@ -2266,7 +2169,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             pointerEvent.preventDefault();
         });
     });
-    appRoot.querySelectorAll("[data-day-view]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-day-view]").forEach((node) => {
         node.addEventListener("click", () => {
             const element = /** @type {HTMLElement} */ (node);
             const mode = element.dataset.dayView;
@@ -2276,7 +2179,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node) => {
         node.addEventListener("click", () => {
             if (Date.now() < dayBlockDragState.suppressClickUntil) {
                 return;
@@ -2292,7 +2195,7 @@ function bindDailyCalendarInteractions(rerender: Unsafe) {
             rerender();
         });
     });
-    appRoot.querySelectorAll("[data-block-title-save]").forEach((node: Unsafe) => {
+    appRoot.querySelectorAll("[data-block-title-save]").forEach((node) => {
         node.addEventListener("click", () => {
             const button = /** @type {HTMLElement} */ (node);
             const blockId = button.dataset.blockTitleSave;
