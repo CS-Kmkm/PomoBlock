@@ -21,7 +21,7 @@
 | RSR-007 | DnD のインスタンス化対応 | `routines-pointer-dnd.ts` をファクトリ化し、グローバル可変状態を除去。`dispose` を実装 | DnD 状態がインスタンスローカル化され、再描画時に明示解除できる | RSR-005,RSR-006 | P1 | 1日 |
 | RSR-008 | duration 数値正規化の共通化 | `toPositiveInt(value, fallback)` を導入し duration 系処理を統一 | 不正入力でも `NaN` が state/payload に入らない | RSR-003 | P1 | 0.5日 |
 | RSR-009 | 不要定義整理 | `routineStudioMacroTargets` など未使用定義の削除または利用先追加 | 未使用警告が解消され、不要定義が残らない | RSR-005 | P2 | 0.25日 |
-| RSR-010 | 回帰確認（最小E2E） | 追加/削除/並び替え/Undo/Redo/保存/今日適用を確認するテストまたは手動検証手順を追加 | 上記の主要フローが再現可能で、分割後も動作維持を確認できる | RSR-004,RSR-005,RSR-007,RSR-008 | P0 | 1日 |
+| RSR-010 | 回帰確認（最小E2E） | 追加/削除/並び替え/Undo/Redo/保存/今日適用を確認するテストまたは手動検証手順を追加（`doc/v2/routine_studio_regression_checklist.md`） | 上記の主要フローが再現可能で、分割後も動作維持を確認できる | RSR-004,RSR-005,RSR-007,RSR-008 | P0 | 1日 |
 
 ## 3. 実行順（推奨）
 1. RSR-001
@@ -52,4 +52,3 @@
 ### M4: 品質確認/整理
 - 対象: RSR-010, RSR-009
 - 完了条件: 主要フロー回帰なし + 未使用定義整理済み
-

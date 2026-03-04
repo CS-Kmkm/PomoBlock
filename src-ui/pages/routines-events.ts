@@ -78,12 +78,13 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         if (!studio.assetsLoading) {
             studio.assetsLoading = true;
             runUiAction(async () => {
-                const [recipesResult, modulesResult] = await Promise.all([
-                    safeInvoke("list_recipes", {}),
-                    safeInvoke("list_modules", {}).catch(() => cloneValue(routineStudioSeedModules)),
-                ]);
-                uiState.recipes = Array.isArray(recipesResult) ? recipesResult : [];
-                studio.modules = Array.isArray(modulesResult) ? modulesResult.map(normalizeModule) : [];
+                const refreshed = await refreshStudioAssets({
+                    safeInvoke: (command, payload) => safeInvoke(command, payload),
+                    normalizeModule,
+                    fallbackModules: cloneValue(routineStudioSeedModules),
+                });
+                uiState.recipes = refreshed.recipes;
+                studio.modules = refreshed.modules;
                 studio.assetsLoaded = true;
                 studio.assetsLoading = false;
                 renderRoutines();
