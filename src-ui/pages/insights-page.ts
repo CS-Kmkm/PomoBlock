@@ -1,7 +1,14 @@
 import type { PageRenderDeps } from "../types.js";
 
 export function renderInsightsPage(deps: PageRenderDeps): void {
-  const { appRoot, uiState, services, helpers } = deps;
+  const { appRoot, uiState, services } = deps;
+  const helpers = {
+    ...deps.commonHelpers,
+    ...deps.calendarHelpers,
+    ...deps.nowHelpers,
+    ...deps.routineHelpers,
+    ...deps.taskHelpers,
+  };
   const end = helpers.isoDate(new Date());
   const start = helpers.isoDate(new Date(Date.now() - 6 * 24 * 3600 * 1000));
   const summary = uiState.reflection;

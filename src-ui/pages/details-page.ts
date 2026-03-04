@@ -1,7 +1,14 @@
 import type { PageRenderDeps } from "../types.js";
 
 export function renderDetailsPage(deps: PageRenderDeps): void {
-  const { uiState, appRoot, services, setStatus, helpers } = deps;
+  const { uiState, appRoot, services, setStatus } = deps;
+  const helpers = {
+    ...deps.commonHelpers,
+    ...deps.calendarHelpers,
+    ...deps.nowHelpers,
+    ...deps.routineHelpers,
+    ...deps.taskHelpers,
+  };
   const fallbackDate = helpers.isoDate(new Date());
   const selectedDate = uiState.dashboardDate || fallbackDate;
 

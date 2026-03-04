@@ -179,22 +179,30 @@ export interface PageRenderDeps {
   authenticateAndSyncCalendar: (date?: string, options?: Record<string, unknown>) => Promise<unknown>;
   settingsPages: string[];
   settingsPageLabels: Record<string, string>;
-  helpers: {
+  commonHelpers: {
     normalizeAccountId: (value: unknown) => string;
     withAccount: (payload?: Record<string, unknown>) => Record<string, unknown>;
     isoDate: (value: Date) => string;
     formatTime: (value: string | null | undefined) => string;
-    renderDailyCalendar: (dateValue: unknown, options?: unknown) => string;
-    bindDailyCalendarInteractions: (rerender: () => void) => void;
-    blockRows: (blocks: unknown) => string;
-    isUnknownCommandError: (error: unknown) => boolean;
-    resetBlocksForDate: (date: string) => Promise<number>;
+    formatHHmm: (value: string | null | undefined) => string;
+    escapeHtml: (value: unknown) => string;
     blockDisplayName: (block: Pick<Block, "start_at" | "end_at"> & Partial<Block>) => string;
     blockTitle: (block: { id?: string } | null | undefined) => string;
-    escapeHtml: (value: unknown) => string;
     toLocalInputValue: (rfc3339: string | null | undefined) => string;
     fromLocalInputValue: (value: string | null | undefined) => string;
     toSyncWindowPayload: (dateValue: string, scope?: "day" | "week") => Record<string, unknown>;
+    isUnknownCommandError: (error: unknown) => boolean;
+    toTimerText: (seconds: number | null | undefined) => string;
+  };
+  calendarHelpers: {
+    renderDailyCalendar: (dateValue: unknown, options?: unknown) => string;
+    bindDailyCalendarInteractions: (rerender: () => void) => void;
+    blockRows: (blocks: unknown) => string;
+    resetBlocksForDate: (date: string) => Promise<number>;
+    buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
+    renderWeeklyPlannerCalendar: (model: unknown) => string;
+  };
+  nowHelpers: {
     normalizePomodoroState: (state: unknown) => PomodoroState;
     syncNowTimerDisplay: (stateInput: unknown) => void;
     resolveNowBlocks: () => Array<{ block: Block; startMs: number; endMs: number }>;
@@ -204,19 +212,19 @@ export interface PageRenderDeps {
     resolveNowAutoStartTask: (stateInput: PomodoroState) => Task | null;
     pomodoroPhaseLabel: (phase: unknown) => string;
     nowBufferAvailableMinutes: () => number;
-    formatHHmm: (value: string | null | undefined) => string;
-    toTimerText: (seconds: number | null | undefined) => string;
     resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
     executeTimerAction: (action: unknown, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
-    buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
-    renderWeeklyPlannerCalendar: (model: unknown) => string;
+  };
+  routineHelpers: {
     renderTodaySequenceItems: () => string;
     renderTodayLibraryLinks: () => string;
     renderTodayStatusCard: () => string;
-    renderTodayTaskPanel: () => string;
     renderTodayNotesPanel: () => string;
     renderTodayAmbientPanel: () => string;
+  };
+  taskHelpers: {
+    renderTodayTaskPanel: () => string;
   };
   renderers: {
     renderDashboard: () => void;

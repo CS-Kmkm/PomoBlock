@@ -1,7 +1,14 @@
 import type { PageRenderDeps } from "../types.js";
 
 export function renderNowPage(deps: PageRenderDeps): void {
-  const { uiState, appRoot, services, helpers } = deps;
+  const { uiState, appRoot, services } = deps;
+  const helpers = {
+    ...deps.commonHelpers,
+    ...deps.calendarHelpers,
+    ...deps.nowHelpers,
+    ...deps.routineHelpers,
+    ...deps.taskHelpers,
+  };
   const state = helpers.normalizePomodoroState(uiState.pomodoro || {});
   if (uiState.nowUi.lastSyncEpochMs === 0) {
     helpers.syncNowTimerDisplay(state);

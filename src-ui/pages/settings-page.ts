@@ -1,7 +1,14 @@
 import type { JsonObject, PageRenderDeps } from "../types.js";
 
 export function renderSettingsPage(deps: PageRenderDeps): void {
-  const { uiState, appRoot, setStatus, settingsPages, settingsPageLabels, helpers } = deps;
+  const { uiState, appRoot, setStatus, settingsPages, settingsPageLabels } = deps;
+  const helpers = {
+    ...deps.commonHelpers,
+    ...deps.calendarHelpers,
+    ...deps.nowHelpers,
+    ...deps.routineHelpers,
+    ...deps.taskHelpers,
+  };
   const activePage = settingsPages.includes(uiState.settings.page) ? uiState.settings.page : "blocks";
   uiState.settings.page = activePage;
 

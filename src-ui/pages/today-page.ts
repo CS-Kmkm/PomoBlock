@@ -1,7 +1,14 @@
 import type { PageRenderDeps } from "../types.js";
 
 export function renderTodayPage(deps: PageRenderDeps): void {
-  const { uiState, appRoot, helpers } = deps;
+  const { uiState, appRoot } = deps;
+  const helpers = {
+    ...deps.commonHelpers,
+    ...deps.calendarHelpers,
+    ...deps.nowHelpers,
+    ...deps.routineHelpers,
+    ...deps.taskHelpers,
+  };
   const fallbackDate = helpers.isoDate(new Date());
   const selectedDate = uiState.dashboardDate || fallbackDate;
   const weeklyModel = helpers.buildWeeklyPlannerModel(selectedDate, uiState.blocks, uiState.calendarEvents);
