@@ -20,6 +20,14 @@ export type RoutineStudioEntryView = {
   note: string;
 };
 
+export function toPositiveInt(value: unknown, fallback: number, min = 1): number {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) {
+    return Math.max(min, Math.round(parsed));
+  }
+  return Math.max(min, Math.round(fallback));
+}
+
 export const routineStudioSeedModules: Module[] = [
   {
     id: "mod-deep-work-init",
@@ -132,7 +140,6 @@ export const routineStudioSeedModules: Module[] = [
 ];
 
 export const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
-export const routineStudioMacroTargets = [30, 45, 60, 90];
 
 let routineStudioSequence = 1;
 
@@ -147,7 +154,7 @@ export function routineStudioStepDurationMinutes(step: unknown) {
   const seconds = Number(source.durationSeconds || source.duration_seconds || 0);
   if (Number.isFinite(seconds) && seconds > 0) return Math.max(1, Math.round(seconds / 60));
   const minutes = Number(source.durationMinutes || source.duration_minutes || 0);
-  return Number.isFinite(minutes) && minutes > 0 ? Math.max(1, Math.round(minutes)) : 0;
+  return Number.isFinite(minutes) && minutes > 0 ? toPositiveInt(minutes, 1) : 0;
 }
 
 export function routineStudioSlug(value: string) {

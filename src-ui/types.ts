@@ -108,6 +108,27 @@ export type Module = {
 export type DayItemKind = string;
 export type DayItemSelection = { kind: DayItemKind; id: string } | null;
 export type DayCalendarViewMode = "grid" | "simple";
+export type RoutineStudioDragKind = "module" | "template" | "entry";
+
+export interface RoutineStudioEntry {
+  entryId: string;
+  sourceKind: string;
+  sourceId: string;
+  moduleId: string;
+  title: string;
+  subtitle: string;
+  durationMinutes: number;
+  note: string;
+}
+
+export interface RoutineStudioModuleEditor {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  icon: string;
+  durationMinutes: number;
+}
 
 export interface RoutineStudioState {
   assetsLoaded: boolean;
@@ -123,8 +144,8 @@ export interface RoutineStudioState {
   macroTargetMinutes: number;
   modules: Module[];
   hiddenTemplateCount: number;
-  canvasEntries: Array<Record<string, unknown>>;
-  history: Array<Array<Record<string, unknown>>>;
+  canvasEntries: RoutineStudioEntry[];
+  history: RoutineStudioEntry[][];
   historyIndex: number;
   dragInsertIndex: number;
   selectedEntryId: string;
@@ -132,7 +153,7 @@ export interface RoutineStudioState {
   editingModuleId: string;
   lastApplyResult: string;
   bootstrapped: boolean;
-  moduleEditor: JsonObject | null;
+  moduleEditor: RoutineStudioModuleEditor | null;
   [key: string]: unknown;
 }
 
