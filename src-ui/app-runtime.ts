@@ -13,7 +13,8 @@ import { renderRoutinesPage } from "./pages/routines-page.js";
 import { renderSettingsPage } from "./pages/settings-page.js";
 import { renderTodayPage } from "./pages/today-page.js";
 import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTextValue, toDurationLabel as toDurationLabelValue } from "./calendar-view-helpers.js";
-import { renderTodayAmbientPanel as renderTodayAmbientPanelView, renderTodayLibraryLinks as renderTodayLibraryLinksView, renderTodayNotesPanel as renderTodayNotesPanelView, renderTodaySequenceItems as renderTodaySequenceItemsView, renderTodayStatusCard as renderTodayStatusCardView, renderTodayTaskPanel as renderTodayTaskPanelView, } from "./today-renderers.js";
+import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, blockRows as blockRowsValue } from "./day-calendar-bindings.js";
+import { renderTodayAmbientPanel as renderTodayAmbientPanelView, renderTodayLibraryLinks as renderTodayLibraryLinksView, renderTodayNotesPanel as renderTodayNotesPanelView, renderTodaySequenceItems as renderTodaySequenceItemsView, renderTodayStatusCard as renderTodayStatusCardView, renderTodayTaskPanel as renderTodayTaskPanelView, renderTodayTimelinePanel as renderTodayTimelinePanelView, } from "./today-renderers.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -43,8 +44,6 @@ const longRunningLabels = {
 const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
 const BLOCKS_INITIAL_VISIBLE = 50;
-const DAY_BLOCK_DRAG_SNAP_MINUTES = 5;
-const DAY_BLOCK_DRAG_THRESHOLD_PX = 4;
 const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
 // Routine Studio のドラッグデータを保持するモジュール変数
 let routineStudioActiveDrag: {
@@ -587,167 +586,6 @@ function sumIntervalMinutes(intervals: Array<{ startMs: number; endMs: number }>
 }
 function intervalRangeLabel(interval: unknown) {
     return intervalRangeLabelValue(interval);
-}
-function snapToMinutes(milliseconds: number, minutes: number) {
-    const step = Math.max(1, Math.floor(minutes)) * 60000;
-    return Math.round(milliseconds / step) * step;
-}
-function clampBlockIntervalToDay(startMs: number, durationMs: number, dayStartMs: number, dayEndMs: number) {
-    const safeDuration = Math.max(60000, durationMs);
-    const maxStartMs = Math.max(dayStartMs, dayEndMs - safeDuration);
-    const clampedStartMs = Math.min(Math.max(startMs, dayStartMs), maxStartMs);
-    return {
-        startMs: clampedStartMs,
-        endMs: clampedStartMs + safeDuration,
-    };
-}
-function snapAndClampBlockInterval(startMs: number, durationMs: number, dayStartMs: number, dayEndMs: number) {
-    const snappedStartMs = snapToMinutes(startMs, DAY_BLOCK_DRAG_SNAP_MINUTES);
-    return clampBlockIntervalToDay(snappedStartMs, durationMs, dayStartMs, dayEndMs);
-}
-function clearDayBlockDragDocumentListeners() {
-    if (dayBlockDragState.onMove) {
-        window.removeEventListener("pointermove", dayBlockDragState.onMove);
-        dayBlockDragState.onMove = null;
-    }
-    if (dayBlockDragState.onUp) {
-        window.removeEventListener("pointerup", dayBlockDragState.onUp);
-        window.removeEventListener("pointercancel", dayBlockDragState.onUp);
-        dayBlockDragState.onUp = null;
-    }
-}
-function setHoveredFreeEntry(entry: HTMLElement | null) {
-    if (dayBlockDragState.hoveredFreeEntry === entry)
-        return;
-    if (dayBlockDragState.hoveredFreeEntry) {
-        dayBlockDragState.hoveredFreeEntry.classList.remove("is-drop-target");
-    }
-    dayBlockDragState.hoveredFreeEntry = entry;
-    if (dayBlockDragState.hoveredFreeEntry) {
-        dayBlockDragState.hoveredFreeEntry.classList.add("is-drop-target");
-    }
-}
-function resetDayBlockDragVisualState() {
-    setHoveredFreeEntry(null);
-    if (dayBlockDragState.entry) {
-        dayBlockDragState.entry.classList.remove("is-dragging");
-        dayBlockDragState.entry.style.top = dayBlockDragState.originalTopCss;
-        dayBlockDragState.entry.style.left = dayBlockDragState.originalLeftCss;
-        dayBlockDragState.entry.style.removeProperty("z-index");
-        dayBlockDragState.entry.title = dayBlockDragState.originalTitle;
-        if (dayBlockDragState.timeLabel) {
-            dayBlockDragState.timeLabel.textContent = dayBlockDragState.originalTimeLabelText;
-        }
-    }
-}
-async function commitDayBlockMove(rerender: () => void, snapshot: {
-    blockId: string;
-    dayStartMs: number;
-    dayEndMs: number;
-    originStartMs: number;
-    originEndMs: number;
-    previewStartMs: number;
-    previewEndMs: number;
-}) {
-    const blockId = snapshot.blockId;
-    if (!blockId)
-        return;
-    const durationMs = snapshot.previewEndMs - snapshot.previewStartMs;
-    const finalInterval = snapAndClampBlockInterval(snapshot.previewStartMs, durationMs, snapshot.dayStartMs, snapshot.dayEndMs);
-    const finalStartMs = finalInterval.startMs;
-    const finalEndMs = finalInterval.endMs;
-    const unchanged = Math.abs(finalStartMs - snapshot.originStartMs) < 1000 &&
-        Math.abs(finalEndMs - snapshot.originEndMs) < 1000;
-    if (unchanged)
-        return;
-    await runUiAction(async () => {
-        await safeInvoke("adjust_block_time", {
-            block_id: blockId,
-            start_at: new Date(finalStartMs).toISOString(),
-            end_at: new Date(finalEndMs).toISOString(),
-        });
-        uiState.dayCalendarSelection = { kind: "block", id: blockId };
-        await refreshCoreData(uiState.dashboardDate);
-        setStatus(`block moved: ${toClockText(finalStartMs)} - ${toClockText(finalEndMs)}`);
-        rerender();
-    });
-}
-function finishDayBlockDrag(rerender: () => void) {
-    clearDayBlockDragDocumentListeners();
-    if (!dayBlockDragState.active)
-        return;
-    resetDayBlockDragVisualState();
-    const commitSnapshot = {
-        blockId: dayBlockDragState.blockId,
-        dayStartMs: dayBlockDragState.dayStartMs,
-        dayEndMs: dayBlockDragState.dayEndMs,
-        originStartMs: dayBlockDragState.originStartMs,
-        originEndMs: dayBlockDragState.originEndMs,
-        previewStartMs: dayBlockDragState.previewStartMs,
-        previewEndMs: dayBlockDragState.previewEndMs,
-    };
-    const moved = dayBlockDragState.moved;
-    const shouldCommit = moved;
-    if (moved) {
-        dayBlockDragState.suppressClickUntil = Date.now() + 220;
-    }
-    const releaseEntry = dayBlockDragState.entry;
-    const pointerId = dayBlockDragState.pointerId;
-    if (releaseEntry && typeof pointerId === "number" && Number.isInteger(pointerId)) {
-        try {
-            releaseEntry.releasePointerCapture(pointerId);
-        }
-        catch {
-            // ignore unsupported or already released capture
-        }
-    }
-    dayBlockDragState.active = false;
-    dayBlockDragState.moved = false;
-    dayBlockDragState.pointerId = null;
-    dayBlockDragState.blockId = "";
-    dayBlockDragState.dayStartMs = 0;
-    dayBlockDragState.dayEndMs = 0;
-    dayBlockDragState.rangeMs = 0;
-    dayBlockDragState.trackHeightPx = 0;
-    dayBlockDragState.trackWidthPx = 0;
-    dayBlockDragState.originClientY = 0;
-    dayBlockDragState.originClientX = 0;
-    dayBlockDragState.originStartMs = 0;
-    dayBlockDragState.originEndMs = 0;
-    dayBlockDragState.previewStartMs = 0;
-    dayBlockDragState.previewEndMs = 0;
-    dayBlockDragState.originalTopCss = "";
-    dayBlockDragState.originalLeftCss = "";
-    dayBlockDragState.originalTimeLabelText = "";
-    dayBlockDragState.originalTitle = "";
-    dayBlockDragState.hoveredFreeEntry = null;
-    dayBlockDragState.entry = null;
-    dayBlockDragState.timeLabel = null;
-    if (shouldCommit) {
-        void commitDayBlockMove(rerender, commitSnapshot);
-    }
-}
-function applyDayBlockPreview(entry: HTMLButtonElement, interval: { startMs: number; endMs: number; }) {
-    if (!dayBlockDragState.rangeMs || dayBlockDragState.rangeMs <= 0)
-        return;
-    dayBlockDragState.previewStartMs = interval.startMs;
-    dayBlockDragState.previewEndMs = interval.endMs;
-    const startPercent = ((interval.startMs - dayBlockDragState.dayStartMs) / dayBlockDragState.rangeMs) * 100;
-    if (entry.classList.contains("day-simple-segment")) {
-        entry.style.left = `${startPercent}%`;
-    }
-    else {
-        entry.style.top = `${startPercent}%`;
-    }
-    const timeText = intervalRangeLabel(interval);
-    if (dayBlockDragState.timeLabel) {
-        dayBlockDragState.timeLabel.textContent = timeText;
-    }
-    entry.title = `${blockDisplayName({
-        start_at: new Date(interval.startMs).toISOString(),
-        end_at: new Date(interval.endMs).toISOString(),
-        date: uiState.dashboardDate,
-    })} | ${timeText}`;
 }
 function buildDailyCalendarModel(dateValue: unknown, blocks: unknown, events: unknown, options: { syncSelection?: boolean; preferredSelection?: DayItemSelection; } = {}) {
     const model = buildDailyCalendarModelValue(dateValue, (Array.isArray(blocks) ? blocks : []) as unknown[], (Array.isArray(events) ? events : []) as unknown[], {
@@ -1855,13 +1693,13 @@ function buildPageRenderDeps(): PageRenderDeps {
             renderTodayTaskPanel,
         },
         renderers: {
-            renderDashboard,
-            renderTodayDetailsPage,
-            renderPomodoro,
-            renderRoutines,
-            renderReflection,
-            renderSettings,
-            renderBlocks,
+            renderDashboard: () => renderTodayPage(buildPageRenderDeps()),
+            renderTodayDetailsPage: () => renderDetailsPage(buildPageRenderDeps()),
+            renderPomodoro: () => renderNowPage(buildPageRenderDeps()),
+            renderRoutines: () => renderRoutinesPage(buildPageRenderDeps()),
+            renderReflection: () => renderInsightsPage(buildPageRenderDeps()),
+            renderSettings: () => renderSettingsPage(buildPageRenderDeps()),
+            renderBlocks: () => renderBlocksPage(buildPageRenderDeps()),
         },
     };
 }
@@ -2017,36 +1855,12 @@ function renderTodayTaskPanel() {
     });
 }
 function renderTodayTimelinePanel() {
-    const timelineBlocks = [...uiState.blocks]
-        .sort((left: Block, right: Block) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
-        .slice(0, 10);
-    return `
-    <section class="today-timeline-panel">
-      <div class="row spread">
-        <h3>Today's Timeline</h3>
-        <span class="small">${uiState.blocks.length} items</span>
-      </div>
-      <ul class="today-timeline-list">
-        ${timelineBlocks.length === 0
-        ? '<li class="today-timeline-empty">予定はまだありません。</li>'
-        : timelineBlocks
-            .map((block: Block) => {
-            const title = blockTitle(block) || "Untitled Block";
-            const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
-            return `
-                    <li class="today-timeline-item">
-                      <div class="today-timeline-time">${escapeHtml(timeRange)}</div>
-                      <div class="today-timeline-content">
-                        <p class="today-timeline-title">${escapeHtml(title)}</p>
-                        <p class="today-timeline-meta">${escapeHtml(block.firmness || "draft")} / ${escapeHtml(block.source || "generated")}</p>
-                      </div>
-                    </li>
-                  `;
-        })
-            .join("")}
-      </ul>
-    </section>
-  `;
+    return renderTodayTimelinePanelView({
+        uiState,
+        blockTitle,
+        formatHHmm,
+        escapeHtml,
+    });
 }
 function renderTodayNotesPanel() {
     return renderTodayNotesPanelView({
@@ -2060,276 +1874,34 @@ function renderTodayAmbientPanel() {
     return renderTodayAmbientPanelView();
 }
 function blockRows(blocks: Block[]) {
-    return blocks
-        .map((block: Block) => `
-      <tr>
-        <td>${blockDisplayName(block)}</td>
-        <td>${formatTime(block.start_at)}</td>
-        <td>${formatTime(block.end_at)}</td>
-        <td><span class="pill">${block.firmness}</span></td>
-      </tr>`)
-        .join("");
+    return blockRowsValue(blocks, { blockDisplayName, formatTime });
 }
 function bindDailyCalendarInteractions(rerender: () => void) {
-    appRoot.querySelectorAll(".day-entry-block.is-draggable[data-day-item-id]").forEach((node) => {
-        node.addEventListener("pointerdown", (event: Event) => {
-            const pointerEvent = event as PointerEvent;
-            if (pointerEvent.button !== 0)
-                return;
-            const entry = node as HTMLButtonElement;
-            const blockId = entry.dataset.dayItemId;
-            const dayStartMs = Number(entry.dataset.dayStartMs || "");
-            const dayEndMs = Number(entry.dataset.dayEndMs || "");
-            const itemStartMs = Number(entry.dataset.dayItemStartMs || "");
-            const itemEndMs = Number(entry.dataset.dayItemEndMs || "");
-            const laneTrack = entry.closest(".day-lane-track");
-            const laneHeight = laneTrack instanceof HTMLElement ? laneTrack.clientHeight : 0;
-            if (!blockId ||
-                !Number.isFinite(dayStartMs) ||
-                !Number.isFinite(dayEndMs) ||
-                !Number.isFinite(itemStartMs) ||
-                !Number.isFinite(itemEndMs) ||
-                dayEndMs <= dayStartMs ||
-                itemEndMs <= itemStartMs ||
-                laneHeight <= 1) {
-                return;
-            }
-            clearDayBlockDragDocumentListeners();
-            dayBlockDragState.active = true;
-            dayBlockDragState.moved = false;
-            dayBlockDragState.pointerId = pointerEvent.pointerId;
-            dayBlockDragState.blockId = blockId;
-            dayBlockDragState.dayStartMs = dayStartMs;
-            dayBlockDragState.dayEndMs = dayEndMs;
-            dayBlockDragState.rangeMs = dayEndMs - dayStartMs;
-            dayBlockDragState.trackHeightPx = laneHeight;
-            dayBlockDragState.trackWidthPx = 0;
-            dayBlockDragState.originClientY = pointerEvent.clientY;
-            dayBlockDragState.originClientX = pointerEvent.clientX;
-            dayBlockDragState.originStartMs = itemStartMs;
-            dayBlockDragState.originEndMs = itemEndMs;
-            dayBlockDragState.previewStartMs = itemStartMs;
-            dayBlockDragState.previewEndMs = itemEndMs;
-            dayBlockDragState.entry = entry;
-            dayBlockDragState.timeLabel = entry.querySelector(".day-entry-time");
-            dayBlockDragState.originalTopCss = entry.style.top || "";
-            dayBlockDragState.originalLeftCss = entry.style.left || "";
-            dayBlockDragState.originalTimeLabelText = dayBlockDragState.timeLabel?.textContent || "";
-            dayBlockDragState.originalTitle = entry.title || "";
-            entry.classList.add("is-dragging");
-            entry.style.zIndex = "4";
-            try {
-                entry.setPointerCapture(pointerEvent.pointerId);
-            }
-            catch {
-                // ignore unsupported pointer capture
-            }
-            const onMove = (moveEvent: PointerEvent) => {
-                if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
-                    return;
-                const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
-                const hovered = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-                const hoveredFreeEntry = hovered instanceof Element
-                    ? hovered.closest(".day-entry-free[data-day-item-start-ms][data-day-item-end-ms]")
-                    : null;
-                const hoveredFree = hoveredFreeEntry instanceof HTMLElement ? hoveredFreeEntry : null;
-                let movedByFreeDrop = false;
-                if (hoveredFree) {
-                    const freeStartMs = Number(hoveredFree.dataset.dayItemStartMs || "");
-                    const freeEndMs = Number(hoveredFree.dataset.dayItemEndMs || "");
-                    if (Number.isFinite(freeStartMs) &&
-                        Number.isFinite(freeEndMs) &&
-                        freeEndMs > freeStartMs &&
-                        freeEndMs - freeStartMs >= durationMs) {
-                        setHoveredFreeEntry(hoveredFree);
-                        const nextInterval = snapAndClampBlockInterval(freeStartMs, durationMs, dayBlockDragState.dayStartMs, dayBlockDragState.dayEndMs);
-                        applyDayBlockPreview(entry, nextInterval);
-                        movedByFreeDrop = true;
-                    }
-                    else {
-                        setHoveredFreeEntry(null);
-                    }
-                }
-                else {
-                    setHoveredFreeEntry(null);
-                }
-                const deltaY = moveEvent.clientY - dayBlockDragState.originClientY;
-                if (!movedByFreeDrop) {
-                    if (!dayBlockDragState.moved && Math.abs(deltaY) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
-                        return;
-                    }
-                    const deltaMsRaw = (deltaY / dayBlockDragState.trackHeightPx) * dayBlockDragState.rangeMs;
-                    const nextInterval = snapAndClampBlockInterval(dayBlockDragState.originStartMs + deltaMsRaw, durationMs, dayBlockDragState.dayStartMs, dayBlockDragState.dayEndMs);
-                    applyDayBlockPreview(entry, nextInterval);
-                }
-                dayBlockDragState.moved =
-                    Math.abs(dayBlockDragState.previewStartMs - dayBlockDragState.originStartMs) >= 1000 ||
-                        Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
-                moveEvent.preventDefault();
-            };
-            const onUp = (upEvent: PointerEvent) => {
-                if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
-                    return;
-                finishDayBlockDrag(rerender);
-            };
-            dayBlockDragState.onMove = onMove;
-            dayBlockDragState.onUp = onUp;
-            window.addEventListener("pointermove", onMove);
-            window.addEventListener("pointerup", onUp);
-            window.addEventListener("pointercancel", onUp);
-            pointerEvent.preventDefault();
-        });
+    bindDailyCalendarInteractionsValue({
+        appRoot,
+        rerender,
+        dayBlockDragState,
+        intervalRangeLabel: (interval) => intervalRangeLabel(interval),
+        blockDisplayName,
+        toClockText,
+        getDashboardDate: () => uiState.dashboardDate,
+        setStatus,
+        setSelectedBlock: (blockId) => {
+            uiState.dayCalendarSelection = { kind: "block", id: blockId };
+        },
+        setDayCalendarViewMode: (mode) => {
+            uiState.dayCalendarViewMode = mode;
+        },
+        setDayCalendarSelection: (selection) => {
+            uiState.dayCalendarSelection = selection;
+        },
+        setBlockTitle,
+        runUiAction,
+        safeInvoke,
+        refreshCoreData,
     });
-    appRoot.querySelectorAll(".day-simple-segment-block.is-draggable[data-day-item-id]").forEach((node) => {
-        node.addEventListener("pointerdown", (event: Event) => {
-            const pointerEvent = event as PointerEvent;
-            if (pointerEvent.button !== 0)
-                return;
-            const entry = node as HTMLButtonElement;
-            const blockId = entry.dataset.dayItemId;
-            const dayStartMs = Number(entry.dataset.dayStartMs || "");
-            const dayEndMs = Number(entry.dataset.dayEndMs || "");
-            const itemStartMs = Number(entry.dataset.dayItemStartMs || "");
-            const itemEndMs = Number(entry.dataset.dayItemEndMs || "");
-            const laneTrack = entry.closest(".day-simple-track");
-            const laneWidth = laneTrack instanceof HTMLElement ? laneTrack.clientWidth : 0;
-            if (!blockId ||
-                !Number.isFinite(dayStartMs) ||
-                !Number.isFinite(dayEndMs) ||
-                !Number.isFinite(itemStartMs) ||
-                !Number.isFinite(itemEndMs) ||
-                dayEndMs <= dayStartMs ||
-                itemEndMs <= itemStartMs ||
-                laneWidth <= 1) {
-                return;
-            }
-            clearDayBlockDragDocumentListeners();
-            dayBlockDragState.active = true;
-            dayBlockDragState.moved = false;
-            dayBlockDragState.pointerId = pointerEvent.pointerId;
-            dayBlockDragState.blockId = blockId;
-            dayBlockDragState.dayStartMs = dayStartMs;
-            dayBlockDragState.dayEndMs = dayEndMs;
-            dayBlockDragState.rangeMs = dayEndMs - dayStartMs;
-            dayBlockDragState.trackHeightPx = 0;
-            dayBlockDragState.trackWidthPx = laneWidth;
-            dayBlockDragState.originClientY = pointerEvent.clientY;
-            dayBlockDragState.originClientX = pointerEvent.clientX;
-            dayBlockDragState.originStartMs = itemStartMs;
-            dayBlockDragState.originEndMs = itemEndMs;
-            dayBlockDragState.previewStartMs = itemStartMs;
-            dayBlockDragState.previewEndMs = itemEndMs;
-            dayBlockDragState.entry = entry;
-            dayBlockDragState.timeLabel = null;
-            dayBlockDragState.originalTopCss = entry.style.top || "";
-            dayBlockDragState.originalLeftCss = entry.style.left || "";
-            dayBlockDragState.originalTimeLabelText = "";
-            dayBlockDragState.originalTitle = entry.title || "";
-            entry.classList.add("is-dragging");
-            entry.style.zIndex = "4";
-            try {
-                entry.setPointerCapture(pointerEvent.pointerId);
-            }
-            catch {
-                // ignore unsupported pointer capture
-            }
-            const onMove = (moveEvent: PointerEvent) => {
-                if (!dayBlockDragState.active || moveEvent.pointerId !== dayBlockDragState.pointerId)
-                    return;
-                const deltaX = moveEvent.clientX - dayBlockDragState.originClientX;
-                if (!dayBlockDragState.moved && Math.abs(deltaX) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
-                    return;
-                }
-                const durationMs = dayBlockDragState.originEndMs - dayBlockDragState.originStartMs;
-                const deltaMsRaw = (deltaX / dayBlockDragState.trackWidthPx) * dayBlockDragState.rangeMs;
-                const nextInterval = snapAndClampBlockInterval(dayBlockDragState.originStartMs + deltaMsRaw, durationMs, dayBlockDragState.dayStartMs, dayBlockDragState.dayEndMs);
-                applyDayBlockPreview(entry, nextInterval);
-                dayBlockDragState.moved =
-                    Math.abs(dayBlockDragState.previewStartMs - dayBlockDragState.originStartMs) >= 1000 ||
-                        Math.abs(dayBlockDragState.previewEndMs - dayBlockDragState.originEndMs) >= 1000;
-                moveEvent.preventDefault();
-            };
-            const onUp = (upEvent: PointerEvent) => {
-                if (!dayBlockDragState.active || upEvent.pointerId !== dayBlockDragState.pointerId)
-                    return;
-                finishDayBlockDrag(rerender);
-            };
-            dayBlockDragState.onMove = onMove;
-            dayBlockDragState.onUp = onUp;
-            window.addEventListener("pointermove", onMove);
-            window.addEventListener("pointerup", onUp);
-            window.addEventListener("pointercancel", onUp);
-            pointerEvent.preventDefault();
-        });
-    });
-    appRoot.querySelectorAll("[data-day-view]").forEach((node) => {
-        node.addEventListener("click", () => {
-            const element = /** @type {HTMLElement} */ (node);
-            const mode = element.dataset.dayView;
-            if (mode !== "grid" && mode !== "simple")
-                return;
-            uiState.dayCalendarViewMode = /** @type {DayCalendarViewMode} */ (mode);
-            rerender();
-        });
-    });
-    appRoot.querySelectorAll("[data-day-item-kind][data-day-item-id]").forEach((node) => {
-        node.addEventListener("click", () => {
-            if (Date.now() < dayBlockDragState.suppressClickUntil) {
-                return;
-            }
-            const element = /** @type {HTMLElement} */ (node);
-            const kind = element.dataset.dayItemKind;
-            const id = element.dataset.dayItemId;
-            if (!id)
-                return;
-            if (kind !== "block" && kind !== "event" && kind !== "free")
-                return;
-            uiState.dayCalendarSelection = { kind: /** @type {DayItemKind} */ (kind), id };
-            rerender();
-        });
-    });
-    appRoot.querySelectorAll("[data-block-title-save]").forEach((node) => {
-        node.addEventListener("click", () => {
-            const button = /** @type {HTMLElement} */ (node);
-            const blockId = button.dataset.blockTitleSave;
-            if (!blockId)
-                return;
-            const nearestContainer = button.parentElement || appRoot;
-            const scopedInput = nearestContainer.querySelector(`input[data-block-title-input="${blockId}"]`);
-            const fallbackInput = appRoot.querySelector(`input[data-block-title-input="${blockId}"]`);
-            const input = scopedInput || fallbackInput;
-            if (!(input instanceof HTMLInputElement))
-                return;
-            if (!setBlockTitle(blockId, input.value))
-                return;
-            setStatus(input.value.trim() ? "タイトルを保存しました" : "タイトルをクリアしました");
-            rerender();
-        });
-    });
-}
-function renderDashboard() {
-    renderTodayPage(buildPageRenderDeps());
-}
-function renderTodayDetailsPage() {
-    renderDetailsPage(buildPageRenderDeps());
-}
-function renderBlocks() {
-    renderBlocksPage(buildPageRenderDeps());
-}
-function renderPomodoro() {
-    renderNowPage(buildPageRenderDeps());
-}
-function renderRoutines() {
-    renderRoutinesPage(buildPageRenderDeps());
-}
-function renderReflection() {
-    renderInsightsPage(buildPageRenderDeps());
-}
-function renderSettings() {
-    renderSettingsPage(buildPageRenderDeps());
 }
 let appStarted = false;
-
 export function startApp(): void {
     if (appStarted) {
         return;
@@ -2357,10 +1929,10 @@ export function startApp(): void {
                 syncNowTaskOrder(uiState.tasks);
             }
             if (route === "now") {
-                renderPomodoro();
+                renderNowPage(buildPageRenderDeps());
             }
             else {
-                renderDashboard();
+                renderTodayPage(buildPageRenderDeps());
             }
         }
         catch {
@@ -2381,7 +1953,7 @@ export function startApp(): void {
         }
         uiState.nowUi.displayRemainingSeconds = Math.max(0, uiState.nowUi.displayRemainingSeconds - 1);
         if (route === "now") {
-            renderPomodoro();
+            renderNowPage(buildPageRenderDeps());
         }
         else {
             refreshTodayStatusTimerDisplay();

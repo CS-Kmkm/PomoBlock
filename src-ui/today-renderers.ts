@@ -122,6 +122,48 @@ export function renderTodayTaskPanel({ uiState, normalizePomodoroState, resolveC
   `;
 }
 
+export function renderTodayTimelinePanel({
+  uiState,
+  blockTitle,
+  formatHHmm,
+  escapeHtml,
+}: Pick<TodayRendererDeps, "uiState" | "blockTitle" | "formatHHmm" | "escapeHtml">): string {
+  const timelineBlocks = [...uiState.blocks]
+    .sort((left: Block, right: Block) => new Date(left.start_at).getTime() - new Date(right.start_at).getTime())
+    .slice(0, 10);
+  return `
+    <section class="today-timeline-panel">
+      <div class="row spread">
+        <h3>Today's Timeline</h3>
+        <span class="small">${uiState.blocks.length} items</span>
+      </div>
+      <ul class="today-timeline-list">
+        ${
+          timelineBlocks.length === 0
+            ? '<li class="today-timeline-empty">予定はまだありません。</li>'
+            : timelineBlocks
+                .map((block: Block) => {
+                  const title = blockTitle(block) || "Untitled Block";
+                  const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
+                  return `
+                    <li class="today-timeline-item">
+                      <div class="today-timeline-time">${escapeHtml(timeRange)}</div>
+                      <div class="today-timeline-content">
+                        <p class="today-timeline-title">${escapeHtml(title)}</p>
+                        <p class="today-timeline-meta">${escapeHtml(block.firmness || "draft")} / ${escapeHtml(
+                          block.source || "generated"
+                        )}</p>
+                      </div>
+                    </li>
+                  `;
+                })
+                .join("")
+        }
+      </ul>
+    </section>
+  `;
+}
+
 export function renderTodayNotesPanel({ uiState, normalizePomodoroState, resolveCurrentFocusTask, escapeHtml }: Pick<TodayRendererDeps, "uiState" | "normalizePomodoroState" | "resolveCurrentFocusTask" | "escapeHtml">): string {
   const activeTask = resolveCurrentFocusTask(normalizePomodoroState(uiState.pomodoro || {})) || null;
   const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
