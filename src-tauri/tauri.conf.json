@@ -1,17 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PomBlock",
+  "productName": "PomoBlock",
   "version": "0.1.0",
-  "identifier": "com.pomblock.app",
+  "identifier": "com.pomoblock.app",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
+    "beforeDevCommand": "npm --prefix . run build:ui && node scripts/ui-dev-server.mjs",
+    "devUrl": "http://127.0.0.1:1430",
+    "beforeBuildCommand": "npm --prefix . run build",
     "frontendDist": "../src-ui"
   },
   "app": {
     "windows": [
       {
-        "title": "PomBlock",
+        "title": "PomoBlock",
         "width": 1200,
         "height": 800
       }

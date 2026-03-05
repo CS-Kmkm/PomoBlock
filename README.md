@@ -1,6 +1,6 @@
-# PomBlock
+# PomoBlock
 
-PomBlock は、Tauri ベースのデスクトップアプリです。  
+PomoBlock は、Tauri ベースのデスクトップアプリです。  
 Rust バックエンドで認証・同期・ブロック管理を扱い、TypeScript UI で操作します。
 
 ## 前提環境
@@ -58,6 +58,10 @@ npm run rust:check
 cd src-tauri
 cargo tauri dev
 ```
+
+補足:
+- `src-tauri/tauri.conf.json` の `beforeDevCommand` で `npm --prefix . run build:ui` を実行するため、
+  `cargo tauri dev` 前に手動で UI ビルドする必要はありません。
 
 ## 設定方法
 
