@@ -444,8 +444,8 @@ pub async fn authenticate_google_sso_impl(
     let auth_state = next_id("oauth-state");
     let authorization_url = manager.build_authorization_url(&auth_state)?;
     let callback_task = tokio::task::spawn_blocking(wait_for_loopback_callback(
-        &oauth_config.redirect_uri,
-        &auth_state,
+        oauth_config.redirect_uri.clone(),
+        auth_state.clone(),
         StdDuration::from_secs(180),
     ));
     if let Err(error) = open_system_browser(&authorization_url) {
@@ -513,12 +513,11 @@ fn parse_loopback_redirect(redirect_uri: &str) -> Result<LoopbackRedirect, Infra
 }
 
 fn wait_for_loopback_callback(
-    redirect_uri: &str,
-    expected_state: &str,
+    redirect_uri: String,
+    expected_state: String,
     timeout: StdDuration,
-) -> impl FnOnce() -> Result<String, InfraError> {
-    let redirect = parse_loopback_redirect(redirect_uri);
-    let expected_state = expected_state.to_string();
+) -> impl FnOnce() -> Result<String, InfraError> + Send + 'static {
+    let redirect = parse_loopback_redirect(&redirect_uri);
     move || {
         let redirect = redirect?;
         wait_for_loopback_callback_blocking(&redirect, &expected_state, timeout)
@@ -625,7 +624,7 @@ fn parse_callback_request(
         write_callback_response(
             &mut stream,
             400,
-            "Google sign-in failed. Return to PomBlock and retry.",
+            "Google sign-in failed. Return to PomoBlock and retry.",
         );
         return Ok(Some(Err(InfraError::OAuth(format!(
             "oauth callback error: {message}"
@@ -638,7 +637,7 @@ fn parse_callback_request(
             write_callback_response(
                 &mut stream,
                 400,
-                "Invalid sign-in state. Return to PomBlock and retry.",
+                "Invalid sign-in state. Return to PomoBlock and retry.",
             );
             return Ok(Some(Err(InfraError::OAuth(
                 "oauth callback state mismatch".to_string(),
@@ -648,7 +647,7 @@ fn parse_callback_request(
             write_callback_response(
                 &mut stream,
                 400,
-                "Missing sign-in state. Return to PomBlock and retry.",
+                "Missing sign-in state. Return to PomoBlock and retry.",
             );
             return Ok(Some(Err(InfraError::OAuth(
                 "oauth callback missing state".to_string(),
@@ -660,7 +659,7 @@ fn parse_callback_request(
         write_callback_response(
             &mut stream,
             400,
-            "Missing authorization code. Return to PomBlock and retry.",
+            "Missing authorization code. Return to PomoBlock and retry.",
         );
         return Ok(Some(Err(InfraError::OAuth(
             "oauth callback missing authorization code".to_string(),
@@ -670,7 +669,7 @@ fn parse_callback_request(
     write_callback_response(
         &mut stream,
         200,
-        "Sign-in complete. You can close this tab and return to PomBlock.",
+        "Sign-in complete. You can close this tab and return to PomoBlock.",
     );
     Ok(Some(Ok(authorization_code)))
 }

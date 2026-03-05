@@ -79,7 +79,7 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
 
     GoogleCalendarEvent {
         id: None,
-        summary: Some("[PomBlock] Work Block".to_string()),
+        summary: Some("[PomoBlock] Work Block".to_string()),
         description: Some(format!(
             "instance: {}, firmness: {}",
             block.instance,

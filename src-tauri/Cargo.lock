@@ -2547,7 +2547,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pomblock-tauri"
+name = "pomoblock-tauri"
 version = "0.1.0"
 dependencies = [
  "async-trait",

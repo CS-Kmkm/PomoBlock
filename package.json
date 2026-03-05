@@ -1,9 +1,9 @@
 {
-  "name": "pomblock",
+  "name": "pomoblock",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PomBlock core implementation from blocksched tasks",
+  "description": "PomoBlock core implementation from blocksched tasks",
   "scripts": {
     "init": "npm run build:node && node dist/src/cli.js init",
     "status": "npm run build:node && node dist/src/cli.js status",
