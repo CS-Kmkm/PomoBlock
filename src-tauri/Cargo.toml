@@ -1,8 +1,8 @@
 [package]
-name = "pomblock-tauri"
+name = "pomoblock-tauri"
 version = "0.1.0"
-description = "PomBlock desktop backend"
-edition = "2021"
+description = "PomoBlock desktop backend"
+edition = "2024"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -24,3 +24,4 @@ url = "2"
 
 [dev-dependencies]
 proptest = "1.5"
+

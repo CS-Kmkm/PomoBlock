@@ -1,20 +1,29 @@
 {
-  "name": "pomblock",
+  "name": "pomoblock",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PomBlock core implementation from blocksched tasks",
+  "description": "PomoBlock core implementation from blocksched tasks",
   "scripts": {
-    "init": "node src/cli.js init",
-    "status": "node src/cli.js status",
+    "init": "npm run build:node && node dist/src/cli.js init",
+    "status": "npm run build:node && node dist/src/cli.js status",
     "doctor": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "rust:check": "powershell -ExecutionPolicy Bypass -File scripts/rust-check.ps1",
     "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",
     "build:windows:debug": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -Debug",
-    "test": "node --test",
-    "test:watch": "node --test --watch"
+    "build": "npm run build:node && npm run build:ui",
+    "build:node": "tsc -p tsconfig.node.json && npm run copy:schema",
+    "build:ui": "tsc -p tsconfig.ui.json",
+    "test": "npm run build:node && node --test dist/tests/**/*.test.js",
+    "test:watch": "node --test --watch",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.ui.json --noEmit",
+    "copy:schema": "powershell -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path dist/src/infrastructure/sql | Out-Null; Copy-Item -Path src/infrastructure/sql/schema.sql -Destination dist/src/infrastructure/sql/schema.sql -Force\""
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.2"
   }
 }

@@ -1,0 +1,10 @@
+﻿{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "src-ui/dist",
+    "rootDir": "src-ui",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src-ui/app.ts", "src-ui/**/*.d.ts", "unsafe.d.ts"]
+}
+

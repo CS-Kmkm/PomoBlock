@@ -1,4 +1,4 @@
-use crate::infrastructure::error::InfraError;
+﻿use crate::infrastructure::error::InfraError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -37,7 +37,7 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
             APP_JSON,
             serde_json::json!({
                 "schema": 1,
-                "appName": "PomBlock",
+                "appName": "PomoBlock",
                 "timezone": "UTC",
                 "blocksCalendarName": "Blocks"
             }),
@@ -315,3 +315,4 @@ pub fn save_blocks_calendar_id(
     fs::write(path, format!("{formatted}\n"))?;
     Ok(())
 }
+

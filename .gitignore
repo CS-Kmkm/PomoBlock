@@ -8,3 +8,5 @@ logs/*
 *.sqlite-wal
 src-tauri/target/
 src-tauri/gen/
+dist/
+src-ui/dist/
