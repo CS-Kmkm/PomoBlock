@@ -5,6 +5,7 @@ import {
   safeInvoke as safeTauriInvoke,
   safeInvokeWithFallback as safeTauriInvokeWithFallback,
 } from "./tauri-contracts.js";
+import { isUnknownCommandError } from "./utils/command-errors.js";
 
 export type CommandPayload = Record<string, unknown>;
 export type MockInvoke = (name: string, payload: CommandPayload) => Promise<unknown>;
@@ -16,11 +17,6 @@ export type CommandApiOptions = {
   onBegin: (name: string) => Promise<void> | void;
   onFinish: (success: boolean) => void;
 };
-
-export function isUnknownCommandError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /unknown|not found|unsupported|invoke|command/i.test(message);
-}
 
 export function createCommandApi(options: CommandApiOptions) {
   return {
@@ -63,3 +59,5 @@ export function createCommandApi(options: CommandApiOptions) {
     },
   };
 }
+
+export { isUnknownCommandError };
