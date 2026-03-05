@@ -25,8 +25,8 @@
 | TSR-005 | todo | P1 | deps factory 分離 | PHASE-1(C) + PHASE-2(E) | `src-ui/runtime/*`, `src-ui/app-runtime.ts` | 分離先実装 + 統合完了 |
 | TSR-006 | todo | P1 | timer loop 分離 | PHASE-1(C) + PHASE-2(E) | `src-ui/runtime/*`, `src-ui/app-runtime.ts` | 分離先実装 + 統合完了 |
 | TSR-007 | todo | P2 | `app-runtime.ts` の薄いラッパー関数削減 | PHASE-2(E) | `src-ui/app-runtime.ts` | adapter最小化、可読性向上 |
-| TSR-008 | todo | P2 | `task_refs` 検索改善(短期) | PHASE-1(D) | `src/infrastructure/localStorageRepository.ts` | 誤更新リスクを低減 |
-| TSR-009 | todo | P2 | repository分割方針の設計文書化 | PHASE-1(D) | `doc/v2/*` | 分割単位/移行順を明記 |
+| TSR-008 | done | P2 | `task_refs` 検索改善(短期) | PHASE-1(D) | `src/infrastructure/localStorageRepository.ts` | 誤更新リスクを低減 |
+| TSR-009 | done | P2 | repository分割方針の設計文書化 | PHASE-1(D) | `doc/v2/*` | 分割単位/移行順を明記 |
 | TSR-010 | todo | P1 | 統合回帰確認 | PHASE-2(E) | `npm run typecheck`, `npm test` | typecheck/test + 手動確認完了 |
 
 ## 4. 実行順
