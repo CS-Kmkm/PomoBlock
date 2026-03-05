@@ -1,4 +1,5 @@
 import type { Block, Module, PomodoroState, Recipe, ReflectionSummary, SyncedEvent, Task } from "./types.js";
+import { isUnknownCommandError } from "./utils/command-errors.js";
 
 export type CommandPayload = Record<string, unknown>;
 
@@ -242,11 +243,6 @@ export async function safeInvoke<K extends CommandName>(
     setStatus?.(`${name} failed: ${message}`);
     throw error;
   }
-}
-
-function isUnknownCommandError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /unknown|not found|unsupported|invoke|command/i.test(message);
 }
 
 export async function safeInvokeWithFallback<K1 extends CommandName, K2 extends CommandName>(
