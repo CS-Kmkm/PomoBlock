@@ -23,6 +23,7 @@
 2. npm run typecheck
 3. 関連テストがあれば実行
 4. 結果報告
+5. 実行結果をcommitメッセージに反映してコミット
 ```
 
 ## Agent A (PHASE-1)
