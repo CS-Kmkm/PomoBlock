@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.pomoblock.app",
   "build": {
-    "beforeDevCommand": "npm --prefix . run build:ui && node scripts/ui-dev-server.mjs",
+    "beforeDevCommand": "npm --prefix . run build:ui && node ./scripts/ui-dev-server.mjs",
     "devUrl": "http://127.0.0.1:1430",
     "beforeBuildCommand": "npm --prefix . run build",
     "frontendDist": "../src-ui"
@@ -29,3 +29,4 @@
     ]
   }
 }
+

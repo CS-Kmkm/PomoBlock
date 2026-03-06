@@ -67,6 +67,7 @@ type AuditLogRow = {
 
 type DeleteTaskBlockRow = {
   id: string;
+  task_id: string | null;
   task_refs: string | null;
 };
 
@@ -80,11 +81,24 @@ function toIso(value: string | Date): string {
 }
 
 function removeTaskRef(taskRefsJson: string | null, taskId: string): string {
-  const refs: unknown = JSON.parse(taskRefsJson ?? "[]");
-  if (!Array.isArray(refs)) {
-    return "[]";
-  }
+  const refs = parseTaskRefs(taskRefsJson);
   return JSON.stringify(refs.filter((ref) => ref !== taskId));
+}
+
+function parseTaskRefs(taskRefsJson: string | null): string[] {
+  try {
+    const refs: unknown = JSON.parse(taskRefsJson ?? "[]");
+    if (!Array.isArray(refs)) {
+      return [];
+    }
+    return refs.filter((ref): ref is string => typeof ref === "string");
+  } catch {
+    return [];
+  }
+}
+
+function hasTaskRef(taskRefsJson: string | null, taskId: string): boolean {
+  return parseTaskRefs(taskRefsJson).includes(taskId);
 }
 
 export class LocalStorageRepository {
@@ -342,9 +356,15 @@ export class LocalStorageRepository {
     this.db.prepare(`DELETE FROM pomodoro_logs WHERE task_id = ?`).run(taskId);
 
     const relatedBlocks = this.db
-      .prepare(`SELECT id, task_refs FROM blocks WHERE task_id = ? OR task_refs LIKE ?`)
-      .all(taskId, `%${taskId}%`) as DeleteTaskBlockRow[];
+      .prepare(`SELECT id, task_id, task_refs FROM blocks WHERE task_id = ? OR task_refs LIKE ?`)
+      .all(taskId, `%\"${taskId}\"%`) as DeleteTaskBlockRow[];
     for (const row of relatedBlocks) {
+      const hasTaskIdMatch = row.task_id === taskId;
+      const hasTaskRefMatch = hasTaskRef(row.task_refs, taskId);
+      if (!hasTaskIdMatch && !hasTaskRefMatch) {
+        continue;
+      }
+
       this.db
         .prepare(`
         UPDATE blocks
