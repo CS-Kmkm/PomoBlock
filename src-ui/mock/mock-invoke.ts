@@ -42,23 +42,23 @@ export function createMockInvoke(deps: MockInvokeDeps) {
     } = deps;
 
     const mockInvoke = async (name: string, payload: Record<string, unknown>) => {
-    const args = toRecord(payload);
-    switch (name) {
-        case "bootstrap":
-            return { workspace_root: "mock", database_path: "mock.sqlite" };
-        case "authenticate_google": {
-            const accountId = normalizeAccountId(args.account_id);
-            return {
-                account_id: accountId,
-                status: args.authorization_code ? "authenticated" : "reauthentication_required",
-                authorization_url: "https://accounts.google.com/o/oauth2/v2/auth",
-                expires_at: new Date(Date.now() + 3600000).toISOString(),
-            };
-        }
-        case "authenticate_google_sso": {
-            throw new Error("Google SSO is unavailable in mock mode. Run the desktop app with `cargo tauri dev`.");
-        }
-        case "sync_calendar": {
+        const args = toRecord(payload);
+        switch (name) {
+            case "bootstrap":
+                return { workspace_root: "mock", database_path: "mock.sqlite" };
+            case "authenticate_google": {
+                const accountId = normalizeAccountId(args.account_id);
+                return {
+                    account_id: accountId,
+                    status: args.authorization_code ? "authenticated" : "reauthentication_required",
+                    authorization_url: "https://accounts.google.com/o/oauth2/v2/auth",
+                    expires_at: new Date(Date.now() + 3600000).toISOString(),
+                };
+            }
+            case "authenticate_google_sso": {
+                throw new Error("Google SSO is unavailable in mock mode. Run the desktop app with `cargo tauri dev`.");
+            }
+            case "sync_calendar": {
             const accountId = normalizeAccountId(args.account_id);
             const seed = typeof args.time_min === "string" ? args.time_min : nowIso();
             const parsed = new Date(seed);
