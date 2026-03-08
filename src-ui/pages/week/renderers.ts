@@ -1,4 +1,4 @@
-import type { Block, PomodoroState, Recipe, Task, UiState } from "../../types.js";
+import type { Block, PomodoroState, Task, UiState } from "../../types.js";
 
 type TimerControlModel = {
   leftAction: string;
@@ -27,39 +27,6 @@ type WeekRendererDeps = {
   resolveTimerControlModel: (stateInput?: unknown) => TimerControlModel;
   toTimerText: (seconds: number | null | undefined) => string;
 };
-
-export function renderWeekSequenceItems({ uiState, escapeHtml }: Pick<WeekRendererDeps, "uiState" | "escapeHtml">): string {
-  const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
-  if (recipes.length === 0) {
-    return '<p class="small">シーケンスがありません。Routinesで追加してください。</p>';
-  }
-  return recipes
-    .slice(0, 8)
-    .map((recipe: Recipe) => {
-      const name = typeof recipe?.name === "string" && recipe.name.trim() ? recipe.name.trim() : "Untitled";
-      const autoDriveMode = typeof recipe?.auto_drive_mode === "string" && recipe.auto_drive_mode.trim() ? recipe.auto_drive_mode.trim() : "manual";
-      const stepCount = Array.isArray(recipe?.steps) ? recipe.steps.length : 0;
-      return `
-        <article class="week-sequence-item">
-          <div class="week-sequence-icon" aria-hidden="true">${escapeHtml(name.slice(0, 1).toUpperCase())}</div>
-          <div class="week-sequence-content">
-            <p class="week-sequence-title">${escapeHtml(name)}</p>
-            <p class="week-sequence-meta">${escapeHtml(autoDriveMode)} / ${stepCount} steps</p>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-export function renderWeekLibraryLinks(): string {
-  return `
-    <ul class="week-library-links">
-      <li><a href="#/insights">History</a></li>
-      <li><a href="#/routines">Templates</a></li>
-    </ul>
-  `;
-}
 
 export function renderWeekStatusCard(deps: WeekRendererDeps): string {
   const { uiState, normalizePomodoroState, resolveTimerControlModel, pomodoroPhaseLabel, resolveCurrentFocusTask, blockTitle, pomodoroProgressPercent, toTimerText, escapeHtml } = deps;
@@ -160,33 +127,6 @@ export function renderWeekTimelinePanel({
                 .join("")
         }
       </ul>
-    </section>
-  `;
-}
-
-export function renderWeekNotesPanel({ uiState, normalizePomodoroState, resolveCurrentFocusTask, escapeHtml }: Pick<WeekRendererDeps, "uiState" | "normalizePomodoroState" | "resolveCurrentFocusTask" | "escapeHtml">): string {
-  const activeTask = resolveCurrentFocusTask(normalizePomodoroState(uiState.pomodoro || {})) || null;
-  const defaultNote = activeTask ? `Now focusing: ${activeTask.title || "(untitled)"}` : "Type notes here...";
-  return `
-    <section class="week-right-section week-right-section--notes">
-      <div class="row spread">
-        <h3>Session Notes</h3>
-        <span class="small">${activeTask ? "active task linked" : "free form"}</span>
-      </div>
-      <textarea class="week-notes-input" placeholder="${escapeHtml(defaultNote)}"></textarea>
-    </section>
-  `;
-}
-
-export function renderWeekAmbientPanel(): string {
-  return `
-    <section class="week-right-footer">
-      <div class="week-ambient-cover" aria-hidden="true">A</div>
-      <div class="week-ambient-meta">
-        <p class="week-ambient-title">Deep Focus Ambient</p>
-        <p class="week-ambient-source">Brain.fm</p>
-      </div>
-      <div class="week-ambient-controls" aria-hidden="true">| |</div>
     </section>
   `;
 }

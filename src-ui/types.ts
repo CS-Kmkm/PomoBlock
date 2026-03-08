@@ -243,13 +243,10 @@ export interface PageRenderDeps {
     resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
     executeTimerAction: (action: string, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
+    renderNowNotesPanel: () => string;
   };
   routineHelpers: {
-    renderWeekSequenceItems: () => string;
-    renderWeekLibraryLinks: () => string;
     renderWeekStatusCard: () => string;
-    renderWeekNotesPanel: () => string;
-    renderWeekAmbientPanel: () => string;
   };
   taskHelpers: {
     renderWeekTaskPanel: () => string;

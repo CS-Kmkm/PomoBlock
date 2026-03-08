@@ -11,21 +11,7 @@ function renderWeekSidebar(deps: PageRenderDeps): string {
   return `
     <aside class="week-right-rail">
       <div data-week-status-panel>${helpers.renderWeekStatusCard()}</div>
-      <section class="week-right-section week-right-section--sequences" data-week-sequence-panel>
-        <div class="week-rail-head">
-          <h3>Micro Sequences</h3>
-          <p class="small">Drag to calendar to schedule</p>
-        </div>
-        <div class="week-sequence-list week-sequence-list--rail">${helpers.renderWeekSequenceItems()}</div>
-        <a class="week-create-sequence" href="#/routines">+ Create Sequence</a>
-      </section>
       <div data-week-task-panel>${helpers.renderWeekTaskPanel()}</div>
-      <section class="week-right-section week-right-section--library" data-week-library-panel>
-        <h3>Library</h3>
-        ${helpers.renderWeekLibraryLinks()}
-      </section>
-      <div data-week-notes-panel>${helpers.renderWeekNotesPanel()}</div>
-      <div data-week-ambient-panel>${helpers.renderWeekAmbientPanel()}</div>
     </aside>
   `;
 }

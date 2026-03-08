@@ -15,7 +15,8 @@ import { renderSettingsPage } from "./pages/settings/page.js";
 import { renderWeekPage } from "./pages/week/page.js";
 import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTextValue, toDurationLabel as toDurationLabelValue } from "./calendar-view-helpers.js";
 import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, blockRows as blockRowsValue } from "./day-calendar-bindings.js";
-import { renderWeekAmbientPanel as renderWeekAmbientPanelView, renderWeekLibraryLinks as renderWeekLibraryLinksView, renderWeekNotesPanel as renderWeekNotesPanelView, renderWeekSequenceItems as renderWeekSequenceItemsView, renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
+import { renderNowNotesPanel as renderNowNotesPanelView } from "./pages/now/renderers.js";
+import { renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -1089,13 +1090,10 @@ function buildPageRenderDeps(): PageRenderDeps {
             resolveTimerControlModel,
             executeTimerAction,
             syncNowTaskOrder,
+            renderNowNotesPanel,
         },
         routineHelpers: {
-            renderWeekSequenceItems,
-            renderWeekLibraryLinks,
             renderWeekStatusCard,
-            renderWeekNotesPanel,
-            renderWeekAmbientPanel,
         },
         taskHelpers: {
             renderWeekTaskPanel,
@@ -1144,12 +1142,6 @@ function render() {
         default:
             renderWeekPage(pageDeps);
     }
-}
-function renderWeekSequenceItems() {
-    return renderWeekSequenceItemsView({ uiState, escapeHtml });
-}
-function renderWeekLibraryLinks() {
-    return renderWeekLibraryLinksView();
 }
 function renderWeekStatusCard() {
     return renderWeekStatusCardView({
@@ -1293,16 +1285,13 @@ function renderWeekTimelinePanel() {
         escapeHtml,
     });
 }
-function renderWeekNotesPanel() {
-    return renderWeekNotesPanelView({
+function renderNowNotesPanel() {
+    return renderNowNotesPanelView({
         uiState,
         normalizePomodoroState,
         resolveCurrentFocusTask,
         escapeHtml,
     });
-}
-function renderWeekAmbientPanel() {
-    return renderWeekAmbientPanelView();
 }
 function blockRows(blocks: Block[]) {
     return blockRowsValue(blocks, { blockDisplayName, formatTime });
