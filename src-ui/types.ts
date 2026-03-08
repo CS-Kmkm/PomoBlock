@@ -161,6 +161,12 @@ export interface UiState {
   auth: JsonObject | null;
   accountId: string;
   dashboardDate: string;
+  weekView: {
+    bufferAnchorDate: string;
+    isInteracting: boolean;
+    isPrefetching: boolean;
+    scrollLeftSnapshot: number;
+  };
   blocks: Block[];
   blocksVisibleCount: number;
   calendarEvents: SyncedEvent[];
@@ -221,6 +227,7 @@ export interface PageRenderDeps {
     blockRows: (blocks: Block[]) => string;
     resetBlocksForDate: (date: string) => Promise<number>;
     buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
+    buildPlannerStripModel: (dateKeys: string[], currentDateKey: string, blocks: unknown, events: unknown) => unknown;
     renderWeeklyPlannerCalendar: (model: unknown) => string;
   };
   nowHelpers: {
@@ -238,18 +245,18 @@ export interface PageRenderDeps {
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
   };
   routineHelpers: {
-    renderTodaySequenceItems: () => string;
-    renderTodayLibraryLinks: () => string;
-    renderTodayStatusCard: () => string;
-    renderTodayNotesPanel: () => string;
-    renderTodayAmbientPanel: () => string;
+    renderWeekSequenceItems: () => string;
+    renderWeekLibraryLinks: () => string;
+    renderWeekStatusCard: () => string;
+    renderWeekNotesPanel: () => string;
+    renderWeekAmbientPanel: () => string;
   };
   taskHelpers: {
-    renderTodayTaskPanel: () => string;
+    renderWeekTaskPanel: () => string;
   };
   renderers: {
-    renderDashboard: () => void;
-    renderTodayDetailsPage: () => void;
+    renderWeekPage: () => void;
+    renderWeekDetailsPage: () => void;
     renderPomodoro: () => void;
     renderRoutines: () => void;
     renderReflection: () => void;

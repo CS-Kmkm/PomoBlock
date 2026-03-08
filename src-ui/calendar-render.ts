@@ -315,8 +315,11 @@ export function renderGridDailyCalendar(
 export function renderWeeklyPlannerCalendar(
   model: {
     days: Array<{
+      dayKey: string;
       isCurrent: boolean;
+      isToday: boolean;
       dayNumber: string;
+      monthDayLabel: string;
       weekdayLabel: string;
       combinedItems: Array<RenderItem & { kind: string }>;
       dayStartMs: number;
@@ -331,16 +334,22 @@ export function renderWeeklyPlannerCalendar(
   }
   const gridColumns = `84px repeat(${model.days.length}, minmax(150px, 1fr))`;
   return `
-    <div class="week-board">
+    <div class="week-board" data-week-scroll-container tabindex="0">
       <div class="week-board-head" style="grid-template-columns:${gridColumns}">
         <span class="week-board-head-time">時刻</span>
         ${model.days
           .map(
             (day) => `
-          <span class="week-board-day ${day.isCurrent ? "is-current" : ""}">
+          <button
+            type="button"
+            class="week-board-day ${day.isToday ? "is-current" : ""}"
+            data-week-day-key="${deps.escapeHtml(day.dayKey)}"
+            data-week-open-details="${deps.escapeHtml(day.dayKey)}"
+          >
             <small>${day.weekdayLabel}</small>
             <strong>${day.dayNumber}</strong>
-          </span>
+            <em>${day.monthDayLabel}</em>
+          </button>
         `
           )
           .join("")}
@@ -351,7 +360,7 @@ export function renderWeeklyPlannerCalendar(
           .map((day) => {
             const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem, deps);
             return `
-              <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
+              <section class="week-day-lane ${day.isToday ? "is-current" : ""}">
                 <div class="day-lane-track week-day-track">
                   ${renderDayHourGuides()}
                   ${entries || '<span class="day-lane-empty">なし</span>'}

@@ -1,21 +1,21 @@
-﻿import { createCommandService, isUnknownCommandError as isUnknownCommandErrorValue } from "./services/command-service.js";
+import { createCommandService, isUnknownCommandError as isUnknownCommandErrorValue } from "./services/command-service.js";
 import { createMockInvoke } from "./mock/mock-invoke.js";
-import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
+import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildPlannerStripModel as buildPlannerStripModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
 import { renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
 import type { DayCalendarModel } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { blockDurationMinutes as blockDurationMinutesValue, blockPomodoroTarget as blockPomodoroTargetValue, getNowOrderedTasks as getNowOrderedTasksValue, normalizePomodoroState as normalizePomodoroStateValue, nowBufferAvailableMinutes as nowBufferAvailableMinutesValue, pomodoroPhaseLabel as pomodoroPhaseLabelValue, pomodoroProgressPercent as pomodoroProgressPercentValue, resolveCurrentFocusTask as resolveCurrentFocusTaskValue, resolveNowAutoStartBlock as resolveNowAutoStartBlockValue, resolveNowAutoStartTask as resolveNowAutoStartTaskValue, resolveNowBlocks as resolveNowBlocksValue, resolveNowDayBounds as resolveNowDayBoundsValue, syncNowTaskOrder as syncNowTaskOrderValue, syncNowTimerDisplay as syncNowTimerDisplayValue, } from "./now.js";
-import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekDateKeys as resolveWeekDateKeysValue, toLocalInputValue as toLocalInputValueValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
-import { renderBlocksPage } from "./pages/blocks-page.js";
-import { renderDetailsPage } from "./pages/details-page.js";
-import { renderInsightsPage } from "./pages/insights-page.js";
-import { renderNowPage } from "./pages/now-page.js";
-import { renderRoutinesPage } from "./pages/routines-page.js";
-import { renderSettingsPage } from "./pages/settings-page.js";
-import { renderTodayPage } from "./pages/today-page.js";
+import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekBufferDateKeys as resolveWeekBufferDateKeysValue, resolveWeekDateKeys as resolveWeekDateKeysValue, toLocalInputValue as toLocalInputValueValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
+import { renderBlocksPage } from "./pages/blocks/page.js";
+import { renderWeekDetailsPage } from "./pages/week/details-page.js";
+import { renderInsightsPage } from "./pages/insights/page.js";
+import { renderNowPage } from "./pages/now/page.js";
+import { renderRoutinesPage } from "./pages/routines/page.js";
+import { renderSettingsPage } from "./pages/settings/page.js";
+import { renderWeekPage } from "./pages/week/page.js";
 import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTextValue, toDurationLabel as toDurationLabelValue } from "./calendar-view-helpers.js";
 import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, blockRows as blockRowsValue } from "./day-calendar-bindings.js";
-import { renderTodayAmbientPanel as renderTodayAmbientPanelView, renderTodayLibraryLinks as renderTodayLibraryLinksView, renderTodayNotesPanel as renderTodayNotesPanelView, renderTodaySequenceItems as renderTodaySequenceItemsView, renderTodayStatusCard as renderTodayStatusCardView, renderTodayTaskPanel as renderTodayTaskPanelView, renderTodayTimelinePanel as renderTodayTimelinePanelView, } from "./today-renderers.js";
+import { renderWeekAmbientPanel as renderWeekAmbientPanelView, renderWeekLibraryLinks as renderWeekLibraryLinksView, renderWeekNotesPanel as renderWeekNotesPanelView, renderWeekSequenceItems as renderWeekSequenceItemsView, renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -23,7 +23,7 @@ const progressChip = getById<HTMLElement>("global-progress");
 const progressLabel = getById<HTMLElement>("global-progress-label");
 const progressFill = getById<HTMLElement>("global-progress-fill");
 const progressValue = getById<HTMLElement>("global-progress-value");
-const routes = ["today", "details", "now", "routines", "insights", "settings"];
+const routes = ["week", "week-details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
     blocks: "ブロック構成",
@@ -199,6 +199,12 @@ const uiState: UiState = {
     auth: null,
     accountId: "default",
     dashboardDate: isoDate(new Date()),
+    weekView: {
+        bufferAnchorDate: isoDate(new Date()),
+        isInteracting: false,
+        isPrefetching: false,
+        scrollLeftSnapshot: 0,
+    },
     blocks: [],
     blocksVisibleCount: BLOCKS_INITIAL_VISIBLE,
     calendarEvents: [],
@@ -462,6 +468,9 @@ function resolveWeekBounds(dateValue: string) {
 function resolveWeekDateKeys(dateValue: string) {
     return resolveWeekDateKeysValue(String(dateValue ?? ""));
 }
+function resolveWeekBufferDateKeys(dateValue: string) {
+    return resolveWeekBufferDateKeysValue(String(dateValue ?? ""));
+}
 function toSyncWindowPayload(dateValue: string, scope: "day" | "week" = "day") {
     const targetScope = scope === "week" ? "week" : "day";
     return toSyncWindowPayloadValue(String(dateValue ?? ""), targetScope);
@@ -628,10 +637,23 @@ function buildWeeklyPlannerModel(dateValue: unknown, blocks: unknown, events: un
     uiState.dayCalendarSelection = model.selection;
     return model;
 }
+function buildPlannerStripModel(dateKeys: string[], currentDateKey: string, blocks: unknown, events: unknown) {
+    const model = buildPlannerStripModelValue(dateKeys, currentDateKey, {
+        currentSelection: uiState.dayCalendarSelection,
+        buildDaily: (dayKey: string, buildOptions: { syncSelection: boolean; preferredSelection?: unknown; }) => buildDailyCalendarModel(dayKey, blocks, events, {
+            syncSelection: buildOptions.syncSelection,
+            preferredSelection: buildOptions.preferredSelection as DayItemSelection,
+        }),
+    });
+    uiState.dayCalendarSelection = model.selection;
+    return model;
+}
 function renderWeeklyPlannerCalendar(model: unknown) {
     return renderWeeklyPlannerCalendarValue(model as Parameters<typeof renderWeeklyPlannerCalendarValue>[0] & {
         days: Array<{
+            dayKey: string;
             isCurrent: boolean;
+            isToday: boolean;
             dayNumber: string;
             weekdayLabel: string;
             combinedItems: Array<Record<string, unknown> & { kind: string; }>;
@@ -790,23 +812,16 @@ function getRoute(): string {
         }
         return "settings";
     }
-    const routeAlias = {
-        dashboard: "today",
-        manage: "details",
-        detail: "details",
-        blocks: "today",
-        tasks: "today",
-        pomodoro: "now",
-        reflection: "insights",
-    };
-    const safeRoot = root ?? "";
-    const normalized = routeAlias[safeRoot as keyof typeof routeAlias] || safeRoot;
-    return routes.includes(normalized) ? normalized : "today";
+    if (root === "week" && detail === "details") {
+        return "week-details";
+    }
+    return routes.includes(root || "") ? String(root) : "week";
 }
 function markActiveRoute(route: string) {
+    const activeRoute = route === "week-details" ? "week" : route;
     document.querySelectorAll("a[data-route]").forEach((node) => {
         const anchor = node as HTMLAnchorElement;
-        if (anchor.dataset.route === route) {
+        if (anchor.dataset.route === activeRoute) {
             anchor.setAttribute("aria-current", "page");
         }
         else {
@@ -928,7 +943,7 @@ function toJsonObject(value: unknown): JsonObject | null {
 async function refreshCoreData(date: string = isoDate(new Date())) {
     const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
     const syncWindow = toSyncWindowPayload(normalizedDate, "week");
-    const weekDateKeys = resolveWeekDateKeys(normalizedDate);
+    const weekDateKeys = resolveWeekBufferDateKeys(normalizedDate);
     const weeklyBlocksPromise = Promise.all(weekDateKeys.map((dateKey: string) => safeInvoke("list_blocks", { date: dateKey }))).then((dailyBlocks: unknown[]) => {
         const merged = dailyBlocks.flat() as Array<{ id?: string } & Block>;
         const seen = new Set();
@@ -940,6 +955,7 @@ async function refreshCoreData(date: string = isoDate(new Date())) {
         });
     });
     uiState.dashboardDate = normalizedDate;
+    uiState.weekView.bufferAnchorDate = normalizedDate;
     const [tasksResult, blocksResult, calendarEventsResult, pomodoroResult, recipesResult] = await Promise.allSettled([
         safeInvoke("list_tasks"),
         weeklyBlocksPromise,
@@ -999,7 +1015,7 @@ async function authenticateAndSyncCalendar(date: string = uiState.dashboardDate 
     const normalizedDate = typeof date === "string" && date.trim() ? date.trim() : isoDate(new Date());
     uiState.dashboardDate = normalizedDate;
     uiState.auth = await invokeCommandWithProgress("authenticate_google_sso", withAccount({ force_reauth: Boolean(options.forceReauth) })) as UiState["auth"];
-    const syncResult = await invokeCommandWithProgress("sync_calendar", withAccount(toSyncWindowPayload(normalizedDate)));
+    const syncResult = await invokeCommandWithProgress("sync_calendar", withAccount(toSyncWindowPayload(normalizedDate, "week")));
     uiState.auth = {
         ...uiState.auth,
         synced_at: nowIso(),
@@ -1057,6 +1073,7 @@ function buildPageRenderDeps(): PageRenderDeps {
             blockRows,
             resetBlocksForDate,
             buildWeeklyPlannerModel,
+            buildPlannerStripModel,
             renderWeeklyPlannerCalendar,
         },
         nowHelpers: {
@@ -1074,18 +1091,18 @@ function buildPageRenderDeps(): PageRenderDeps {
             syncNowTaskOrder,
         },
         routineHelpers: {
-            renderTodaySequenceItems,
-            renderTodayLibraryLinks,
-            renderTodayStatusCard,
-            renderTodayNotesPanel,
-            renderTodayAmbientPanel,
+            renderWeekSequenceItems,
+            renderWeekLibraryLinks,
+            renderWeekStatusCard,
+            renderWeekNotesPanel,
+            renderWeekAmbientPanel,
         },
         taskHelpers: {
-            renderTodayTaskPanel,
+            renderWeekTaskPanel,
         },
         renderers: {
-            renderDashboard: () => renderTodayPage(buildPageRenderDeps()),
-            renderTodayDetailsPage: () => renderDetailsPage(buildPageRenderDeps()),
+            renderWeekPage: () => renderWeekPage(buildPageRenderDeps()),
+            renderWeekDetailsPage: () => renderWeekDetailsPage(buildPageRenderDeps()),
             renderPomodoro: () => renderNowPage(buildPageRenderDeps()),
             renderRoutines: () => renderRoutinesPage(buildPageRenderDeps()),
             renderReflection: () => renderInsightsPage(buildPageRenderDeps()),
@@ -1097,19 +1114,20 @@ function buildPageRenderDeps(): PageRenderDeps {
 function render() {
     const route = getRoute();
     const pageDeps = buildPageRenderDeps();
+    const isWeekRoute = route === "week" || route === "week-details";
     markActiveRoute(route);
-    document.body.classList.toggle("route-today", route === "today");
+    document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
     document.body.classList.toggle("route-routines", route === "routines");
-    appRoot.classList.toggle("view-root--today", route === "today");
+    appRoot.classList.toggle("view-root--week", isWeekRoute);
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
     switch (route) {
-        case "today":
-            renderTodayPage(pageDeps);
+        case "week":
+            renderWeekPage(pageDeps);
             break;
-        case "details":
-            renderDetailsPage(pageDeps);
+        case "week-details":
+            renderWeekDetailsPage(pageDeps);
             break;
         case "now":
             renderNowPage(pageDeps);
@@ -1124,17 +1142,17 @@ function render() {
             renderSettingsPage(pageDeps);
             break;
         default:
-            renderTodayPage(pageDeps);
+            renderWeekPage(pageDeps);
     }
 }
-function renderTodaySequenceItems() {
-    return renderTodaySequenceItemsView({ uiState, escapeHtml });
+function renderWeekSequenceItems() {
+    return renderWeekSequenceItemsView({ uiState, escapeHtml });
 }
-function renderTodayLibraryLinks() {
-    return renderTodayLibraryLinksView();
+function renderWeekLibraryLinks() {
+    return renderWeekLibraryLinksView();
 }
-function renderTodayStatusCard() {
-    return renderTodayStatusCardView({
+function renderWeekStatusCard() {
+    return renderWeekStatusCardView({
         uiState,
         escapeHtml,
         blockTitle,
@@ -1147,11 +1165,33 @@ function renderTodayStatusCard() {
         toTimerText,
     });
 }
-function refreshTodayStatusTimerDisplay() {
-    if (getRoute() !== "today") {
+function bindWeekTimerActions() {
+    appRoot.querySelectorAll("[data-week-timer-action]").forEach((node) => {
+        node.addEventListener("click", async (event: Event) => {
+            const action = (event.currentTarget as HTMLElement | null)?.dataset.weekTimerAction;
+            await executeTimerAction(action || "", () => renderWeekPage(buildPageRenderDeps()));
+        });
+    });
+}
+function refreshWeekSidebarPanels() {
+    if (getRoute() !== "week") {
         return;
     }
-    const statusTime = appRoot.querySelector("[data-today-status-time]");
+    const statusPanel = appRoot.querySelector("[data-week-status-panel]");
+    if (statusPanel instanceof HTMLElement) {
+        statusPanel.innerHTML = renderWeekStatusCard();
+    }
+    const taskPanel = appRoot.querySelector("[data-week-task-panel]");
+    if (taskPanel instanceof HTMLElement) {
+        taskPanel.innerHTML = renderWeekTaskPanel();
+    }
+    bindWeekTimerActions();
+}
+function refreshWeekStatusTimerDisplay() {
+    if (getRoute() !== "week") {
+        return;
+    }
+    const statusTime = appRoot.querySelector("[data-week-status-time]");
     if (!(statusTime instanceof HTMLElement)) {
         return;
     }
@@ -1237,32 +1277,32 @@ async function executeTimerAction(action: string, rerender: () => void) {
     uiState.nowUi.actionInFlight = false;
     rerender();
 }
-function renderTodayTaskPanel() {
-    return renderTodayTaskPanelView({
+function renderWeekTaskPanel() {
+    return renderWeekTaskPanelView({
         uiState,
         normalizePomodoroState,
         resolveCurrentFocusTask,
         escapeHtml,
     });
 }
-function renderTodayTimelinePanel() {
-    return renderTodayTimelinePanelView({
+function renderWeekTimelinePanel() {
+    return renderWeekTimelinePanelView({
         uiState,
         blockTitle,
         formatHHmm,
         escapeHtml,
     });
 }
-function renderTodayNotesPanel() {
-    return renderTodayNotesPanelView({
+function renderWeekNotesPanel() {
+    return renderWeekNotesPanelView({
         uiState,
         normalizePomodoroState,
         resolveCurrentFocusTask,
         escapeHtml,
     });
 }
-function renderTodayAmbientPanel() {
-    return renderTodayAmbientPanelView();
+function renderWeekAmbientPanel() {
+    return renderWeekAmbientPanelView();
 }
 function blockRows(blocks: Block[]) {
     return blockRowsValue(blocks, { blockDisplayName, formatTime });
@@ -1303,7 +1343,7 @@ export function startApp(): void {
     });
     setInterval(async () => {
         const route = getRoute();
-        if (route !== "now" && route !== "today") {
+        if (route !== "now" && route !== "week") {
             return;
         }
         try {
@@ -1323,7 +1363,7 @@ export function startApp(): void {
                 renderNowPage(buildPageRenderDeps());
             }
             else {
-                renderTodayPage(buildPageRenderDeps());
+                refreshWeekSidebarPanels();
             }
         }
         catch {
@@ -1332,7 +1372,7 @@ export function startApp(): void {
     }, 5000);
     setInterval(() => {
         const route = getRoute();
-        if (route !== "now" && route !== "today") {
+        if (route !== "now" && route !== "week") {
             return;
         }
         const state = normalizePomodoroState(uiState.pomodoro || {});
@@ -1347,7 +1387,7 @@ export function startApp(): void {
             renderNowPage(buildPageRenderDeps());
         }
         else {
-            refreshTodayStatusTimerDisplay();
+            refreshWeekStatusTimerDisplay();
         }
     }, 1000);
     void (async () => {
@@ -1374,7 +1414,7 @@ export function startApp(): void {
             // handled in safeInvoke
         }
         if (!window.location.hash) {
-            window.location.hash = "#/today";
+            window.location.hash = "#/week";
         }
         render();
     })();

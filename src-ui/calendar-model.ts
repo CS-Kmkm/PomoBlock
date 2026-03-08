@@ -1,4 +1,4 @@
-import { parseLocalDate, resolveDayBounds, shiftDateByDays, toLocalDateKey, toMonthDayLabel } from "./time.js";
+import { parseLocalDate, resolveDayBounds, resolveWeekDateKeys, toLocalDateKey, toMonthDayLabel } from "./time.js";
 import type { DayItemSelection as UiDayItemSelection } from "./types.js";
 
 export type TimelineInterval = {
@@ -49,6 +49,17 @@ type BuildDailyOptions = {
 type BuildWeeklyOptions = {
   currentSelection?: DayItemSelection;
   buildDaily: (dateKey: string, options: { syncSelection: boolean; preferredSelection?: DayItemSelection }) => DailyModel;
+};
+
+type PlannerStripDay = DailyModel & {
+  dayKey: string;
+  dayDate: Date;
+  dayNumber: string;
+  monthDayLabel: string;
+  weekdayLabel: string;
+  isCurrent: boolean;
+  isToday: boolean;
+  combinedItems: CalendarItem[];
 };
 
 export function dayItemKey(kind: unknown, id: unknown): string {
@@ -255,16 +266,26 @@ export function buildDailyCalendarModel(
 export function buildWeeklyPlannerModel(
   dateValue: unknown,
   options: BuildWeeklyOptions
-): { days: Array<DailyModel & { dayKey: string; dayDate: Date; dayNumber: string; weekdayLabel: string; isCurrent: boolean; combinedItems: CalendarItem[] }>; selectedItem: CalendarItem | null; weekLabel: string; selection: DayItemSelection } {
-  const dateKey = String(dateValue ?? "");
-  const anchor = parseLocalDate(dateKey);
-  const weekday = anchor.getDay();
-  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
-  const weekStart = shiftDateByDays(anchor, mondayOffset);
+): { days: PlannerStripDay[]; selectedItem: CalendarItem | null; weekLabel: string; selection: DayItemSelection } {
+  const anchor = parseLocalDate(String(dateValue ?? ""));
+  const dateKey = toLocalDateKey(anchor);
+  const weekDateKeys = resolveWeekDateKeys(dateKey);
+  return buildPlannerStripModel(weekDateKeys, dateKey, options);
+}
+
+export function buildPlannerStripModel(
+  dateKeys: string[],
+  currentDateKey: string,
+  options: BuildWeeklyOptions
+): { days: PlannerStripDay[]; selectedItem: CalendarItem | null; weekLabel: string; selection: DayItemSelection } {
+  const safeDateKeys = (Array.isArray(dateKeys) ? dateKeys : []).filter((dateKey): dateKey is string => Boolean(dateKey));
+  const fallbackDateKey = safeDateKeys[0] || currentDateKey;
+  const normalizedCurrentDateKey = currentDateKey || fallbackDateKey;
+  const weekStart = parseLocalDate(fallbackDateKey);
+  const todayDateKey = toLocalDateKey(new Date());
   const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const dayDate = shiftDateByDays(weekStart, index);
-    const dayKey = toLocalDateKey(dayDate);
+  const days = safeDateKeys.map((dayKey) => {
+    const dayDate = parseLocalDate(dayKey);
     const dailyModel = options.buildDaily(dayKey, { syncSelection: false });
     const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort(
       (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
@@ -274,8 +295,10 @@ export function buildWeeklyPlannerModel(
       dayKey,
       dayDate,
       dayNumber: String(dayDate.getDate()).padStart(2, "0"),
+      monthDayLabel: toMonthDayLabel(dayDate),
       weekdayLabel: weekdayLabels[dayDate.getDay()] || "N/A",
-      isCurrent: dayKey === dateKey,
+      isCurrent: dayKey === normalizedCurrentDateKey,
+      isToday: dayKey === todayDateKey,
       combinedItems,
     };
   });
@@ -289,8 +312,11 @@ export function buildWeeklyPlannerModel(
   const firstAvailable = days.find((day) => day.combinedItems.length > 0)?.combinedItems[0] || null;
   const selectedItem = selectedByState || currentDay?.combinedItems[0] || firstAvailable || null;
   const selection = selectedItem ? { kind: selectedItem.kind, id: selectedItem.id } : null;
-  const weekEnd = days[days.length - 1]?.dayDate || weekStart;
-  const weekLabel = `${weekStart.getFullYear()} ${toMonthDayLabel(weekStart)} - ${toMonthDayLabel(weekEnd)}`;
+  const visibleStart = currentDay ? Math.max(0, days.indexOf(currentDay) - 3) : 0;
+  const visibleEnd = Math.min(days.length - 1, visibleStart + 6);
+  const labelStartDate = days[visibleStart]?.dayDate || weekStart;
+  const labelEndDate = days[visibleEnd]?.dayDate || days[days.length - 1]?.dayDate || weekStart;
+  const weekLabel = `${labelStartDate.getFullYear()} ${toMonthDayLabel(labelStartDate)} - ${toMonthDayLabel(labelEndDate)}`;
 
   return {
     days,
