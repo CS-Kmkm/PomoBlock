@@ -1,5 +1,5 @@
-import type { Module, Recipe, RoutineStudioState } from "../types.js";
-import { routineStudioSlug } from "./routines-model.js";
+import type { Module, Recipe, RoutineStudioState } from "../../../types.js";
+import { routineStudioSlug } from "../model.js";
 
 type SafeInvoke = (command: string, payload: Record<string, unknown>) => Promise<unknown>;
 

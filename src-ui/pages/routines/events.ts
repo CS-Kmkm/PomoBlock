@@ -1,6 +1,6 @@
-﻿import type { Module, PageRenderDeps, RoutineStudioEntry } from "../types.js";
-import { cloneValue, isRoutineStudioRecipe, routineStudioContexts, routineStudioSeedModules, routineStudioSlug, routineStudioStepDurationMinutes, toPositiveInt } from "./routines-model.js";
-import { bindRoutineStudioPointerDnd } from "./routines-pointer-dnd.js";
+import type { Module, PageRenderDeps, RoutineStudioEntry } from "../../types.js";
+import { cloneValue, isRoutineStudioRecipe, routineStudioContexts, routineStudioSeedModules, routineStudioSlug, routineStudioStepDurationMinutes, toPositiveInt } from "./model.js";
+import { bindRoutineStudioPointerDnd } from "./pointer-dnd.js";
 import {
   applyStudioCanvasEntries,
   createEmptyStudioModuleEditor,
@@ -11,24 +11,24 @@ import {
   readStudioEntryId,
   toEntryRecords,
   updateStudioEntry,
-} from "./routines-studio-state.js";
+} from "./state.js";
 import {
   clearStudioDropIndicator,
   paintStudioDropIndicator,
   resolveStudioDropInsertIndex,
-} from "./routines-studio-drop-indicator.js";
-import { buildStudioAssets } from "./routines-studio-assets.js";
-import { createAddAssetToCanvas, moduleToStudioEntry, recipeToStudioEntries } from "./routines-studio-canvas.js";
-import { bootstrapStudioState, normalizeStudioState, syncStudioFromRecipe } from "./routines-studio-lifecycle.js";
+} from "./studio/drop-indicator.js";
+import { buildStudioAssets } from "./studio/assets.js";
+import { createAddAssetToCanvas, moduleToStudioEntry, recipeToStudioEntries } from "./studio/canvas.js";
+import { bootstrapStudioState, normalizeStudioState, syncStudioFromRecipe } from "./studio/lifecycle.js";
 import {
   closeStudioEntryEditor,
   closeStudioModuleEditor,
   openStudioModuleEditor,
   resolveStudioModule,
-} from "./routines-studio-module-editor.js";
-import { buildRoutineStudioLoadingMarkup, buildRoutineStudioMarkup } from "./routines-studio-markup.js";
-import { bindRoutineStudioEditorEvents } from "./routines-studio-bindings.js";
-import { bindRoutineStudioAsyncEvents } from "./routines-studio-async-bindings.js";
+} from "./studio/module-editor.js";
+import { buildRoutineStudioLoadingMarkup, buildRoutineStudioMarkup } from "./studio/markup.js";
+import { bindRoutineStudioEditorEvents } from "./studio/bindings.js";
+import { bindRoutineStudioAsyncEvents } from "./studio/async-bindings.js";
 import {
   applyStudioTemplateToToday,
   deleteStudioModule,
@@ -36,8 +36,8 @@ import {
   persistStudioTemplate,
   refreshStudioAssets,
   saveStudioModule,
-} from "./routines-studio-actions.js";
-import { renderRoutinesMarkup } from "./routines-view.js";
+} from "./studio/actions.js";
+import { renderRoutinesMarkup } from "./view.js";
 
 
 export function renderRoutinesEvents(deps: PageRenderDeps): void {

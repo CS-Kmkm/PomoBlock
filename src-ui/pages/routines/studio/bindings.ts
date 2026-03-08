@@ -1,4 +1,4 @@
-import type { RoutineStudioDragKind, RoutineStudioEntry, RoutineStudioState } from "../types.js";
+import type { RoutineStudioDragKind, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
 
 type BindRoutineStudioEditorEventsParams = {
   appRoot: HTMLElement;

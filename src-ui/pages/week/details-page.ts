@@ -1,31 +1,29 @@
-import type { PageRenderDeps } from "../types.js";
+import type { PageRenderDeps } from "../../types.js";
 
-export function renderDetailsPage(deps: PageRenderDeps): void {
+export function renderWeekDetailsPage(deps: PageRenderDeps): void {
   const { uiState, appRoot, services, setStatus } = deps;
   const helpers = {
     ...deps.commonHelpers,
     ...deps.calendarHelpers,
-    ...deps.nowHelpers,
-    ...deps.routineHelpers,
-    ...deps.taskHelpers,
   };
   const fallbackDate = helpers.isoDate(new Date());
   const selectedDate = uiState.dashboardDate || fallbackDate;
+  const selectedBlocks = uiState.blocks.filter((block) => block.date === selectedDate);
 
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>Details</h2>
-        <p>Today の詳細表示と管理操作をこのページで行います。</p>
+        <h2>Week Details</h2>
+        <p>中央の日付 ${helpers.escapeHtml(selectedDate)} の詳細表示と管理操作を行います。</p>
       </div>
-      <a href="#/today" class="today-manage-btn">Back to Today</a>
+      <a href="#/week" class="week-manage-btn">Back to Week</a>
     </section>
-    <section class="panel today-controls-panel">
-      <div class="today-controls-grid">
+    <section class="panel week-controls-panel">
+      <div class="week-controls-grid">
         <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
         <label>Account <input id="dashboard-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" /></label>
       </div>
-      <div class="today-controls-actions">
+      <div class="week-controls-actions">
         <button id="dashboard-sync" class="btn-primary">同期</button>
         <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
         <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
@@ -33,14 +31,14 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
       </div>
     </section>
     ${helpers.renderDailyCalendar(selectedDate, {
-      panelClass: "today-advanced-calendar",
+      panelClass: "week-advanced-calendar",
       includeDetail: true,
     })}
-    <section class="panel today-block-table">
-      <h3>今日のブロック</h3>
+    <section class="panel week-block-table">
+      <h3>中央日のブロック</h3>
       <table>
         <thead><tr><th>ID</th><th>開始</th><th>終了</th><th>Firmness</th></tr></thead>
-        <tbody>${helpers.blockRows(uiState.blocks)}</tbody>
+        <tbody>${helpers.blockRows(selectedBlocks)}</tbody>
       </table>
     </section>
   `;
@@ -58,8 +56,9 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
   document.getElementById("dashboard-date")?.addEventListener("change", async () => {
     await services.runUiAction(async () => {
       const date = getSelectedDate();
+      uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
@@ -67,8 +66,9 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
     await services.runUiAction(async () => {
       uiState.accountId = getSelectedAccount();
       const date = getSelectedDate();
+      uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
@@ -76,9 +76,10 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
     await services.runUiAction(async () => {
       uiState.accountId = getSelectedAccount();
       const date = getSelectedDate();
+      uiState.weekView.bufferAnchorDate = date;
       await deps.authenticateAndSyncCalendar(date);
       await deps.refreshCoreData(date);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
@@ -95,7 +96,7 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
         await services.invokeCommandWithProgress("generate_blocks", helpers.withAccount({ date }));
       }
       await deps.refreshCoreData(date);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
@@ -106,17 +107,18 @@ export function renderDetailsPage(deps: PageRenderDeps): void {
       const deletedCount = await helpers.resetBlocksForDate(date);
       await deps.refreshCoreData(date);
       setStatus(`ブロックを削除しました: ${deletedCount}件 (${date})`);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
   document.getElementById("dashboard-refresh")?.addEventListener("click", async () => {
     await services.runUiAction(async () => {
       const date = getSelectedDate();
+      uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderDetailsPage(deps);
+      renderWeekDetailsPage(deps);
     });
   });
 
-  helpers.bindDailyCalendarInteractions(() => renderDetailsPage(deps));
+  helpers.bindDailyCalendarInteractions(() => renderWeekDetailsPage(deps));
 }

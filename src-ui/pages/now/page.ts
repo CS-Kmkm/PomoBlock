@@ -1,4 +1,4 @@
-import type { PageRenderDeps } from "../types.js";
+import type { PageRenderDeps } from "../../types.js";
 
 export function renderNowPage(deps: PageRenderDeps): void {
   const { uiState, appRoot, services } = deps;

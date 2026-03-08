@@ -1,5 +1,5 @@
-import type { Recipe, RoutineStudioState } from "../types.js";
-import type { RoutineStudioModuleView } from "./routines-model.js";
+import type { Recipe, RoutineStudioState } from "../../../types.js";
+import type { RoutineStudioModuleView } from "../model.js";
 
 type BuildStudioAssetsParams = {
   studio: RoutineStudioState;

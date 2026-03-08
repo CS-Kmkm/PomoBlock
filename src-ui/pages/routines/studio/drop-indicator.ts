@@ -1,5 +1,5 @@
-import type { RoutineStudioState } from "../types.js";
-import { resolveDropInsertIndex as resolveDropInsertIndexBase } from "./routines-dnd.js";
+import type { RoutineStudioState } from "../../../types.js";
+import { resolveDropInsertIndex as resolveDropInsertIndexBase } from "../dnd.js";
 
 export function resolveStudioDropInsertIndex(dropzone: HTMLElement, clientY: number): number {
   return resolveDropInsertIndexBase(dropzone, clientY);
