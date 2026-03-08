@@ -545,7 +545,7 @@ p {
 .route-week .week-main-pane {
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 0 16px 0 0;
+  padding: 0 16px 0 20px;
 }
 
 .week-main-head {
@@ -2695,7 +2695,7 @@ th {
   }
 
   .route-week .week-main-pane {
-    padding: 0;
+    padding: 0 14px 0 20px;
   }
 
   .route-week .week-right-rail {
