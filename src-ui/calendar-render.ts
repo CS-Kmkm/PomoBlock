@@ -332,6 +332,7 @@ export function renderWeeklyPlannerCalendar(
   if (!model.days.length) {
     return '<div class="panel"><p class="small">週次データがありません。</p></div>';
   }
+  const nowMs = Date.now();
   const gridColumns = `84px repeat(${model.days.length}, minmax(150px, 1fr))`;
   return `
     <div class="week-board" data-week-scroll-container tabindex="0">
@@ -359,10 +360,22 @@ export function renderWeeklyPlannerCalendar(
         ${model.days
           .map((day) => {
             const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem, deps);
+            const totalRange = Math.max(1, day.dayEndMs - day.dayStartMs);
+            const nowTop = ((nowMs - day.dayStartMs) / totalRange) * 100;
+            const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
             return `
               <section class="week-day-lane ${day.isToday ? "is-current" : ""}">
                 <div class="day-lane-track week-day-track">
                   ${renderDayHourGuides()}
+                  ${
+                    showNowLine
+                      ? `
+                    <div class="week-now-line" style="top:${nowTop}%">
+                      <span class="week-now-dot" aria-hidden="true"></span>
+                    </div>
+                  `
+                      : ""
+                  }
                   ${entries || '<span class="day-lane-empty">なし</span>'}
                 </div>
               </section>
