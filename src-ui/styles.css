@@ -595,6 +595,7 @@ p {
   min-height: 0;
   height: 100%;
   display: grid;
+  padding-left: 0;
 }
 
 .week-week-hint {
