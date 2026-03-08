@@ -129,7 +129,7 @@ export function resolveNowAutoStartBlock(
       return current.block;
     }
   }
-  const nowMs = Date.now();
+  const nowMs = reference.getTime();
   const active = todayBlocks.find(({ startMs, endMs }) => startMs <= nowMs && nowMs < endMs);
   if (active) {
     return active.block;
