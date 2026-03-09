@@ -35,3 +35,34 @@ pub fn bootstrap_workspace(workspace_root: &Path) -> Result<BootstrapResult, Inf
         database_path,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT_BOOTSTRAP_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
+
+    fn temp_workspace() -> PathBuf {
+        let sequence = NEXT_BOOTSTRAP_WORKSPACE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "pomoblock-bootstrap-tests-{}-{}",
+            std::process::id(),
+            sequence
+        ))
+    }
+
+    #[test]
+    fn bootstrap_workspace_initializes_config_state_logs_and_database() {
+        let workspace_root = temp_workspace();
+        let result = bootstrap_workspace(&workspace_root).expect("bootstrap workspace");
+
+        assert!(result.workspace_root.is_dir());
+        assert!(result.config_dir.is_dir());
+        assert!(result.state_dir.is_dir());
+        assert!(result.logs_dir.is_dir());
+        assert!(result.database_path.is_file());
+
+        let _ = fs::remove_dir_all(workspace_root);
+    }
+}

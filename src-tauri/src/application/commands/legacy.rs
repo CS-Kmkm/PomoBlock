@@ -5153,6 +5153,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn property_15_starting_pomodoro_activates_running_timer() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        let snapshot =
+            start_pomodoro_impl(&state, generated[0].id.clone(), None).expect("start pomodoro");
+
+        assert_eq!(snapshot.phase, "focus");
+        assert!(snapshot.remaining_seconds > 0);
+        assert_eq!(
+            snapshot.current_block_id.as_deref(),
+            Some(generated[0].id.as_str())
+        );
+    }
+
+    #[tokio::test]
     async fn advance_pomodoro_tracks_cycles_inside_block() {
         let workspace = TempWorkspace::new();
         let state = workspace.app_state();
@@ -6193,6 +6212,27 @@ mod tests {
 
         assert_eq!(summary.logs.len() as u32, summary.completed_count + summary.interrupted_count);
         assert!(summary.total_focus_minutes >= 0);
+    }
+
+    #[tokio::test]
+    async fn property_17_interruption_reason_and_time_are_logged_on_pause() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        let _ = start_pomodoro_impl(&state, generated[0].id.clone(), None).expect("start");
+        let _ = pause_pomodoro_impl(&state, Some("meeting".to_string())).expect("pause");
+        let summary = get_reflection_summary_impl(&state, None, None).expect("summary");
+        let paused_log = summary
+            .logs
+            .iter()
+            .find(|log| log.interruption_reason.as_deref() == Some("meeting"))
+            .expect("paused log");
+
+        assert_eq!(paused_log.phase, "focus");
+        assert!(paused_log.end_time.is_some());
     }
 
     #[tokio::test]
