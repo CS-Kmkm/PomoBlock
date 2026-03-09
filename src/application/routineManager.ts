@@ -119,3 +119,5 @@ export class RoutineManager {
     return entities;
   }
 }
+// Legacy reference implementation during the Rust backend migration.
+// Production routine/template/policy backend behavior is moving to `src-tauri/`.

@@ -71,3 +71,5 @@ export class ReflectionService {
     return this.pomodoroLogRepository.load(startAt, endAt);
   }
 }
+// Legacy reference implementation during the Rust backend migration.
+// Production reflection aggregation behavior is sourced from `src-tauri/`.

@@ -5992,6 +5992,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn property_21_tasks_are_not_preassigned_before_block_starts() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+        let task = create_task_impl(&state, "Unassigned".to_string(), None, Some(1))
+            .expect("create task");
+
+        let runtime = lock_runtime(&state).expect("runtime lock");
+        assert!(runtime.task_assignments_by_task.get(task.id.as_str()).is_none());
+        assert!(runtime
+            .task_assignments_by_block
+            .get(generated[0].id.as_str())
+            .is_none());
+    }
+
+    #[tokio::test]
     async fn carry_over_task_moves_to_selected_available_block() {
         let workspace = TempWorkspace::new();
         let state = workspace.app_state();
@@ -6153,6 +6171,28 @@ mod tests {
 
         assert!(summary.interrupted_count >= 1);
         assert!(!summary.logs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn property_32_reflection_aggregates_match_underlying_logs() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        let _ = start_pomodoro_impl(&state, generated[0].id.clone(), None).expect("start first");
+        let _ = pause_pomodoro_impl(&state, Some("property-32".to_string())).expect("pause first");
+        let _ = complete_pomodoro_impl(&state).expect("complete first");
+
+        let _ = start_pomodoro_impl(&state, generated[1].id.clone(), None).expect("start second");
+        let _ = advance_pomodoro_impl(&state).expect("advance second");
+        let _ = complete_pomodoro_impl(&state).expect("complete second");
+
+        let summary = get_reflection_summary_impl(&state, None, None).expect("summary");
+
+        assert_eq!(summary.logs.len() as u32, summary.completed_count + summary.interrupted_count);
+        assert!(summary.total_focus_minutes >= 0);
     }
 
     #[tokio::test]

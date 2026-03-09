@@ -111,3 +111,5 @@ export class TaskManager {
     return nextBlock.id;
   }
 }
+// Legacy reference implementation during the Rust backend migration.
+// Production task management behavior is sourced from `src-tauri/`.
