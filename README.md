@@ -3,6 +3,14 @@
 PomoBlock は、Tauri ベースのデスクトップアプリです。  
 Rust バックエンドで認証・同期・ブロック管理を扱い、TypeScript UI で操作します。
 
+## Backend Source Of Truth
+
+- 本番 backend の SoT は `src-tauri/` です。
+- 新しい backend 機能は Rust にのみ追加します。
+- `src/` 配下の Node/TypeScript backend 実装は、移行完了まで reference / legacy 扱いです。
+- `src/` 配下の backend ロジックは保守・差分確認・移行補助を目的とし、新規投資先にはしません。
+- `npm run init` / `npm run status` は当面維持しますが、実装の SoT は段階的に Rust 側へ移します。
+
 ## 前提環境
 
 - Node.js 22 以上
@@ -62,6 +70,12 @@ cargo tauri dev
 補足:
 - `src-tauri/tauri.conf.json` の `beforeDevCommand` で `npm --prefix . run build:ui` を実行するため、
   `cargo tauri dev` 前に手動で UI ビルドする必要はありません。
+
+### Backend 実装の扱い
+
+- UI は `src-ui/`、本番 backend は `src-tauri/` を編集対象にします。
+- `src/` は legacy backend / 参照実装として段階的に縮退させます。
+- backend 仕様の回帰確認は Rust テストへ集約していきます。
 
 ## 設定方法
 
