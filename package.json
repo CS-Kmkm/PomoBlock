@@ -11,10 +11,11 @@
     "rust:check": "powershell -ExecutionPolicy Bypass -File scripts/rust-check.ps1",
     "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",
     "build:windows:debug": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -Debug",
-    "build": "npm run build:node && npm run build:ui",
+    "build": "npm run build:ui",
     "build:node": "tsc -p tsconfig.node.json && npm run copy:schema",
     "build:ui": "tsc -p tsconfig.ui.json",
-    "test": "npm run build:node && node --test dist/tests/**/*.test.js",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:legacy": "npm run build:node && node --test dist/tests/**/*.test.js",
     "test:watch": "node --test --watch",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.ui.json --noEmit",
     "copy:schema": "powershell -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path dist/src/infrastructure/sql | Out-Null; Copy-Item -Path src/infrastructure/sql/schema.sql -Destination dist/src/infrastructure/sql/schema.sql -Force\""

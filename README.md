@@ -54,6 +54,12 @@ npm run status
 npm test
 ```
 
+残存する Node/TypeScript backend 回帰テストを実行する場合:
+
+```powershell
+npm run test:legacy
+```
+
 ### Rust 側チェック
 
 ```powershell
@@ -116,3 +122,9 @@ npm run build:windows
 ```powershell
 npm run build:windows:debug
 ```
+
+## Legacy Node Backend
+
+- `src/` 配下の backend モジュールは legacy / reference implementation です。
+- `npm run build` は UI ビルドのみを対象にし、Node backend のビルドは本番導線から外しています。
+- 残存する Node backend 検証が必要な場合のみ `npm run build:node` または `npm run test:legacy` を使います。

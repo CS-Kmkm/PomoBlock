@@ -410,3 +410,5 @@ export class LocalStorageRepository {
     });
   }
 }
+// Legacy reference implementation during the Rust backend migration.
+// Production persistence behavior is sourced from `src-tauri/`.

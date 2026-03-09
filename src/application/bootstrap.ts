@@ -38,3 +38,5 @@ export function bootstrapWorkspace(options: BootstrapOptions = {}): BootstrapRes
     config,
   };
 }
+// Legacy reference implementation during the Rust backend migration.
+// Workspace bootstrap for product usage is sourced from `src-tauri/`.
