@@ -2159,13 +2159,14 @@ th {
 .week-board-head-time {
   position: sticky;
   left: 0;
-  z-index: 3;
+  z-index: 5;
   font-size: 0.82rem;
   color: var(--muted);
   font-weight: 600;
   text-align: left;
   padding-left: 8px;
   background: rgba(238, 244, 240, 0.96);
+  box-shadow: 10px 0 18px rgba(30, 48, 39, 0.08);
 }
 
 .week-board-day {
@@ -2291,18 +2292,26 @@ th {
 .day-time-axis {
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 4;
+  width: 84px;
+  min-width: 84px;
   border-right: 1px solid var(--line);
-  background: #f8fbf8;
+  background:
+    linear-gradient(180deg, rgba(248, 251, 248, 0.98), rgba(242, 247, 243, 0.98));
+  box-shadow: 12px 0 20px rgba(30, 48, 39, 0.08);
 }
 
 .day-time-label {
   position: absolute;
-  left: 0;
+  left: 8px;
   transform: translateY(-50%);
   font-size: 0.75rem;
-  color: var(--muted);
+  color: #36554a;
+  font-weight: 600;
   white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .day-hour-line {
