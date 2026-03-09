@@ -2424,11 +2424,13 @@ pub fn interrupt_timer_impl(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "interrupted".to_string());
-    finish_active_log(
+    if let Some(log) = finish_active_log(
         &mut runtime.pomodoro,
         Utc::now(),
         Some(interruption_reason.clone()),
-    );
+    ) {
+        save_pomodoro_log(state.database_path(), &log)?;
+    }
     reset_pomodoro_session(&mut runtime.pomodoro);
     state.log_info(
         "interrupt_timer",
@@ -2510,7 +2512,9 @@ pub fn advance_pomodoro_impl(state: &AppState) -> Result<PomodoroStateResponse, 
     }
 
     let now = Utc::now();
-    finish_active_log(&mut runtime.pomodoro, now, None);
+    if let Some(log) = finish_active_log(&mut runtime.pomodoro, now, None) {
+        save_pomodoro_log(state.database_path(), &log)?;
+    }
     match runtime.pomodoro.phase {
         PomodoroRuntimePhase::Focus => {
             let total_cycles = runtime.pomodoro.total_cycles.max(1);
@@ -2560,11 +2564,13 @@ pub fn pause_pomodoro_impl(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "paused".to_string());
 
-    finish_active_log(
+    if let Some(log) = finish_active_log(
         &mut runtime.pomodoro,
         Utc::now(),
         Some(interruption_reason.clone()),
-    );
+    ) {
+        save_pomodoro_log(state.database_path(), &log)?;
+    }
 
     runtime.pomodoro.paused_phase = Some(runtime.pomodoro.phase);
     runtime.pomodoro.phase = PomodoroRuntimePhase::Paused;
@@ -2639,7 +2645,9 @@ pub fn complete_pomodoro_impl(state: &AppState) -> Result<PomodoroStateResponse,
     } else {
         None
     };
-    finish_active_log(&mut runtime.pomodoro, Utc::now(), interruption_reason);
+    if let Some(log) = finish_active_log(&mut runtime.pomodoro, Utc::now(), interruption_reason) {
+        save_pomodoro_log(state.database_path(), &log)?;
+    }
     reset_pomodoro_session(&mut runtime.pomodoro);
 
     state.log_info("complete_pomodoro", "completed pomodoro session");
@@ -2698,12 +2706,14 @@ fn finish_active_log(
     runtime: &mut PomodoroRuntimeState,
     end_time: DateTime<Utc>,
     interruption_reason: Option<String>,
-) {
+) -> Option<PomodoroLog> {
     if let Some(mut active) = runtime.active_log.take() {
         active.end_time = Some(end_time);
         active.interruption_reason = interruption_reason;
-        runtime.completed_logs.push(active);
+        runtime.completed_logs.push(active.clone());
+        return Some(active);
     }
+    None
 }
 
 fn reset_pomodoro_session(runtime: &mut PomodoroRuntimeState) {
@@ -2780,14 +2790,7 @@ pub fn get_reflection_summary_impl(
         ));
     }
 
-    let runtime = lock_runtime(state)?;
-    let logs_in_range = runtime
-        .pomodoro
-        .completed_logs
-        .iter()
-        .filter(|log| log.start_time >= start && log.start_time <= end)
-        .cloned()
-        .collect::<Vec<_>>();
+    let logs_in_range = load_pomodoro_logs(state.database_path(), start, end)?;
 
     let completed_count = logs_in_range
         .iter()
@@ -3029,6 +3032,28 @@ fn parse_datetime_input(value: &str, field_name: &str) -> Result<DateTime<Utc>, 
     )))
 }
 
+fn parse_pomodoro_phase(value: &str) -> Result<PomodoroPhase, InfraError> {
+    match value.trim() {
+        "focus" => Ok(PomodoroPhase::Focus),
+        "break" => Ok(PomodoroPhase::Break),
+        "long_break" => Ok(PomodoroPhase::LongBreak),
+        "paused" => Ok(PomodoroPhase::Paused),
+        other => Err(InfraError::InvalidConfig(format!(
+            "unsupported pomodoro phase: {}",
+            other
+        ))),
+    }
+}
+
+fn pomodoro_phase_as_str(value: &PomodoroPhase) -> &'static str {
+    match value {
+        PomodoroPhase::Focus => "focus",
+        PomodoroPhase::Break => "break",
+        PomodoroPhase::LongBreak => "long_break",
+        PomodoroPhase::Paused => "paused",
+    }
+}
+
 fn local_datetime_to_utc(
     date: NaiveDate,
     time: NaiveTime,
@@ -3058,6 +3083,64 @@ fn save_suppression(
     let single = vec![instance.to_string()];
     let _ = save_suppressions(database_path, &single, reason)?;
     Ok(())
+}
+
+fn save_pomodoro_log(database_path: &Path, log: &PomodoroLog) -> Result<(), InfraError> {
+    let connection = Connection::open(database_path)?;
+    connection.execute(
+        "INSERT INTO pomodoro_logs (id, block_id, task_id, start_time, end_time, phase, interruption_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+           block_id = excluded.block_id,
+           task_id = excluded.task_id,
+           start_time = excluded.start_time,
+           end_time = excluded.end_time,
+           phase = excluded.phase,
+           interruption_reason = excluded.interruption_reason",
+        params![
+            log.id,
+            log.block_id,
+            log.task_id,
+            log.start_time.to_rfc3339(),
+            log.end_time.map(|value| value.to_rfc3339()),
+            pomodoro_phase_as_str(&log.phase),
+            log.interruption_reason,
+        ],
+    )?;
+    Ok(())
+}
+
+fn load_pomodoro_logs(
+    database_path: &Path,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+) -> Result<Vec<PomodoroLog>, InfraError> {
+    let connection = Connection::open(database_path)?;
+    let mut statement = connection.prepare(
+        "SELECT id, block_id, task_id, start_time, end_time, phase, interruption_reason
+         FROM pomodoro_logs
+         WHERE start_time >= ?1 AND start_time <= ?2
+         ORDER BY start_time ASC",
+    )?;
+    let mut rows = statement.query(params![start.to_rfc3339(), end.to_rfc3339()])?;
+    let mut logs = Vec::new();
+    while let Some(row) = rows.next()? {
+        let start_time = parse_datetime_input(&row.get::<_, String>(3)?, "pomodoro_logs.start_time")?;
+        let end_time = row
+            .get::<_, Option<String>>(4)?
+            .map(|value| parse_datetime_input(&value, "pomodoro_logs.end_time"))
+            .transpose()?;
+        logs.push(PomodoroLog {
+            id: row.get(0)?,
+            block_id: row.get(1)?,
+            task_id: row.get(2)?,
+            start_time,
+            end_time,
+            phase: parse_pomodoro_phase(&row.get::<_, String>(5)?)?,
+            interruption_reason: row.get(6)?,
+        });
+    }
+    Ok(logs)
 }
 
 fn instance_matches_date(instance: &str, date_key: &str) -> bool {
@@ -6050,6 +6133,26 @@ mod tests {
 
         let summary = get_reflection_summary_impl(&state, None, None).expect("summary");
         assert!(summary.interrupted_count >= 1);
+    }
+
+    #[tokio::test]
+    async fn reflection_summary_survives_app_state_restart() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+        let block_id = generated[0].id.clone();
+
+        let _ = start_pomodoro_impl(&state, block_id, None).expect("start");
+        let _ = pause_pomodoro_impl(&state, Some("restart-check".to_string())).expect("pause");
+        let _ = complete_pomodoro_impl(&state).expect("complete");
+
+        let restarted_state = workspace.app_state();
+        let summary = get_reflection_summary_impl(&restarted_state, None, None).expect("summary");
+
+        assert!(summary.interrupted_count >= 1);
+        assert!(!summary.logs.is_empty());
     }
 
     #[tokio::test]

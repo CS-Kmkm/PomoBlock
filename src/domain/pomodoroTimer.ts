@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { PomodoroLog } from "./models.js";
 
+// Legacy reference implementation during the Rust backend migration.
+// Production timer behavior is sourced from `src-tauri/`.
+
 type Clock = {
   now(): Date;
 };
