@@ -2,4 +2,8 @@ pub mod bootstrap;
 pub mod calendar_sync;
 pub mod calendar_setup;
 pub mod commands;
+pub mod block_service;
 pub mod oauth;
+pub mod pomodoro_service;
+pub mod reflection_service;
+pub mod task_service;

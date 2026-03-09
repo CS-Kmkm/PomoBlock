@@ -1,7 +1,7 @@
 mod blocks;
 mod bootstrap;
 mod calendar;
-mod legacy;
+pub(crate) mod legacy;
 mod pomodoro;
 mod reflection;
 mod tasks;
