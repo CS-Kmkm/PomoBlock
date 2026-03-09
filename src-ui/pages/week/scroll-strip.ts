@@ -19,6 +19,8 @@ export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void
   if (!(scrollContainer instanceof HTMLElement)) {
     return;
   }
+  const timeRail = appRoot.querySelector("[data-week-time-rail]");
+  const leadingOffset = timeRail instanceof HTMLElement ? timeRail.offsetWidth : 0;
   const dayNodes = Array.from(scrollContainer.querySelectorAll("[data-week-day-key]")) as HTMLElement[];
   if (dayNodes.length === 0) {
     return;
@@ -33,12 +35,13 @@ export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void
       return;
     }
     suppressScrollUntil = Date.now() + SCROLL_SETTLE_MS;
-    scrollContainer.scrollLeft = targetNode.offsetLeft;
+    scrollContainer.scrollLeft = Math.max(0, targetNode.offsetLeft - leadingOffset);
     uiState.weekView.scrollLeftSnapshot = scrollContainer.scrollLeft;
   };
 
   const resolveClosestDateKey = () => {
-    const viewportCenter = scrollContainer.scrollLeft + scrollContainer.clientWidth / 2;
+    const viewportWidth = Math.max(0, scrollContainer.clientWidth - leadingOffset);
+    const viewportCenter = scrollContainer.scrollLeft + leadingOffset + viewportWidth / 2;
     let closestIndex = 0;
     let closestDistance = Number.POSITIVE_INFINITY;
     dayNodes.forEach((node, index) => {

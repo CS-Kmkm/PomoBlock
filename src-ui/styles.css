@@ -2117,6 +2117,9 @@ th {
 }
 
 .week-board {
+  display: grid;
+  grid-template-columns: 84px max-content;
+  align-items: start;
   border: 1px solid var(--line);
   border-radius: 22px;
   background:
@@ -2139,11 +2142,55 @@ th {
   height: 100%;
 }
 
+.week-board-time-rail {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  width: 84px;
+  min-width: 84px;
+  background: rgba(244, 248, 245, 0.98);
+  border-right: 1px solid var(--line);
+  box-shadow: 12px 0 20px rgba(30, 48, 39, 0.08);
+}
+
+.week-board-time-head {
+  position: sticky;
+  top: 0;
+  z-index: 7;
+  min-height: 115px;
+  padding: 14px 8px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(238, 244, 240, 0.96);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.week-board-time-rail .day-time-axis {
+  position: relative;
+  left: auto;
+  top: auto;
+  z-index: 1;
+  width: 84px;
+  min-width: 84px;
+  box-shadow: none;
+  border-right: none;
+}
+
+.week-board-scroll-content {
+  display: grid;
+  grid-template-rows: auto auto;
+  min-width: max-content;
+}
+
 .week-board-head,
 .week-board-body {
   display: grid;
   gap: 8px;
-  min-width: 760px;
+  min-width: max-content;
 }
 
 .week-board-head {
@@ -2154,19 +2201,6 @@ th {
   border-bottom: 1px solid var(--line);
   background: rgba(238, 244, 240, 0.92);
   backdrop-filter: blur(10px);
-}
-
-.week-board-head-time {
-  position: sticky;
-  left: 0;
-  z-index: 5;
-  font-size: 0.82rem;
-  color: var(--muted);
-  font-weight: 600;
-  text-align: left;
-  padding-left: 8px;
-  background: rgba(238, 244, 240, 0.96);
-  box-shadow: 10px 0 18px rgba(30, 48, 39, 0.08);
 }
 
 .week-board-day {

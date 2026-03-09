@@ -333,55 +333,59 @@ export function renderWeeklyPlannerCalendar(
     return '<div class="panel"><p class="small">週次データがありません。</p></div>';
   }
   const nowMs = Date.now();
-  const gridColumns = `84px repeat(${model.days.length}, minmax(150px, 1fr))`;
+  const gridColumns = `repeat(${model.days.length}, minmax(150px, 1fr))`;
   return `
     <div class="week-board" data-week-scroll-container tabindex="0">
-      <div class="week-board-head" style="grid-template-columns:${gridColumns}">
-        <span class="week-board-head-time">時刻</span>
-        ${model.days
-          .map(
-            (day) => `
-          <button
-            type="button"
-            class="week-board-day ${day.isToday ? "is-current" : ""}"
-            data-week-day-key="${deps.escapeHtml(day.dayKey)}"
-            data-week-open-details="${deps.escapeHtml(day.dayKey)}"
-          >
-            <small>${day.weekdayLabel}</small>
-            <strong>${day.dayNumber}</strong>
-            <em>${day.monthDayLabel}</em>
-          </button>
-        `
-          )
-          .join("")}
-      </div>
-      <div class="week-board-body" style="grid-template-columns:${gridColumns}">
+      <div class="week-board-time-rail" data-week-time-rail>
+        <div class="week-board-time-head">時刻</div>
         ${renderDayTimeAxis(model.days[0]?.dayStartMs || 0, model.days[0]?.dayEndMs || 0, deps.toClockText)}
-        ${model.days
-          .map((day) => {
-            const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem, deps);
-            const totalRange = Math.max(1, day.dayEndMs - day.dayStartMs);
-            const nowTop = ((nowMs - day.dayStartMs) / totalRange) * 100;
-            const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
-            return `
-              <section class="week-day-lane ${day.isToday ? "is-current" : ""}">
-                <div class="day-lane-track week-day-track">
-                  ${renderDayHourGuides()}
-                  ${
-                    showNowLine
-                      ? `
-                    <div class="week-now-line" style="top:${nowTop}%">
-                      <span class="week-now-dot" aria-hidden="true"></span>
-                    </div>
-                  `
-                      : ""
-                  }
-                  ${entries || '<span class="day-lane-empty">なし</span>'}
-                </div>
-              </section>
-            `;
-          })
-          .join("")}
+      </div>
+      <div class="week-board-scroll-content">
+        <div class="week-board-head" style="grid-template-columns:${gridColumns}">
+          ${model.days
+            .map(
+              (day) => `
+            <button
+              type="button"
+              class="week-board-day ${day.isToday ? "is-current" : ""}"
+              data-week-day-key="${deps.escapeHtml(day.dayKey)}"
+              data-week-open-details="${deps.escapeHtml(day.dayKey)}"
+            >
+              <small>${day.weekdayLabel}</small>
+              <strong>${day.dayNumber}</strong>
+              <em>${day.monthDayLabel}</em>
+            </button>
+          `
+            )
+            .join("")}
+        </div>
+        <div class="week-board-body" style="grid-template-columns:${gridColumns}">
+          ${model.days
+            .map((day) => {
+              const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem, deps);
+              const totalRange = Math.max(1, day.dayEndMs - day.dayStartMs);
+              const nowTop = ((nowMs - day.dayStartMs) / totalRange) * 100;
+              const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
+              return `
+                <section class="week-day-lane ${day.isToday ? "is-current" : ""}">
+                  <div class="day-lane-track week-day-track">
+                    ${renderDayHourGuides()}
+                    ${
+                      showNowLine
+                        ? `
+                      <div class="week-now-line" style="top:${nowTop}%">
+                        <span class="week-now-dot" aria-hidden="true"></span>
+                      </div>
+                    `
+                        : ""
+                    }
+                    ${entries || '<span class="day-lane-empty">なし</span>'}
+                  </div>
+                </section>
+              `;
+            })
+            .join("")}
+        </div>
       </div>
     </div>
   `;
