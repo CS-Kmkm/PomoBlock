@@ -1,3 +1,6 @@
+// Legacy reference implementation during the Rust backend migration.
+// Production block operations behavior is sourced from `src-tauri/`.
+
 import type { Block } from "../domain/models.js";
 
 type StorageRepositoryPort = {

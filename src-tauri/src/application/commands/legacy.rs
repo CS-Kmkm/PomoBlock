@@ -6103,6 +6103,111 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn property_8_generated_blocks_do_not_overlap_existing_events() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        {
+            let mut runtime = lock_runtime(&state).expect("runtime lock");
+            runtime.synced_events_by_account.insert(
+                DEFAULT_ACCOUNT_ID.to_string(),
+                vec![GoogleCalendarEvent {
+                    id: Some("evt-busy".to_string()),
+                    summary: Some("Busy".to_string()),
+                    description: None,
+                    status: Some("confirmed".to_string()),
+                    updated: None,
+                    etag: None,
+                    start: CalendarEventDateTime {
+                        date_time: "2026-02-16T10:00:00Z".to_string(),
+                        time_zone: None,
+                    },
+                    end: CalendarEventDateTime {
+                        date_time: "2026-02-16T11:00:00Z".to_string(),
+                        time_zone: None,
+                    },
+                    extended_properties: None,
+                }],
+            );
+        }
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+        let busy = Interval {
+            start: DateTime::parse_from_rfc3339("2026-02-16T10:00:00Z")
+                .expect("busy start")
+                .with_timezone(&Utc),
+            end: DateTime::parse_from_rfc3339("2026-02-16T11:00:00Z")
+                .expect("busy end")
+                .with_timezone(&Utc),
+        };
+
+        assert!(!generated.is_empty(), "expected blocks outside busy window");
+        assert!(generated.iter().all(|block| {
+            !intervals_overlap(
+                &Interval {
+                    start: block.start_at,
+                    end: block.end_at,
+                },
+                &busy,
+            )
+        }));
+    }
+
+    #[tokio::test]
+    async fn property_9_generated_blocks_stay_within_work_hours() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        assert!(!generated.is_empty(), "expected default workday blocks");
+        assert!(generated.iter().all(|block| {
+            let start = block.start_at.time();
+            let end = block.end_at.time();
+            start >= NaiveTime::from_hms_opt(9, 0, 0).expect("9am")
+                && end <= NaiveTime::from_hms_opt(18, 0, 0).expect("6pm")
+        }));
+    }
+
+    #[tokio::test]
+    async fn property_11_generation_is_prevented_for_overlapping_time_bands() {
+        let workspace = TempWorkspace::new();
+        let state = workspace.app_state();
+        {
+            let mut runtime = lock_runtime(&state).expect("runtime lock");
+            runtime.synced_events_by_account.insert(
+                DEFAULT_ACCOUNT_ID.to_string(),
+                vec![GoogleCalendarEvent {
+                    id: Some("evt-full-day".to_string()),
+                    summary: Some("Occupied".to_string()),
+                    description: None,
+                    status: Some("confirmed".to_string()),
+                    updated: None,
+                    etag: None,
+                    start: CalendarEventDateTime {
+                        date_time: "2026-02-16T09:00:00Z".to_string(),
+                        time_zone: None,
+                    },
+                    end: CalendarEventDateTime {
+                        date_time: "2026-02-16T18:00:00Z".to_string(),
+                        time_zone: None,
+                    },
+                    extended_properties: None,
+                }],
+            );
+        }
+
+        let generated = generate_blocks_impl(&state, "2026-02-16".to_string(), None)
+            .await
+            .expect("generate blocks");
+
+        assert!(generated.is_empty(), "full-day overlap should block generation");
+    }
+
     #[test]
     fn list_synced_events_filters_by_window_and_ignores_cancelled_events() {
         let workspace = TempWorkspace::new();

@@ -1,3 +1,6 @@
+// Legacy reference implementation during the Rust backend migration.
+// Production block planning behavior is sourced from `src-tauri/`.
+
 import { BlockGenerator } from "../domain/blockGenerator.js";
 import type { Block, Policy } from "../domain/models.js";
 

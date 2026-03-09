@@ -1,3 +1,6 @@
+// Legacy reference implementation during the Rust backend migration.
+// Production block generation behavior is sourced from `src-tauri/`.
+
 import { createBlock, createPolicy } from "./models.js";
 import type { Block, Policy } from "./models.js";
 import { filterSlots, workWindowForDate } from "./policy.js";
