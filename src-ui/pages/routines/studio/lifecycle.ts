@@ -1,4 +1,4 @@
-import type { Module, Recipe, RoutineStudioEntry, RoutineStudioState } from "../types.js";
+import type { Module, Recipe, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
 
 type NormalizeStudioStateParams = {
   studio: RoutineStudioState;

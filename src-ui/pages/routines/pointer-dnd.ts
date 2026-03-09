@@ -1,4 +1,4 @@
-import type { RoutineStudioDragKind, RoutineStudioEntry, UiState } from "../types.js";
+import type { RoutineStudioDragKind, RoutineStudioEntry, UiState } from "../../types.js";
 
 type DragPayload = { kind: RoutineStudioDragKind; id: string };
 

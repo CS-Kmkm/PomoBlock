@@ -1,4 +1,4 @@
-import type { JsonObject, PageRenderDeps } from "../types.js";
+import type { JsonObject, PageRenderDeps } from "../../types.js";
 
 export function renderSettingsPage(deps: PageRenderDeps): void {
   const { uiState, appRoot, setStatus, settingsPages, settingsPageLabels } = deps;

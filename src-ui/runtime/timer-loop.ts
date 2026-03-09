@@ -8,7 +8,7 @@ export interface StartPollingLoopOptions {
   syncNowTimerDisplay: (stateInput: unknown) => void;
   syncNowTaskOrder: (tasksInput?: Task[]) => void;
   renderNowPage: () => void;
-  renderTodayPage: () => void;
+  refreshWeekPage: () => void;
   intervalMs?: number;
 }
 
@@ -19,7 +19,7 @@ export interface StartCountdownLoopOptions {
   getDisplayRemainingSeconds: () => number;
   setDisplayRemainingSeconds: (seconds: number) => void;
   renderNowPage: () => void;
-  refreshTodayStatusTimerDisplay: () => void;
+  refreshWeekStatusTimerDisplay: () => void;
   intervalMs?: number;
 }
 
@@ -38,13 +38,13 @@ export function startPollingLoop(options: StartPollingLoopOptions): ReturnType<t
     syncNowTimerDisplay,
     syncNowTaskOrder,
     renderNowPage,
-    renderTodayPage,
+    refreshWeekPage,
     intervalMs = 5000,
   } = options;
 
   return setInterval(async () => {
     const route = getRoute();
-    if (route !== "now" && route !== "today") {
+    if (route !== "now" && route !== "week") {
       return;
     }
     try {
@@ -65,7 +65,7 @@ export function startPollingLoop(options: StartPollingLoopOptions): ReturnType<t
       if (route === "now") {
         renderNowPage();
       } else {
-        renderTodayPage();
+        refreshWeekPage();
       }
     } catch {
       // Errors are handled by caller-side invoke wrappers.
@@ -81,13 +81,13 @@ export function startCountdownLoop(options: StartCountdownLoopOptions): ReturnTy
     getDisplayRemainingSeconds,
     setDisplayRemainingSeconds,
     renderNowPage,
-    refreshTodayStatusTimerDisplay,
+    refreshWeekStatusTimerDisplay,
     intervalMs = 1000,
   } = options;
 
   return setInterval(() => {
     const route = getRoute();
-    if (route !== "now" && route !== "today") {
+    if (route !== "now" && route !== "week") {
       return;
     }
     const state = normalizePomodoroState(getPomodoroState() || {});
@@ -102,7 +102,7 @@ export function startCountdownLoop(options: StartCountdownLoopOptions): ReturnTy
     if (route === "now") {
       renderNowPage();
     } else {
-      refreshTodayStatusTimerDisplay();
+      refreshWeekStatusTimerDisplay();
     }
   }, intervalMs);
 }

@@ -1,9 +1,9 @@
-import type { RoutineStudioEntry, RoutineStudioModuleEditor, RoutineStudioState } from "../types.js";
+import type { RoutineStudioEntry, RoutineStudioModuleEditor, RoutineStudioState } from "../../types.js";
 import {
   nextRoutineStudioEntryId,
   toPositiveInt,
   type RoutineStudioModuleView,
-} from "./routines-model.js";
+} from "./model.js";
 
 export function normalizeStudioModule(module: unknown, index: number): RoutineStudioModuleView {
   const source = (module ?? {}) as Record<string, unknown>;

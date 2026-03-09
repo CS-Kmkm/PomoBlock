@@ -1,4 +1,4 @@
-import type { Module } from "../types.js";
+import type { Module } from "../../../types.js";
 
 type BindRoutineStudioAsyncEventsParams = {
   appRoot: HTMLElement;

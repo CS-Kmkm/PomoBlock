@@ -1,5 +1,5 @@
-import type { RoutineStudioState } from "../types.js";
-import type { RoutineStudioModuleView } from "./routines-model.js";
+import type { RoutineStudioState } from "../../../types.js";
+import type { RoutineStudioModuleView } from "../model.js";
 
 type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;

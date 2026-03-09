@@ -1,8 +1,8 @@
 import type { PageRenderDeps } from "../types.js";
 
 export interface RuntimePageRenderers {
-  renderTodayPage: (deps: PageRenderDeps) => void;
-  renderDetailsPage: (deps: PageRenderDeps) => void;
+  renderWeekPage: (deps: PageRenderDeps) => void;
+  renderWeekDetailsPage: (deps: PageRenderDeps) => void;
   renderNowPage: (deps: PageRenderDeps) => void;
   renderRoutinesPage: (deps: PageRenderDeps) => void;
   renderInsightsPage: (deps: PageRenderDeps) => void;
@@ -20,8 +20,8 @@ export function createPageRenderDepsFactory(options: CreatePageRenderDepsFactory
   const build = (): PageRenderDeps => ({
     ...baseDeps,
     renderers: {
-      renderDashboard: () => pageRenderers.renderTodayPage(build()),
-      renderTodayDetailsPage: () => pageRenderers.renderDetailsPage(build()),
+      renderWeekPage: () => pageRenderers.renderWeekPage(build()),
+      renderWeekDetailsPage: () => pageRenderers.renderWeekDetailsPage(build()),
       renderPomodoro: () => pageRenderers.renderNowPage(build()),
       renderRoutines: () => pageRenderers.renderRoutinesPage(build()),
       renderReflection: () => pageRenderers.renderInsightsPage(build()),

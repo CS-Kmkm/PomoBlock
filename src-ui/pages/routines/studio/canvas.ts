@@ -1,4 +1,4 @@
-import type { Module, Recipe, RoutineStudioDragKind, RoutineStudioEntry, RoutineStudioState } from "../types.js";
+import type { Module, Recipe, RoutineStudioDragKind, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
 
 type RecipeMatcher = (recipe: unknown) => boolean;
 

@@ -1,4 +1,4 @@
-import type { Module, RoutineStudioState } from "../types.js";
+import type { Module, RoutineStudioState } from "../../../types.js";
 
 export function openStudioModuleEditor(
   studio: RoutineStudioState,

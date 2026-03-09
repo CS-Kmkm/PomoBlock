@@ -1,4 +1,4 @@
-import type { PageRenderDeps } from "../types.js";
+import type { PageRenderDeps } from "../../types.js";
 
 export function renderNowPage(deps: PageRenderDeps): void {
   const { uiState, appRoot, services } = deps;
@@ -6,8 +6,6 @@ export function renderNowPage(deps: PageRenderDeps): void {
     ...deps.commonHelpers,
     ...deps.calendarHelpers,
     ...deps.nowHelpers,
-    ...deps.routineHelpers,
-    ...deps.taskHelpers,
   };
   const state = helpers.normalizePomodoroState(uiState.pomodoro || {});
   if (uiState.nowUi.lastSyncEpochMs === 0) {
@@ -138,6 +136,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
                   .join("")
           }
         </div>
+        ${helpers.renderNowNotesPanel()}
       </aside>
     </section>
     <section class="now-bottom-bar">
