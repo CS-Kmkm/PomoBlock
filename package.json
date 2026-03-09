@@ -5,8 +5,8 @@
   "type": "module",
   "description": "PomoBlock core implementation from blocksched tasks",
   "scripts": {
-    "init": "npm run build:node && node dist/src/cli.js init",
-    "status": "npm run build:node && node dist/src/cli.js status",
+    "init": "cargo run --manifest-path src-tauri/Cargo.toml --bin pomoblock-cli -- init",
+    "status": "cargo run --manifest-path src-tauri/Cargo.toml --bin pomoblock-cli -- status",
     "doctor": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "rust:check": "powershell -ExecutionPolicy Bypass -File scripts/rust-check.ps1",
     "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",

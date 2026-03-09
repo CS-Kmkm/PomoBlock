@@ -29,3 +29,5 @@ function run(): void {
 }
 
 run();
+// Legacy reference implementation during the Rust backend migration.
+// `npm run init` and `npm run status` are served by the Rust CLI.

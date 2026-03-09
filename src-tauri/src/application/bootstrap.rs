@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct BootstrapResult {
     pub workspace_root: PathBuf,
+    pub config_dir: PathBuf,
+    pub state_dir: PathBuf,
+    pub logs_dir: PathBuf,
     pub database_path: PathBuf,
 }
 
@@ -26,6 +29,9 @@ pub fn bootstrap_workspace(workspace_root: &Path) -> Result<BootstrapResult, Inf
 
     Ok(BootstrapResult {
         workspace_root: workspace_root.to_path_buf(),
+        config_dir,
+        state_dir,
+        logs_dir,
         database_path,
     })
 }
