@@ -9,7 +9,7 @@ Rust バックエンドで認証・同期・ブロック管理を扱い、TypeSc
 - 新しい backend 機能は Rust にのみ追加します。
 - `src/` 配下の Node/TypeScript backend 実装は、移行完了まで reference / legacy 扱いです。
 - `src/` 配下の backend ロジックは保守・差分確認・移行補助を目的とし、新規投資先にはしません。
-- `npm run init` / `npm run status` は当面維持しますが、実装の SoT は段階的に Rust 側へ移します。
+- `npm run init` / `npm run status` は Rust CLI 実装を呼び出します。
 
 ## 前提環境
 
