@@ -1,5 +1,5 @@
 use crate::application::bootstrap::bootstrap_workspace;
-use crate::application::calendar_window::{parse_datetime_input, resolve_sync_window};
+use crate::application::calendar_window::parse_datetime_input;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
@@ -52,7 +52,7 @@ fn next_id(prefix: &str) -> String {
     format!("{prefix}-{}-{sequence}", Utc::now().timestamp_micros())
 }
 
-fn normalize_account_id(raw: Option<String>) -> String {
+pub(crate) fn normalize_account_id(raw: Option<String>) -> String {
     raw.as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -94,6 +94,51 @@ impl AppState {
 
     pub fn database_path(&self) -> &Path {
         &self.database_path
+    }
+
+    pub(crate) fn calendar_cache(&self) -> Arc<InMemoryCalendarCacheRepository> {
+        Arc::clone(&self.calendar_cache)
+    }
+
+    pub(crate) fn replace_synced_events(
+        &self,
+        account_id: &str,
+        latest_events: Vec<GoogleCalendarEvent>,
+        calendar_id: &str,
+    ) -> Result<Vec<GoogleCalendarEvent>, InfraError> {
+        let mut runtime = lock_runtime(self)?;
+        let previous = runtime
+            .synced_events_by_account
+            .get(account_id)
+            .cloned()
+            .unwrap_or_default();
+        runtime
+            .synced_events_by_account
+            .insert(account_id.to_string(), latest_events);
+        runtime
+            .blocks_calendar_ids
+            .insert(account_id.to_string(), calendar_id.to_string());
+        Ok(previous)
+    }
+
+    pub(crate) fn synced_events_snapshot(
+        &self,
+        account_id: Option<&str>,
+    ) -> Result<Vec<(String, Vec<GoogleCalendarEvent>)>, InfraError> {
+        let runtime = lock_runtime(self)?;
+        if let Some(account_id) = account_id {
+            return Ok(runtime
+                .synced_events_by_account
+                .get(account_id)
+                .cloned()
+                .map(|events| vec![(account_id.to_string(), events)])
+                .unwrap_or_default());
+        }
+        Ok(runtime
+            .synced_events_by_account
+            .iter()
+            .map(|(account_id, events)| (account_id.clone(), events.clone()))
+            .collect())
     }
 
     pub fn command_error(&self, command: &str, error: &InfraError) -> String {
@@ -212,26 +257,6 @@ pub struct AuthenticateGoogleResponse {
     pub expires_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SyncCalendarResponse {
-    pub account_id: String,
-    pub added: usize,
-    pub updated: usize,
-    pub deleted: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next_sync_token: Option<String>,
-    pub calendar_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub struct SyncedEventSlotResponse {
-    pub account_id: String,
-    pub id: String,
-    pub title: String,
-    pub start_at: String,
-    pub end_at: String,
-}
-
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PomodoroStateResponse {
     pub current_block_id: Option<String>,
@@ -294,9 +319,9 @@ struct PomodoroSessionPlan {
 }
 
 #[derive(Debug, Clone)]
-struct Interval {
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+pub(crate) struct Interval {
+    pub(crate) start: DateTime<Utc>,
+    pub(crate) end: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -711,135 +736,6 @@ fn open_system_browser(_url: &str) -> Result<(), InfraError> {
     Err(InfraError::OAuth(
         "automatic browser launch is not supported on this platform".to_string(),
     ))
-}
-
-pub async fn sync_calendar_impl(
-    state: &AppState,
-    account_id: Option<String>,
-    time_min: Option<String>,
-    time_max: Option<String>,
-) -> Result<SyncCalendarResponse, InfraError> {
-    let started_at = Instant::now();
-    let account_id = normalize_account_id(account_id);
-    let policy = load_runtime_policy(state.config_dir());
-    let access_token = required_access_token(Some(account_id.clone())).await?;
-    let (window_start, window_end) = resolve_sync_window(time_min, time_max)?;
-    let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-    let calendar_id = ensure_blocks_calendar_id(
-        state.config_dir(),
-        &access_token,
-        Arc::clone(&calendar_client),
-        &account_id,
-    )
-    .await?;
-
-    let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-    let sync_service = CalendarSyncService::new(
-        Arc::clone(&calendar_client),
-        sync_state_repo,
-        Arc::clone(&state.calendar_cache),
-    );
-    let sync_result = sync_service
-        .sync(&access_token, &calendar_id, window_start, window_end)
-        .await?;
-    if !sync_result.suppressed_instances.is_empty() {
-        save_suppressions(
-            state.database_path(),
-            &sync_result.suppressed_instances,
-            Some("calendar_cancelled"),
-        )?;
-    }
-    let latest_events = sync_service
-        .fetch_events(&access_token, &calendar_id, window_start, window_end)
-        .await?;
-
-    let previous_account_events = {
-        let mut runtime = lock_runtime(state)?;
-        let previous = runtime
-            .synced_events_by_account
-            .get(&account_id)
-            .cloned()
-            .unwrap_or_default();
-        runtime
-            .synced_events_by_account
-            .insert(account_id.clone(), latest_events);
-        runtime
-            .blocks_calendar_ids
-            .insert(account_id.clone(), calendar_id.clone());
-        previous
-    };
-    let mut changed_intervals = Vec::new();
-    for event in sync_result.added.iter().chain(sync_result.updated.iter()) {
-        if let Some(interval) = event_to_interval(event)
-            .and_then(|interval| clip_interval(interval, window_start, window_end))
-        {
-            changed_intervals.push(interval);
-        }
-    }
-    if !sync_result.deleted.is_empty() {
-        let deleted_ids = sync_result
-            .deleted
-            .iter()
-            .map(String::as_str)
-            .collect::<HashSet<_>>();
-        for event in &previous_account_events {
-            let Some(event_id) = event
-                .id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            else {
-                continue;
-            };
-            if !deleted_ids.contains(event_id) {
-                continue;
-            }
-            if let Some(interval) = event_to_interval(event)
-                .and_then(|interval| clip_interval(interval, window_start, window_end))
-            {
-                changed_intervals.push(interval);
-            }
-        }
-    }
-    let changed_intervals = merge_intervals(changed_intervals);
-    let relocated_count = auto_relocate_after_sync(
-        state,
-        account_id.as_str(),
-        &changed_intervals,
-        policy.max_relocations_per_sync,
-    )
-    .await?;
-    if relocated_count > 0 {
-        let refreshed_events = sync_service
-            .fetch_events(&access_token, &calendar_id, window_start, window_end)
-            .await?;
-        let mut runtime = lock_runtime(state)?;
-        runtime
-            .synced_events_by_account
-            .insert(account_id.clone(), refreshed_events);
-    }
-
-    state.log_info(
-        "sync_calendar",
-        &format!(
-            "synchronized account_id={account_id} calendar_id={calendar_id} added={} updated={} deleted={} suppressed={} relocated={} elapsed_ms={}",
-            sync_result.added.len(),
-            sync_result.updated.len(),
-            sync_result.deleted.len(),
-            sync_result.suppressed_instances.len(),
-            relocated_count,
-            started_at.elapsed().as_millis()
-        ),
-    );
-
-    Ok(SyncCalendarResponse {
-        account_id,
-        added: sync_result.added.len(),
-        updated: sync_result.updated.len(),
-        deleted: sync_result.deleted.len(),
-        next_sync_token: sync_result.next_sync_token,
-        calendar_id,
-    })
 }
 
 pub async fn generate_blocks_impl(
@@ -1586,78 +1482,6 @@ pub fn list_blocks_impl(state: &AppState, date: Option<String>) -> Result<Vec<Bl
         .collect::<Vec<_>>();
     blocks.sort_by(|left, right| left.start_at.cmp(&right.start_at));
     Ok(blocks)
-}
-
-pub fn list_synced_events_impl(
-    state: &AppState,
-    account_id: Option<String>,
-    time_min: Option<String>,
-    time_max: Option<String>,
-) -> Result<Vec<SyncedEventSlotResponse>, InfraError> {
-    let (window_start, window_end) = resolve_sync_window(time_min, time_max)?;
-    let requested_account = account_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| normalize_account_id(Some(value.to_string())));
-    let runtime = lock_runtime(state)?;
-    let mut events = Vec::new();
-    let mut append_events = |current_account_id: &str, account_events: &[GoogleCalendarEvent]| {
-        for event in account_events {
-            let is_cancelled = event
-                .status
-                .as_deref()
-                .map(|status| status.eq_ignore_ascii_case("cancelled"))
-                .unwrap_or(false);
-            if is_cancelled {
-                continue;
-            }
-
-            let Some(interval) = event_to_interval(event) else {
-                continue;
-            };
-            if interval.end <= window_start || interval.start >= window_end {
-                continue;
-            }
-
-            let event_id = event
-                .id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("evt-{}", interval.start.timestamp_micros()));
-            let title = event
-                .summary
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| "Busy".to_string());
-            events.push((
-                interval.start,
-                SyncedEventSlotResponse {
-                    account_id: current_account_id.to_string(),
-                    id: event_id,
-                    title,
-                    start_at: interval.start.to_rfc3339(),
-                    end_at: interval.end.to_rfc3339(),
-                },
-            ));
-        }
-    };
-    if let Some(account_id) = requested_account {
-        if let Some(account_events) = runtime.synced_events_by_account.get(&account_id) {
-            append_events(&account_id, account_events);
-        }
-    } else {
-        for (account_id, account_events) in &runtime.synced_events_by_account {
-            append_events(account_id, account_events);
-        }
-    }
-
-    events.sort_by(|left, right| left.0.cmp(&right.0));
-    Ok(events.into_iter().map(|(_, event)| event).collect())
 }
 
 pub fn create_task_impl(
@@ -2880,7 +2704,7 @@ fn oauth_manager(
     OAuthManager::new(config, credential_store, oauth_client)
 }
 
-async fn required_access_token(account_id: Option<String>) -> Result<String, InfraError> {
+pub(crate) async fn required_access_token(account_id: Option<String>) -> Result<String, InfraError> {
     let account_id = normalize_account_id(account_id);
     let oauth_config = load_oauth_config_from_env()?;
     let manager = oauth_manager(oauth_config, &account_id);
@@ -2914,7 +2738,7 @@ async fn try_access_token(account_id: Option<String>) -> Result<Option<String>, 
     }
 }
 
-async fn ensure_blocks_calendar_id(
+pub(crate) async fn ensure_blocks_calendar_id(
     config_dir: &Path,
     access_token: &str,
     calendar_client: Arc<ReqwestGoogleCalendarClient>,
@@ -3177,7 +3001,7 @@ fn clear_user_deleted_suppressions_for_date(
     Ok(targets.len())
 }
 
-fn save_suppressions(
+pub(crate) fn save_suppressions(
     database_path: &Path,
     instances: &[String],
     reason: Option<&str>,
@@ -3234,7 +3058,7 @@ fn load_suppressions(database_path: &Path) -> Result<HashSet<String>, InfraError
     Ok(suppressions)
 }
 
-async fn auto_relocate_after_sync(
+pub(crate) async fn auto_relocate_after_sync(
     state: &AppState,
     account_id: &str,
     changed_intervals: &[Interval],
@@ -4723,7 +4547,7 @@ fn parse_rfc3339_input(value: &str, field_name: &str) -> Result<DateTime<Utc>, I
         })
 }
 
-fn event_to_interval(event: &GoogleCalendarEvent) -> Option<Interval> {
+pub(crate) fn event_to_interval(event: &GoogleCalendarEvent) -> Option<Interval> {
     let start = DateTime::parse_from_rfc3339(&event.start.date_time)
         .ok()?
         .with_timezone(&Utc);
@@ -4736,7 +4560,7 @@ fn event_to_interval(event: &GoogleCalendarEvent) -> Option<Interval> {
     Some(Interval { start, end })
 }
 
-fn clip_interval(
+pub(crate) fn clip_interval(
     interval: Interval,
     window_start: DateTime<Utc>,
     window_end: DateTime<Utc>,
@@ -4788,7 +4612,7 @@ fn free_slots(
     slots
 }
 
-fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
+pub(crate) fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
     if intervals.is_empty() {
         return intervals;
     }
@@ -6302,7 +6126,7 @@ mod tests {
             );
         }
 
-        let listed = list_synced_events_impl(
+        let listed = crate::application::commands::calendar::list_synced_events_impl(
             &state,
             None,
             Some("2026-02-16T00:00:00Z".to_string()),
