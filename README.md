@@ -7,8 +7,7 @@ Rust バックエンドで認証・同期・ブロック管理を扱い、TypeSc
 
 - 本番 backend の SoT は `src-tauri/` です。
 - 新しい backend 機能は Rust にのみ追加します。
-- `src/` 配下の Node/TypeScript backend 実装は、移行完了まで reference / legacy 扱いです。
-- `src/` 配下の backend ロジックは保守・差分確認・移行補助を目的とし、新規投資先にはしません。
+- Node/TypeScript backend の legacy 実装は退役済みです。
 - `npm run init` / `npm run status` は Rust CLI 実装を呼び出します。
 
 ## 前提環境
@@ -54,12 +53,6 @@ npm run status
 npm test
 ```
 
-残存する Node/TypeScript backend 回帰テストを実行する場合:
-
-```powershell
-npm run test:legacy
-```
-
 ### Rust 側チェック
 
 ```powershell
@@ -80,8 +73,7 @@ cargo tauri dev
 ### Backend 実装の扱い
 
 - UI は `src-ui/`、本番 backend は `src-tauri/` を編集対象にします。
-- `src/` は legacy backend / 参照実装として段階的に縮退させます。
-- backend 仕様の回帰確認は Rust テストへ集約していきます。
+- backend 仕様の回帰確認は Rust テストへ集約しています。
 
 ## 設定方法
 
@@ -123,8 +115,7 @@ npm run build:windows
 npm run build:windows:debug
 ```
 
-## Legacy Node Backend
+## Retired Node Backend
 
-- `src/` 配下の backend モジュールは legacy / reference implementation です。
-- `npm run build` は UI ビルドのみを対象にし、Node backend のビルドは本番導線から外しています。
-- 残存する Node backend 検証が必要な場合のみ `npm run build:node` または `npm run test:legacy` を使います。
+- Node backend は退役済みで、backend 実装は `src-tauri/` に一本化されています。
+- `npm run build` と `npm run typecheck` は UI 対象のみです。
