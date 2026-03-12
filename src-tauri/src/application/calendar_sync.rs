@@ -1,3 +1,4 @@
+use crate::application::external_edit_service::{ExternalEditResult, ExternalEditService};
 use crate::infrastructure::calendar_cache::CalendarCacheRepository;
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::event_mapper::GoogleCalendarEvent;
@@ -238,78 +239,9 @@ where
         }
     }
 
-    fn apply_events(&self, events: Vec<GoogleCalendarEvent>) -> Result<AppliedSyncResult, InfraError> {
-        let mut added = Vec::new();
-        let mut updated = Vec::new();
-        let mut deleted = Vec::new();
-        let mut suppressed_instances = Vec::new();
-
-        for event in events {
-            let Some(event_id) = event
-                .id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-            else {
-                continue;
-            };
-
-            let is_cancelled = event
-                .status
-                .as_deref()
-                .map(|status| status.eq_ignore_ascii_case("cancelled"))
-                .unwrap_or(false);
-            let existing = self.cache_repository.get_by_id(&event_id)?;
-
-            if is_cancelled {
-                if let Some(instance) = extract_managed_instance(&event) {
-                    suppressed_instances.push(instance);
-                }
-                if existing.is_some() {
-                    self.cache_repository.remove(&event_id)?;
-                    deleted.push(event_id);
-                }
-                continue;
-            }
-
-            match existing {
-                None => {
-                    self.cache_repository.upsert(&event)?;
-                    added.push(event);
-                }
-                Some(cached) if cached != event => {
-                    self.cache_repository.upsert(&event)?;
-                    updated.push(event);
-                }
-                Some(_) => {}
-            }
-        }
-
-        Ok(AppliedSyncResult {
-            added,
-            updated,
-            deleted,
-            suppressed_instances,
-        })
+    fn apply_events(&self, events: Vec<GoogleCalendarEvent>) -> Result<ExternalEditResult, InfraError> {
+        ExternalEditService::new(Arc::clone(&self.cache_repository)).apply_events(events)
     }
-}
-
-struct AppliedSyncResult {
-    added: Vec<GoogleCalendarEvent>,
-    updated: Vec<GoogleCalendarEvent>,
-    deleted: Vec<String>,
-    suppressed_instances: Vec<String>,
-}
-
-fn extract_managed_instance(event: &GoogleCalendarEvent) -> Option<String> {
-    event
-        .extended_properties
-        .as_ref()
-        .and_then(|properties| properties.private.get("bs_instance"))
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
