@@ -1,4 +1,5 @@
 use crate::application::bootstrap::bootstrap_workspace;
+use crate::application::calendar_window::{parse_datetime_input, resolve_sync_window};
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
@@ -3002,44 +3003,6 @@ fn parse_scope_list(raw: &str) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .collect()
-}
-
-fn resolve_sync_window(
-    time_min: Option<String>,
-    time_max: Option<String>,
-) -> Result<(DateTime<Utc>, DateTime<Utc>), InfraError> {
-    let default_start = {
-        let today = Utc::now().date_naive();
-        Utc.from_utc_datetime(&today.and_hms_opt(0, 0, 0).expect("valid midnight"))
-    };
-    let start = match time_min {
-        Some(raw) => parse_datetime_input(&raw, "time_min")?,
-        None => default_start,
-    };
-    let end = match time_max {
-        Some(raw) => parse_datetime_input(&raw, "time_max")?,
-        None => start + Duration::days(1),
-    };
-    if end <= start {
-        return Err(InfraError::InvalidConfig(
-            "time_max must be greater than time_min".to_string(),
-        ));
-    }
-    Ok((start, end))
-}
-
-fn parse_datetime_input(value: &str, field_name: &str) -> Result<DateTime<Utc>, InfraError> {
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
-        return Ok(parsed.with_timezone(&Utc));
-    }
-    if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        return Ok(Utc.from_utc_datetime(
-            &date.and_hms_opt(0, 0, 0).expect("valid midnight"),
-        ));
-    }
-    Err(InfraError::InvalidConfig(format!(
-        "{field_name} must be RFC3339 or YYYY-MM-DD"
-    )))
 }
 
 fn parse_pomodoro_phase(value: &str) -> Result<PomodoroPhase, InfraError> {
