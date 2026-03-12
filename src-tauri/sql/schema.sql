@@ -47,3 +47,10 @@ CREATE TABLE IF NOT EXISTS suppressions (
     suppressed_at TEXT NOT NULL,
     reason TEXT
 );
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);

@@ -4,6 +4,7 @@ pub mod credential_store;
 pub mod error;
 pub mod event_mapper;
 pub mod google_calendar_client;
+pub mod local_repository;
 pub mod oauth_client;
 pub mod storage;
 pub mod sync_state_repository;

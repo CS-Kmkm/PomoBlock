@@ -1870,6 +1870,14 @@ pub fn split_task_impl(state: &AppState, task_id: String, parts: u32) -> Result<
     }
 
     drop(runtime);
+    append_audit_log(
+        state.database_path(),
+        "task_split",
+        &serde_json::json!({
+            "taskId": task_id,
+            "childTaskIds": children.iter().map(|child| child.id.clone()).collect::<Vec<_>>(),
+        }),
+    )?;
     state.log_info(
         "split_task",
         &format!("split task_id={task_id} into {} children", children.len()),
@@ -1950,6 +1958,15 @@ pub fn carry_over_task_impl(
     };
 
     drop(runtime);
+    append_audit_log(
+        state.database_path(),
+        "task_carried_over",
+        &serde_json::json!({
+            "taskId": response.task_id,
+            "fromBlockId": response.from_block_id,
+            "toBlockId": response.to_block_id,
+        }),
+    )?;
     state.log_info(
         "carry_over_task",
         &format!(
@@ -2499,6 +2516,16 @@ pub fn start_pomodoro_impl(
     runtime.pomodoro.paused_phase = None;
     start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Focus, now)?;
 
+    if let Some(task_id) = runtime.pomodoro.current_task_id.clone() {
+        append_audit_log(
+            state.database_path(),
+            "task_selected",
+            &serde_json::json!({
+                "taskId": task_id,
+                "blockId": block_id,
+            }),
+        )?;
+    }
     state.log_info("start_pomodoro", &format!("started block_id={}", block_id));
     Ok(to_pomodoro_state_response(&runtime.pomodoro))
 }
@@ -2857,6 +2884,18 @@ pub(crate) fn seed_synced_events_for_tests(
     Ok(())
 }
 
+#[cfg(test)]
+pub(crate) fn assigned_task_for_block_for_tests(
+    state: &AppState,
+    block_id: &str,
+) -> Result<Option<String>, InfraError> {
+    let runtime = lock_runtime(state)?;
+    Ok(runtime
+        .task_assignments_by_block
+        .get(block_id)
+        .cloned())
+}
+
 fn to_pomodoro_state_response(state: &PomodoroRuntimeState) -> PomodoroStateResponse {
     PomodoroStateResponse {
         current_block_id: state.current_block_id.clone(),
@@ -3119,6 +3158,19 @@ fn save_pomodoro_log(database_path: &Path, log: &PomodoroLog) -> Result<(), Infr
             pomodoro_phase_as_str(&log.phase),
             log.interruption_reason,
         ],
+    )?;
+    Ok(())
+}
+
+fn append_audit_log(
+    database_path: &Path,
+    event_type: &str,
+    payload: &serde_json::Value,
+) -> Result<(), InfraError> {
+    let connection = Connection::open(database_path)?;
+    connection.execute(
+        "INSERT INTO audit_logs (event_type, payload_json, created_at) VALUES (?1, ?2, ?3)",
+        params![event_type, serde_json::to_string(payload)?, Utc::now().to_rfc3339()],
     )?;
     Ok(())
 }
