@@ -2844,6 +2844,19 @@ fn lock_runtime(state: &AppState) -> Result<MutexGuard<'_, RuntimeState>, InfraE
         .map_err(|error| InfraError::InvalidConfig(format!("runtime lock poisoned: {error}")))
 }
 
+#[cfg(test)]
+pub(crate) fn seed_synced_events_for_tests(
+    state: &AppState,
+    account_id: &str,
+    events: Vec<GoogleCalendarEvent>,
+) -> Result<(), InfraError> {
+    let mut runtime = lock_runtime(state)?;
+    runtime
+        .synced_events_by_account
+        .insert(account_id.trim().to_string(), events);
+    Ok(())
+}
+
 fn to_pomodoro_state_response(state: &PomodoroRuntimeState) -> PomodoroStateResponse {
     PomodoroStateResponse {
         current_block_id: state.current_block_id.clone(),
