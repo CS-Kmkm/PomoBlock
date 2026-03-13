@@ -3,7 +3,7 @@ use crate::application::calendar_window::parse_datetime_input;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
-use crate::application::pomodoro_service::{PomodoroRuntimeState, PomodoroService};
+use crate::application::pomodoro_service::PomodoroRuntimeState;
 use crate::application::time_slots::{
     intervals_overlap, Interval,
 };
@@ -718,87 +718,6 @@ pub fn carry_over_task_impl(
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
-pub async fn generate_today_blocks_impl(
-    state: &AppState,
-    account_id: Option<String>,
-) -> Result<Vec<Block>, InfraError> {
-    crate::application::block_generation::generate_today_blocks(state, account_id).await
-}
-
-pub fn start_block_timer_impl(
-    state: &AppState,
-    block_id: String,
-    task_id: Option<String>,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).start_block_timer(block_id, task_id)
-}
-
-pub fn next_step_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).next_step()
-}
-
-pub fn pause_timer_impl(
-    state: &AppState,
-    reason: Option<String>,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).pause_timer(reason)
-}
-
-pub fn resume_timer_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).resume_timer()
-}
-
-pub fn interrupt_timer_impl(
-    state: &AppState,
-    reason: Option<String>,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).interrupt_timer(reason)
-}
-
-pub fn start_pomodoro_impl(
-    state: &AppState,
-    block_id: String,
-    task_id: Option<String>,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).start_pomodoro(block_id, task_id)
-}
-
-pub fn advance_pomodoro_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).advance_pomodoro()
-}
-
-pub fn pause_pomodoro_impl(
-    state: &AppState,
-    reason: Option<String>,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).pause_pomodoro(reason)
-}
-
-pub fn get_pomodoro_state_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).get_state()
-}
-
-pub fn resume_pomodoro_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).resume_pomodoro()
-}
-
-pub fn complete_pomodoro_impl(
-    state: &AppState,
-) -> Result<crate::application::pomodoro_service::PomodoroStateResponse, InfraError> {
-    PomodoroService::new(state).complete_pomodoro()
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn get_reflection_summary_impl(
     state: &AppState,
     start: Option<String>,
@@ -1451,6 +1370,8 @@ mod tests {
     use crate::application::commands::{
         create_module_impl, create_recipe_impl, delete_module_impl, list_modules_impl,
         list_recipes_impl, update_module_impl, update_recipe_impl,
+        advance_pomodoro_impl, complete_pomodoro_impl, get_pomodoro_state_impl,
+        pause_pomodoro_impl, resume_pomodoro_impl, start_pomodoro_impl,
     };
     use crate::application::studio_template_application;
     use crate::domain::models::{AutoDriveMode, BlockContents, Firmness};
