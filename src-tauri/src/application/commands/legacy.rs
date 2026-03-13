@@ -611,112 +611,6 @@ fn open_system_browser(_url: &str) -> Result<(), InfraError> {
     ))
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn generate_blocks_impl(
-    state: &AppState,
-    date: String,
-    account_id: Option<String>,
-) -> Result<Vec<Block>, InfraError> {
-    crate::application::block_generation::generate_blocks(state, date, account_id).await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn generate_one_block_impl(
-    state: &AppState,
-    date: String,
-    account_id: Option<String>,
-) -> Result<Vec<Block>, InfraError> {
-    crate::application::block_generation::generate_one_block(state, date, account_id).await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn approve_blocks_impl(
-    state: &AppState,
-    block_ids: Vec<String>,
-) -> Result<Vec<Block>, InfraError> {
-    crate::application::block_operations::approve_blocks(state, block_ids).await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn delete_block_impl(state: &AppState, block_id: String) -> Result<bool, InfraError> {
-    crate::application::block_operations::delete_block(state, block_id).await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn adjust_block_time_impl(
-    state: &AppState,
-    block_id: String,
-    start_at: String,
-    end_at: String,
-) -> Result<Block, InfraError> {
-    crate::application::block_operations::adjust_block_time(state, block_id, start_at, end_at)
-        .await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub async fn relocate_if_needed_impl(
-    state: &AppState,
-    block_id: String,
-    account_id: Option<String>,
-) -> Result<Option<Block>, InfraError> {
-    crate::application::block_operations::relocate_if_needed(state, block_id, account_id).await
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn list_blocks_impl(state: &AppState, date: Option<String>) -> Result<Vec<Block>, InfraError> {
-    crate::application::block_operations::list_blocks(state, date)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn create_task_impl(
-    state: &AppState,
-    title: String,
-    description: Option<String>,
-    estimated_pomodoros: Option<u32>,
-) -> Result<Task, InfraError> {
-    crate::application::task_service::TaskService::new(state)
-        .create_task(title, description, estimated_pomodoros)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn list_tasks_impl(state: &AppState) -> Result<Vec<Task>, InfraError> {
-    crate::application::task_service::TaskService::new(state).list_tasks()
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn update_task_impl(
-    state: &AppState,
-    task_id: String,
-    title: Option<String>,
-    description: Option<String>,
-    estimated_pomodoros: Option<u32>,
-    status: Option<String>,
-) -> Result<Task, InfraError> {
-    crate::application::task_service::TaskService::new(state)
-        .update_task(task_id, title, description, estimated_pomodoros, status)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn delete_task_impl(state: &AppState, task_id: String) -> Result<bool, InfraError> {
-    crate::application::task_service::TaskService::new(state).delete_task(task_id)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn split_task_impl(state: &AppState, task_id: String, parts: u32) -> Result<Vec<Task>, InfraError> {
-    crate::application::task_service::TaskService::new(state).split_task(task_id, parts)
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn carry_over_task_impl(
-    state: &AppState,
-    task_id: String,
-    from_block_id: String,
-    candidate_block_ids: Option<Vec<String>>,
-) -> Result<CarryOverTaskResponse, InfraError> {
-    crate::application::task_service::TaskService::new(state)
-        .carry_over_task(task_id, from_block_id, candidate_block_ids)
-}
-
 pub(crate) fn lock_runtime(state: &AppState) -> Result<MutexGuard<'_, RuntimeState>, InfraError> {
     state
         .runtime
@@ -1163,7 +1057,7 @@ pub(crate) async fn auto_relocate_after_sync(
         if relocated_count >= max_relocations_per_sync as usize {
             break;
         }
-        if relocate_if_needed_impl(
+        if crate::application::block_operations::relocate_if_needed(
             state,
             block_id,
             Some(account_id.to_string()),
@@ -1359,10 +1253,14 @@ async fn collect_created_event_id(
 mod tests {
     use super::*;
     use crate::application::commands::{
-        create_module_impl, create_recipe_impl, delete_module_impl, list_modules_impl,
-        get_reflection_summary_impl, list_recipes_impl, update_module_impl, update_recipe_impl,
-        advance_pomodoro_impl, complete_pomodoro_impl, get_pomodoro_state_impl,
-        pause_pomodoro_impl, resume_pomodoro_impl, start_pomodoro_impl,
+        adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl,
+        carry_over_task_impl, complete_pomodoro_impl, create_module_impl, create_recipe_impl,
+        create_task_impl, delete_block_impl, delete_module_impl, delete_task_impl,
+        generate_blocks_impl, generate_one_block_impl, get_pomodoro_state_impl,
+        get_reflection_summary_impl, list_blocks_impl, list_modules_impl, list_recipes_impl,
+        list_tasks_impl, pause_pomodoro_impl, relocate_if_needed_impl, resume_pomodoro_impl,
+        split_task_impl, start_pomodoro_impl, update_module_impl, update_recipe_impl,
+        update_task_impl,
     };
     use crate::application::studio_template_application;
     use crate::domain::models::{AutoDriveMode, BlockContents, Firmness};
