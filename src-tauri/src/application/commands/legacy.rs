@@ -22,7 +22,7 @@ use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
 use crate::infrastructure::oauth_client::ReqwestOAuthClient;
 use crate::infrastructure::storage::initialize_database;
 use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -267,27 +267,6 @@ pub struct PomodoroStateResponse {
     pub total_cycles: u32,
     pub completed_cycles: u32,
     pub current_cycle: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ReflectionLogItem {
-    pub id: String,
-    pub block_id: String,
-    pub task_id: Option<String>,
-    pub phase: String,
-    pub start_time: String,
-    pub end_time: Option<String>,
-    pub interruption_reason: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ReflectionSummaryResponse {
-    pub start: String,
-    pub end: String,
-    pub completed_count: u32,
-    pub interrupted_count: u32,
-    pub total_focus_minutes: i64,
-    pub logs: Vec<ReflectionLogItem>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1228,71 +1207,13 @@ fn reset_pomodoro_session(runtime: &mut PomodoroRuntimeState) {
     runtime.active_log = None;
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn get_reflection_summary_impl(
     state: &AppState,
     start: Option<String>,
     end: Option<String>,
-) -> Result<ReflectionSummaryResponse, InfraError> {
-    let default_start = Utc::now() - Duration::days(7);
-    let start = match start {
-        Some(raw) => parse_datetime_input(&raw, "start")?,
-        None => default_start,
-    };
-    let end = match end {
-        Some(raw) => parse_datetime_input(&raw, "end")?,
-        None => Utc::now(),
-    };
-    if end <= start {
-        return Err(InfraError::InvalidConfig(
-            "end must be greater than start".to_string(),
-        ));
-    }
-
-    let logs_in_range = load_pomodoro_logs(state.database_path(), start, end)?;
-
-    let completed_count = logs_in_range
-        .iter()
-        .filter(|log| log.phase == PomodoroPhase::Focus && log.interruption_reason.is_none())
-        .count() as u32;
-    let interrupted_count = logs_in_range
-        .iter()
-        .filter(|log| log.interruption_reason.is_some())
-        .count() as u32;
-
-    let total_focus_minutes = logs_in_range
-        .iter()
-        .filter(|log| log.phase == PomodoroPhase::Focus)
-        .filter_map(|log| log.end_time.map(|end_time| (end_time - log.start_time).num_minutes()))
-        .filter(|duration_minutes| *duration_minutes > 0)
-        .sum();
-
-    let logs = logs_in_range
-        .into_iter()
-        .map(|log| ReflectionLogItem {
-            id: log.id,
-            block_id: log.block_id,
-            task_id: log.task_id,
-            phase: match log.phase {
-                PomodoroPhase::Focus => "focus",
-                PomodoroPhase::Break => "break",
-                PomodoroPhase::LongBreak => "long_break",
-                PomodoroPhase::Paused => "paused",
-            }
-            .to_string(),
-            start_time: log.start_time.to_rfc3339(),
-            end_time: log.end_time.map(|value| value.to_rfc3339()),
-            interruption_reason: log.interruption_reason,
-        })
-        .collect::<Vec<_>>();
-
-    Ok(ReflectionSummaryResponse {
-        start: start.to_rfc3339(),
-        end: end.to_rfc3339(),
-        completed_count,
-        interrupted_count,
-        total_focus_minutes,
-        logs,
-    })
+) -> Result<crate::application::reflection_service::ReflectionSummaryResponse, InfraError> {
+    crate::application::reflection_service::ReflectionService::new(state).get_summary(start, end)
 }
 
 pub(crate) fn lock_runtime(state: &AppState) -> Result<MutexGuard<'_, RuntimeState>, InfraError> {
@@ -1614,7 +1535,7 @@ pub(crate) fn append_audit_log(
     Ok(())
 }
 
-fn load_pomodoro_logs(
+pub(crate) fn load_pomodoro_logs(
     database_path: &Path,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
@@ -1986,7 +1907,7 @@ mod tests {
     use crate::application::studio_template_application;
     use crate::domain::models::{AutoDriveMode, BlockContents, Firmness};
     use crate::infrastructure::event_mapper::{CalendarEventDateTime, GoogleCalendarEvent};
-    use chrono::{NaiveTime, TimeZone};
+    use chrono::{Duration, NaiveTime, TimeZone};
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
