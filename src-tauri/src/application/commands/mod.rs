@@ -1,6 +1,7 @@
 mod blocks;
 mod bootstrap;
 mod calendar;
+mod catalog;
 pub(crate) mod legacy;
 mod pomodoro;
 mod reflection;
@@ -17,7 +18,7 @@ pub use calendar::{
     sync_calendar_impl, AuthenticateGoogleResponse, SyncedEventSlotResponse,
     SyncCalendarResponse,
 };
-pub use legacy::{
+pub use catalog::{
     create_module_impl, create_recipe_impl, delete_module_impl, delete_recipe_impl,
     list_modules_impl, list_recipes_impl, update_module_impl, update_recipe_impl,
 };

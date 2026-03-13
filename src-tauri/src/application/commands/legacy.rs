@@ -2,15 +2,13 @@ use crate::application::bootstrap::bootstrap_workspace;
 use crate::application::calendar_window::parse_datetime_input;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::calendar_sync::CalendarSyncService;
-use crate::application::configured_modules;
-use crate::application::configured_recipes;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::application::pomodoro_service::{PomodoroRuntimeState, PomodoroService};
 use crate::application::time_slots::{
     intervals_overlap, Interval,
 };
 use crate::domain::models::{
-    Block, Module, PomodoroLog, PomodoroPhase, Recipe, Task, TaskStatus,
+    Block, PomodoroLog, PomodoroPhase, Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::ensure_default_configs;
@@ -39,6 +37,8 @@ use url::Url;
 use crate::application::policy_service::load_runtime_policy;
 #[cfg(test)]
 use crate::application::pomodoro_session_plan;
+#[cfg(test)]
+use crate::application::configured_recipes;
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8080/oauth2/callback";
 const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
@@ -715,62 +715,6 @@ pub fn carry_over_task_impl(
 ) -> Result<CarryOverTaskResponse, InfraError> {
     crate::application::task_service::TaskService::new(state)
         .carry_over_task(task_id, from_block_id, candidate_block_ids)
-}
-
-pub fn list_recipes_impl(state: &AppState) -> Result<Vec<Recipe>, InfraError> {
-    Ok(configured_recipes::load_configured_recipes(state.config_dir()))
-}
-
-pub fn create_recipe_impl(state: &AppState, payload: serde_json::Value) -> Result<Recipe, InfraError> {
-    let recipe = configured_recipes::create_recipe(state.config_dir(), &payload)?;
-    state.log_info("create_recipe", &format!("created recipe_id={}", recipe.id));
-    Ok(recipe)
-}
-
-pub fn update_recipe_impl(
-    state: &AppState,
-    recipe_id: String,
-    payload: serde_json::Value,
-) -> Result<Recipe, InfraError> {
-    let recipe = configured_recipes::update_recipe(state.config_dir(), &recipe_id, &payload)?;
-    state.log_info("update_recipe", &format!("updated recipe_id={}", recipe.id));
-    Ok(recipe)
-}
-
-pub fn delete_recipe_impl(state: &AppState, recipe_id: String) -> Result<bool, InfraError> {
-    let deleted = configured_recipes::delete_recipe(state.config_dir(), &recipe_id)?;
-    if deleted {
-        state.log_info("delete_recipe", &format!("deleted recipe_id={}", recipe_id));
-    }
-    Ok(deleted)
-}
-
-pub fn list_modules_impl(state: &AppState) -> Result<Vec<Module>, InfraError> {
-    Ok(configured_modules::load_configured_modules(state.config_dir()))
-}
-
-pub fn create_module_impl(state: &AppState, payload: serde_json::Value) -> Result<Module, InfraError> {
-    let module = configured_modules::create_module(state.config_dir(), &payload)?;
-    state.log_info("create_module", &format!("created module_id={}", module.id));
-    Ok(module)
-}
-
-pub fn update_module_impl(
-    state: &AppState,
-    module_id: String,
-    payload: serde_json::Value,
-) -> Result<Module, InfraError> {
-    let module = configured_modules::update_module(state.config_dir(), &module_id, &payload)?;
-    state.log_info("update_module", &format!("updated module_id={}", module.id));
-    Ok(module)
-}
-
-pub fn delete_module_impl(state: &AppState, module_id: String) -> Result<bool, InfraError> {
-    let deleted = configured_modules::delete_module(state.config_dir(), &module_id)?;
-    if deleted {
-        state.log_info("delete_module", &format!("deleted module_id={}", module_id));
-    }
-    Ok(deleted)
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -1504,6 +1448,10 @@ async fn collect_created_event_id(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::commands::{
+        create_module_impl, create_recipe_impl, delete_module_impl, list_modules_impl,
+        list_recipes_impl, update_module_impl, update_recipe_impl,
+    };
     use crate::application::studio_template_application;
     use crate::domain::models::{AutoDriveMode, BlockContents, Firmness};
     use crate::infrastructure::event_mapper::{CalendarEventDateTime, GoogleCalendarEvent};
