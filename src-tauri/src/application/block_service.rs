@@ -1,4 +1,5 @@
 use crate::application::block_generation;
+use crate::application::block_operations;
 use crate::application::commands::legacy;
 use crate::application::studio_template_application::{self, ApplyStudioResult};
 use crate::domain::models::Block;
@@ -37,11 +38,11 @@ impl<'a> BlockService<'a> {
     }
 
     pub async fn approve_blocks(&self, block_ids: Vec<String>) -> Result<Vec<Block>, InfraError> {
-        legacy::approve_blocks_impl(self.state, block_ids).await
+        block_operations::approve_blocks(self.state, block_ids).await
     }
 
     pub async fn delete_block(&self, block_id: String) -> Result<bool, InfraError> {
-        legacy::delete_block_impl(self.state, block_id).await
+        block_operations::delete_block(self.state, block_id).await
     }
 
     pub async fn adjust_block_time(
@@ -50,7 +51,7 @@ impl<'a> BlockService<'a> {
         start_at: String,
         end_at: String,
     ) -> Result<Block, InfraError> {
-        legacy::adjust_block_time_impl(self.state, block_id, start_at, end_at).await
+        block_operations::adjust_block_time(self.state, block_id, start_at, end_at).await
     }
 
     pub async fn relocate_if_needed(
@@ -58,11 +59,11 @@ impl<'a> BlockService<'a> {
         block_id: String,
         account_id: Option<String>,
     ) -> Result<Option<Block>, InfraError> {
-        legacy::relocate_if_needed_impl(self.state, block_id, account_id).await
+        block_operations::relocate_if_needed(self.state, block_id, account_id).await
     }
 
     pub fn list_blocks(&self, date: Option<String>) -> Result<Vec<Block>, InfraError> {
-        legacy::list_blocks_impl(self.state, date)
+        block_operations::list_blocks(self.state, date)
     }
 
     pub async fn apply_studio_template_to_today(
