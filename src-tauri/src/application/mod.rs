@@ -15,3 +15,4 @@ pub mod pomodoro_service;
 pub mod reflection_service;
 pub mod routine_sync_service;
 pub mod task_service;
+pub mod time_slots;

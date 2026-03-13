@@ -8,6 +8,10 @@ use crate::application::configured_recipes;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::pomodoro_session_plan;
+use crate::application::time_slots::{
+    clip_interval, event_to_interval, free_slots, intervals_overlap, local_datetime_to_utc,
+    merge_intervals, parse_rfc3339_input, Interval,
+};
 use crate::domain::models::{
     AutoDriveMode, Block, BlockContents, Firmness, Module, PomodoroLog, PomodoroPhase, Recipe,
     Task, TaskStatus,
@@ -21,8 +25,7 @@ use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
 use crate::infrastructure::oauth_client::ReqwestOAuthClient;
 use crate::infrastructure::storage::initialize_database;
 use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
-use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveTime, TimeZone, Utc};
-use chrono_tz::Tz;
+use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -308,12 +311,6 @@ pub struct ApplyStudioResult {
     pub shifted: bool,
     pub conflict_count: usize,
     pub block_id: String,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct Interval {
-    pub(crate) start: DateTime<Utc>,
-    pub(crate) end: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -2693,27 +2690,6 @@ fn pomodoro_phase_as_str(value: &PomodoroPhase) -> &'static str {
     }
 }
 
-fn local_datetime_to_utc(
-    date: NaiveDate,
-    time: NaiveTime,
-    timezone: Tz,
-) -> Result<DateTime<Utc>, InfraError> {
-    let local = date.and_time(time);
-    let resolved = match timezone.from_local_datetime(&local) {
-        LocalResult::Single(value) => value,
-        LocalResult::Ambiguous(first, second) => first.min(second),
-        LocalResult::None => {
-            return Err(InfraError::InvalidConfig(format!(
-                "unable to resolve local time {} {} in timezone {}",
-                date,
-                time.format("%H:%M"),
-                timezone
-            )))
-        }
-    };
-    Ok(resolved.with_timezone(&Utc))
-}
-
 fn save_suppression(
     database_path: &Path,
     instance: &str,
@@ -3055,108 +3031,6 @@ fn is_cancelled_event(event: &GoogleCalendarEvent) -> bool {
         .unwrap_or(false)
 }
 
-fn intervals_overlap(left: &Interval, right: &Interval) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
-fn parse_rfc3339_input(value: &str, field_name: &str) -> Result<DateTime<Utc>, InfraError> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|value| value.with_timezone(&Utc))
-        .map_err(|error| {
-            InfraError::InvalidConfig(format!(
-                "{field_name} must be RFC3339 date-time: {error}"
-            ))
-        })
-}
-
-pub(crate) fn event_to_interval(event: &GoogleCalendarEvent) -> Option<Interval> {
-    let start = DateTime::parse_from_rfc3339(&event.start.date_time)
-        .ok()?
-        .with_timezone(&Utc);
-    let end = DateTime::parse_from_rfc3339(&event.end.date_time)
-        .ok()?
-        .with_timezone(&Utc);
-    if end <= start {
-        return None;
-    }
-    Some(Interval { start, end })
-}
-
-pub(crate) fn clip_interval(
-    interval: Interval,
-    window_start: DateTime<Utc>,
-    window_end: DateTime<Utc>,
-) -> Option<Interval> {
-    if interval.end <= window_start || interval.start >= window_end {
-        return None;
-    }
-    let start = if interval.start < window_start {
-        window_start
-    } else {
-        interval.start
-    };
-    let end = if interval.end > window_end {
-        window_end
-    } else {
-        interval.end
-    };
-    (end > start).then_some(Interval { start, end })
-}
-
-fn free_slots(
-    window_start: DateTime<Utc>,
-    window_end: DateTime<Utc>,
-    busy_intervals: &[Interval],
-) -> Vec<Interval> {
-    if window_end <= window_start {
-        return Vec::new();
-    }
-
-    let mut slots = Vec::new();
-    let mut cursor = window_start;
-    for interval in busy_intervals {
-        if interval.start > cursor {
-            slots.push(Interval {
-                start: cursor,
-                end: interval.start,
-            });
-        }
-        if interval.end > cursor {
-            cursor = interval.end;
-        }
-    }
-    if cursor < window_end {
-        slots.push(Interval {
-            start: cursor,
-            end: window_end,
-        });
-    }
-    slots
-}
-
-pub(crate) fn merge_intervals(mut intervals: Vec<Interval>) -> Vec<Interval> {
-    if intervals.is_empty() {
-        return intervals;
-    }
-
-    intervals.sort_unstable_by(|left, right| left.start.cmp(&right.start));
-    let mut iter = intervals.into_iter();
-    let mut merged = vec![iter.next().expect("intervals is non-empty")];
-    for interval in iter {
-        let last = merged
-            .last_mut()
-            .expect("merged always contains at least one interval");
-        if interval.start <= last.end {
-            if interval.end > last.end {
-                last.end = interval.end;
-            }
-            continue;
-        }
-        merged.push(interval);
-    }
-    merged
-}
-
 fn planned_pomodoros(block_duration_minutes: u32, break_duration_minutes: u32) -> i32 {
     let cycle_minutes = 25u32.saturating_add(break_duration_minutes.max(1));
     (block_duration_minutes / cycle_minutes).max(1) as i32
@@ -3234,6 +3108,7 @@ async fn collect_created_event_id(
 mod tests {
     use super::*;
     use crate::infrastructure::event_mapper::{CalendarEventDateTime, GoogleCalendarEvent};
+    use chrono::TimeZone;
     use std::fs;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

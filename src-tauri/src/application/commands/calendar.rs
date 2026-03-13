@@ -1,11 +1,12 @@
 use super::bootstrap::AppState;
 use super::legacy::{
-    auto_relocate_after_sync, clip_interval, ensure_blocks_calendar_id, event_to_interval,
-    merge_intervals, normalize_account_id, required_access_token, save_suppressions,
+    auto_relocate_after_sync, ensure_blocks_calendar_id, normalize_account_id,
+    required_access_token, save_suppressions,
 };
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::calendar_window::resolve_sync_window;
 use crate::application::policy_service::load_runtime_policy;
+use crate::application::time_slots::{clip_interval, event_to_interval, merge_intervals};
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
 use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
