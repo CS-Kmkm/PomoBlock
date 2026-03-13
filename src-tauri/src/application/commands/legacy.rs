@@ -717,15 +717,6 @@ pub fn carry_over_task_impl(
         .carry_over_task(task_id, from_block_id, candidate_block_ids)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn get_reflection_summary_impl(
-    state: &AppState,
-    start: Option<String>,
-    end: Option<String>,
-) -> Result<crate::application::reflection_service::ReflectionSummaryResponse, InfraError> {
-    crate::application::reflection_service::ReflectionService::new(state).get_summary(start, end)
-}
-
 pub(crate) fn lock_runtime(state: &AppState) -> Result<MutexGuard<'_, RuntimeState>, InfraError> {
     state
         .runtime
@@ -1369,7 +1360,7 @@ mod tests {
     use super::*;
     use crate::application::commands::{
         create_module_impl, create_recipe_impl, delete_module_impl, list_modules_impl,
-        list_recipes_impl, update_module_impl, update_recipe_impl,
+        get_reflection_summary_impl, list_recipes_impl, update_module_impl, update_recipe_impl,
         advance_pomodoro_impl, complete_pomodoro_impl, get_pomodoro_state_impl,
         pause_pomodoro_impl, resume_pomodoro_impl, start_pomodoro_impl,
     };
