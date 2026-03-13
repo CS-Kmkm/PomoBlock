@@ -7,9 +7,10 @@ use crate::application::configured_modules;
 use crate::application::configured_recipes;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::application::policy_service::load_runtime_policy;
+use crate::application::pomodoro_session_plan;
 use crate::domain::models::{
     AutoDriveMode, Block, BlockContents, Firmness, Module, PomodoroLog, PomodoroPhase, Recipe,
-    RecipeStepType, Task, TaskStatus,
+    Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::ensure_default_configs;
@@ -41,7 +42,6 @@ const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 const DEFAULT_ACCOUNT_ID: &str = "default";
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
-const MIN_POMODORO_BREAK_SECONDS: u32 = 60;
 const BLOCK_CREATION_CONCURRENCY: usize = 4;
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -308,13 +308,6 @@ pub struct ApplyStudioResult {
     pub shifted: bool,
     pub conflict_count: usize,
     pub block_id: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PomodoroSessionPlan {
-    total_cycles: u32,
-    focus_seconds: u32,
-    break_seconds: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -2163,7 +2156,11 @@ pub fn start_pomodoro_impl(
     }
 
     let recipes = configured_recipes::load_configured_recipes(state.config_dir());
-    let session_plan = build_pomodoro_session_plan(&block, policy.break_duration_minutes, &recipes);
+    let session_plan = pomodoro_session_plan::build_pomodoro_session_plan(
+        &block,
+        policy.break_duration_minutes,
+        &recipes,
+    );
     let now = Utc::now();
     runtime.pomodoro.current_block_id = Some(block_id.to_string());
     runtime.pomodoro.current_task_id = normalized_task_id;
@@ -2423,45 +2420,6 @@ fn reset_pomodoro_session(runtime: &mut PomodoroRuntimeState) {
     runtime.focus_seconds = POMODORO_FOCUS_SECONDS;
     runtime.break_seconds = POMODORO_BREAK_SECONDS;
     runtime.active_log = None;
-}
-
-fn build_pomodoro_session_plan(
-    block: &Block,
-    break_duration_minutes: u32,
-    recipes: &[Recipe],
-) -> PomodoroSessionPlan {
-    let fallback_cycles = u32::try_from(block.planned_pomodoros)
-        .ok()
-        .filter(|value| *value > 0)
-        .unwrap_or(1);
-    let recipe_pomodoro = recipes
-        .iter()
-        .find(|recipe| recipe.id == block.recipe_id)
-        .and_then(|recipe| {
-            recipe.steps.iter().find_map(|step| match step.step_type {
-                RecipeStepType::Pomodoro => step.pomodoro.as_ref(),
-                _ => None,
-            })
-        });
-    let focus_seconds = recipe_pomodoro
-        .map(|pomodoro| pomodoro.focus_seconds.max(1))
-        .unwrap_or(POMODORO_FOCUS_SECONDS);
-    let break_seconds = recipe_pomodoro
-        .map(|pomodoro| pomodoro.break_seconds.max(1))
-        .unwrap_or_else(|| (break_duration_minutes.saturating_mul(60)).max(MIN_POMODORO_BREAK_SECONDS));
-    let requested_cycles = recipe_pomodoro
-        .map(|pomodoro| pomodoro.cycles.max(1))
-        .unwrap_or(fallback_cycles);
-    let cycle_seconds = focus_seconds.saturating_add(break_seconds).max(1);
-    let block_seconds = (block.end_at - block.start_at).num_seconds().max(0) as u32;
-    let max_cycles_by_duration = (block_seconds / cycle_seconds).max(1);
-    let total_cycles = requested_cycles.min(max_cycles_by_duration).max(1);
-
-    PomodoroSessionPlan {
-        total_cycles,
-        focus_seconds,
-        break_seconds,
-    }
 }
 
 pub fn get_reflection_summary_impl(
@@ -3385,8 +3343,11 @@ mod tests {
         let block_id = generated[0].id.clone();
         let policy = load_runtime_policy(state.config_dir());
         let recipes = configured_recipes::load_configured_recipes(state.config_dir());
-        let expected_plan =
-            build_pomodoro_session_plan(&generated[0], policy.break_duration_minutes, &recipes);
+        let expected_plan = pomodoro_session_plan::build_pomodoro_session_plan(
+            &generated[0],
+            policy.break_duration_minutes,
+            &recipes,
+        );
 
         let started = start_pomodoro_impl(&state, block_id.clone(), None).expect("start pomodoro");
         assert_eq!(started.phase, "focus");
@@ -3434,8 +3395,11 @@ mod tests {
         let block = generated[0].clone();
         let policy = load_runtime_policy(state.config_dir());
         let recipes = configured_recipes::load_configured_recipes(state.config_dir());
-        let expected_plan =
-            build_pomodoro_session_plan(&block, policy.break_duration_minutes, &recipes);
+        let expected_plan = pomodoro_session_plan::build_pomodoro_session_plan(
+            &block,
+            policy.break_duration_minutes,
+            &recipes,
+        );
 
         let started =
             start_pomodoro_impl(&state, block.id.clone(), None).expect("start pomodoro session");

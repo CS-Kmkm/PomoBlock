@@ -10,6 +10,7 @@ pub mod configured_recipes;
 pub mod external_edit_service;
 pub mod oauth;
 pub mod policy_service;
+pub mod pomodoro_session_plan;
 pub mod pomodoro_service;
 pub mod reflection_service;
 pub mod routine_sync_service;
