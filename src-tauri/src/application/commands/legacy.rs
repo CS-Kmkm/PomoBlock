@@ -755,54 +755,23 @@ pub fn list_blocks_impl(state: &AppState, date: Option<String>) -> Result<Vec<Bl
     crate::application::block_operations::list_blocks(state, date)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn create_task_impl(
     state: &AppState,
     title: String,
     description: Option<String>,
     estimated_pomodoros: Option<u32>,
 ) -> Result<Task, InfraError> {
-    let title = title.trim();
-    if title.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "title must not be empty".to_string(),
-        ));
-    }
-
-    let task = Task {
-        id: next_id("tsk"),
-        title: title.to_string(),
-        description: description
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned),
-        estimated_pomodoros,
-        completed_pomodoros: 0,
-        status: TaskStatus::Pending,
-        created_at: Utc::now(),
-    };
-
-    {
-        let mut runtime = lock_runtime(state)?;
-        runtime.task_order.push(task.id.clone());
-        runtime.tasks.insert(task.id.clone(), task.clone());
-    }
-
-    state.log_info("create_task", &format!("created task_id={}", task.id));
-    Ok(task)
+    crate::application::task_service::TaskService::new(state)
+        .create_task(title, description, estimated_pomodoros)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn list_tasks_impl(state: &AppState) -> Result<Vec<Task>, InfraError> {
-    let runtime = lock_runtime(state)?;
-    let mut tasks = runtime
-        .task_order
-        .iter()
-        .filter_map(|task_id| runtime.tasks.get(task_id).cloned())
-        .collect::<Vec<_>>();
-    tasks.sort_by(|left, right| left.created_at.cmp(&right.created_at));
-    Ok(tasks)
+    crate::application::task_service::TaskService::new(state).list_tasks()
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn update_task_impl(
     state: &AppState,
     task_id: String,
@@ -811,224 +780,29 @@ pub fn update_task_impl(
     estimated_pomodoros: Option<u32>,
     status: Option<String>,
 ) -> Result<Task, InfraError> {
-    let task_id = task_id.trim();
-    if task_id.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "task_id must not be empty".to_string(),
-        ));
-    }
-
-    let mut runtime = lock_runtime(state)?;
-    let Some(task) = runtime.tasks.get_mut(task_id) else {
-        return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
-    };
-
-    if let Some(title) = title {
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(InfraError::InvalidConfig(
-                "title must not be empty".to_string(),
-            ));
-        }
-        task.title = title.to_string();
-    }
-
-    if let Some(description) = description {
-        let description = description.trim();
-        task.description = if description.is_empty() {
-            None
-        } else {
-            Some(description.to_string())
-        };
-    }
-
-    if let Some(estimated) = estimated_pomodoros {
-        task.estimated_pomodoros = Some(estimated);
-    }
-
-    if let Some(status) = status {
-        task.status = parse_task_status(&status)?;
-    }
-
-    let updated = task.clone();
-    drop(runtime);
-    state.log_info("update_task", &format!("updated task_id={task_id}"));
-    Ok(updated)
+    crate::application::task_service::TaskService::new(state)
+        .update_task(task_id, title, description, estimated_pomodoros, status)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn delete_task_impl(state: &AppState, task_id: String) -> Result<bool, InfraError> {
-    let task_id = task_id.trim();
-    if task_id.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "task_id must not be empty".to_string(),
-        ));
-    }
-
-    let mut runtime = lock_runtime(state)?;
-    let removed = runtime.tasks.remove(task_id).is_some();
-    if !removed {
-        return Ok(false);
-    }
-    runtime.task_order.retain(|candidate| candidate != task_id);
-    unassign_task(&mut runtime, task_id);
-    if runtime.pomodoro.current_task_id.as_deref() == Some(task_id) {
-        runtime.pomodoro.current_task_id = None;
-    }
-
-    state.log_info("delete_task", &format!("deleted task_id={task_id}"));
-    Ok(true)
+    crate::application::task_service::TaskService::new(state).delete_task(task_id)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn split_task_impl(state: &AppState, task_id: String, parts: u32) -> Result<Vec<Task>, InfraError> {
-    let task_id = task_id.trim();
-    if task_id.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "task_id must not be empty".to_string(),
-        ));
-    }
-    if parts < 2 {
-        return Err(InfraError::InvalidConfig("parts must be >= 2".to_string()));
-    }
-
-    let mut runtime = lock_runtime(state)?;
-    let Some(parent) = runtime.tasks.get_mut(task_id) else {
-        return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
-    };
-    let parent_title = parent.title.clone();
-    let parent_description = parent.description.clone();
-    let child_estimated_pomodoros = parent
-        .estimated_pomodoros
-        .map(|value| value.div_ceil(parts).max(1));
-    parent.status = TaskStatus::Deferred;
-
-    if runtime.pomodoro.current_task_id.as_deref() == Some(task_id) {
-        runtime.pomodoro.current_task_id = None;
-    }
-    unassign_task(&mut runtime, task_id);
-
-    let mut children = Vec::new();
-    let now = Utc::now();
-    for index in 1..=parts {
-        let child = Task {
-            id: next_id("tsk"),
-            title: format!("{parent_title} ({index}/{parts})"),
-            description: parent_description.clone(),
-            estimated_pomodoros: child_estimated_pomodoros,
-            completed_pomodoros: 0,
-            status: TaskStatus::Pending,
-            created_at: now,
-        };
-        runtime.task_order.push(child.id.clone());
-        runtime.tasks.insert(child.id.clone(), child.clone());
-        children.push(child);
-    }
-
-    drop(runtime);
-    append_audit_log(
-        state.database_path(),
-        "task_split",
-        &serde_json::json!({
-            "taskId": task_id,
-            "childTaskIds": children.iter().map(|child| child.id.clone()).collect::<Vec<_>>(),
-        }),
-    )?;
-    state.log_info(
-        "split_task",
-        &format!("split task_id={task_id} into {} children", children.len()),
-    );
-    Ok(children)
+    crate::application::task_service::TaskService::new(state).split_task(task_id, parts)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn carry_over_task_impl(
     state: &AppState,
     task_id: String,
     from_block_id: String,
     candidate_block_ids: Option<Vec<String>>,
 ) -> Result<CarryOverTaskResponse, InfraError> {
-    let task_id = task_id.trim();
-    if task_id.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "task_id must not be empty".to_string(),
-        ));
-    }
-    let from_block_id = from_block_id.trim();
-    if from_block_id.is_empty() {
-        return Err(InfraError::InvalidConfig(
-            "from_block_id must not be empty".to_string(),
-        ));
-    }
-
-    let normalized_candidates = candidate_block_ids
-        .unwrap_or_default()
-        .into_iter()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect::<HashSet<_>>();
-
-    let mut runtime = lock_runtime(state)?;
-    if !runtime.tasks.contains_key(task_id) {
-        return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
-    }
-    let Some(from_block) = runtime.blocks.get(from_block_id).map(|stored| stored.block.clone()) else {
-        return Err(InfraError::InvalidConfig(format!(
-            "block not found: {}",
-            from_block_id
-        )));
-    };
-
-    let mut candidates = runtime
-        .blocks
-        .values()
-        .map(|stored| stored.block.clone())
-        .filter(|block| block.id != from_block.id)
-        .filter(|block| block.date == from_block.date)
-        .filter(|block| block.start_at >= from_block.end_at)
-        .filter(|block| {
-            normalized_candidates.is_empty() || normalized_candidates.contains(block.id.as_str())
-        })
-        .collect::<Vec<_>>();
-    candidates.sort_by(|left, right| left.start_at.cmp(&right.start_at));
-
-    let next_block = candidates
-        .into_iter()
-        .find(|block| !runtime.task_assignments_by_block.contains_key(block.id.as_str()))
-        .ok_or_else(|| InfraError::InvalidConfig("no available block for carry-over".to_string()))?;
-
-    assign_task_to_block(&mut runtime, task_id, next_block.id.as_str());
-    if let Some(task) = runtime.tasks.get_mut(task_id) {
-        task.status = TaskStatus::InProgress;
-    }
-
-    let status = runtime
-        .tasks
-        .get(task_id)
-        .map(|task| task_status_as_str(&task.status).to_string())
-        .unwrap_or_else(|| "in_progress".to_string());
-    let response = CarryOverTaskResponse {
-        task_id: task_id.to_string(),
-        from_block_id: from_block_id.to_string(),
-        to_block_id: next_block.id,
-        status,
-    };
-
-    drop(runtime);
-    append_audit_log(
-        state.database_path(),
-        "task_carried_over",
-        &serde_json::json!({
-            "taskId": response.task_id,
-            "fromBlockId": response.from_block_id,
-            "toBlockId": response.to_block_id,
-        }),
-    )?;
-    state.log_info(
-        "carry_over_task",
-        &format!(
-            "carried task_id={} from_block_id={} to_block_id={}",
-            response.task_id, response.from_block_id, response.to_block_id
-        ),
-    );
-    Ok(response)
+    crate::application::task_service::TaskService::new(state)
+        .carry_over_task(task_id, from_block_id, candidate_block_ids)
 }
 
 pub fn list_recipes_impl(state: &AppState) -> Result<Vec<Recipe>, InfraError> {
@@ -1827,7 +1601,7 @@ fn save_pomodoro_log(database_path: &Path, log: &PomodoroLog) -> Result<(), Infr
     Ok(())
 }
 
-fn append_audit_log(
+pub(crate) fn append_audit_log(
     database_path: &Path,
     event_type: &str,
     payload: &serde_json::Value,
@@ -2080,7 +1854,7 @@ fn collect_relocation_target_block_ids(
     candidates.into_iter().map(|(_, id)| id).collect()
 }
 
-fn parse_task_status(value: &str) -> Result<TaskStatus, InfraError> {
+pub(crate) fn parse_task_status(value: &str) -> Result<TaskStatus, InfraError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "pending" => Ok(TaskStatus::Pending),
         "in_progress" | "in-progress" => Ok(TaskStatus::InProgress),
@@ -2093,7 +1867,7 @@ fn parse_task_status(value: &str) -> Result<TaskStatus, InfraError> {
     }
 }
 
-fn task_status_as_str(value: &TaskStatus) -> &'static str {
+pub(crate) fn task_status_as_str(value: &TaskStatus) -> &'static str {
     match value {
         TaskStatus::Pending => "pending",
         TaskStatus::InProgress => "in_progress",
@@ -2102,7 +1876,7 @@ fn task_status_as_str(value: &TaskStatus) -> &'static str {
     }
 }
 
-fn assign_task_to_block(runtime: &mut RuntimeState, task_id: &str, block_id: &str) {
+pub(crate) fn assign_task_to_block(runtime: &mut RuntimeState, task_id: &str, block_id: &str) {
     if let Some(previous_block_id) = runtime
         .task_assignments_by_task
         .insert(task_id.to_string(), block_id.to_string())
@@ -2117,7 +1891,7 @@ fn assign_task_to_block(runtime: &mut RuntimeState, task_id: &str, block_id: &st
     }
 }
 
-fn unassign_task(runtime: &mut RuntimeState, task_id: &str) -> Option<String> {
+pub(crate) fn unassign_task(runtime: &mut RuntimeState, task_id: &str) -> Option<String> {
     let previous_block_id = runtime.task_assignments_by_task.remove(task_id)?;
     runtime
         .task_assignments_by_block
