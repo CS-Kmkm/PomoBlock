@@ -5,6 +5,7 @@ pub mod calendar_setup;
 pub mod commands;
 pub mod block_service;
 pub mod configured_block_plans;
+pub mod configured_modules;
 pub mod configured_recipes;
 pub mod external_edit_service;
 pub mod oauth;
