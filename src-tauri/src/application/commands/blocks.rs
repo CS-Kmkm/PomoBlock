@@ -76,7 +76,7 @@ pub async fn apply_studio_template_to_today_impl(
     trigger_time: String,
     conflict_policy: Option<String>,
     account_id: Option<String>,
-) -> Result<super::legacy::ApplyStudioResult, InfraError> {
+) -> Result<super::ApplyStudioResult, InfraError> {
     BlockService::new(state)
         .apply_studio_template_to_today(
             template_id,

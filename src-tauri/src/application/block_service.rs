@@ -1,4 +1,5 @@
 use crate::application::commands::legacy;
+use crate::application::studio_template_application::{self, ApplyStudioResult};
 use crate::domain::models::Block;
 use crate::infrastructure::error::InfraError;
 
@@ -70,8 +71,8 @@ impl<'a> BlockService<'a> {
         trigger_time: String,
         conflict_policy: Option<String>,
         account_id: Option<String>,
-    ) -> Result<legacy::ApplyStudioResult, InfraError> {
-        legacy::apply_studio_template_to_today_impl(
+    ) -> Result<ApplyStudioResult, InfraError> {
+        studio_template_application::apply_studio_template_to_today(
             self.state,
             template_id,
             date,
