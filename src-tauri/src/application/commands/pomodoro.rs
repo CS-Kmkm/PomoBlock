@@ -1,7 +1,7 @@
 use crate::application::pomodoro_service::PomodoroService;
 use crate::infrastructure::error::InfraError;
 
-pub use super::legacy::PomodoroStateResponse;
+pub use crate::application::pomodoro_service::PomodoroStateResponse;
 
 pub fn start_pomodoro_impl(
     state: &super::legacy::AppState,
