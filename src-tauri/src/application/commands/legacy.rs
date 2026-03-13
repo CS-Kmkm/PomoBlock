@@ -2,7 +2,6 @@ use crate::application::bootstrap::bootstrap_workspace;
 use crate::application::calendar_window::parse_datetime_input;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::calendar_sync::CalendarSyncService;
-use crate::application::configured_block_plans;
 use crate::application::configured_modules;
 use crate::application::configured_recipes;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
@@ -13,8 +12,7 @@ use crate::application::time_slots::{
     merge_intervals, parse_rfc3339_input, Interval,
 };
 use crate::domain::models::{
-    AutoDriveMode, Block, BlockContents, Firmness, Module, PomodoroLog, PomodoroPhase, Recipe,
-    Task, TaskStatus,
+    Block, Firmness, Module, PomodoroLog, PomodoroPhase, Recipe, Task, TaskStatus,
 };
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::config::ensure_default_configs;
@@ -25,7 +23,7 @@ use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
 use crate::infrastructure::oauth_client::ReqwestOAuthClient;
 use crate::infrastructure::storage::initialize_database;
 use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
-use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -46,6 +44,7 @@ const DEFAULT_ACCOUNT_ID: &str = "default";
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
 const BLOCK_CREATION_CONCURRENCY: usize = 4;
+#[cfg(test)]
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -298,19 +297,6 @@ pub struct CarryOverTaskResponse {
     pub from_block_id: String,
     pub to_block_id: String,
     pub status: String,
-}
-
-#[derive(Debug, Clone)]
-struct BlockPlan {
-    instance: String,
-    start_at: DateTime<Utc>,
-    end_at: DateTime<Utc>,
-    firmness: Firmness,
-    planned_pomodoros: i32,
-    source: String,
-    source_id: Option<String>,
-    recipe_id: String,
-    auto_drive_mode: AutoDriveMode,
 }
 
 pub async fn authenticate_google_impl(
@@ -714,346 +700,22 @@ fn open_system_browser(_url: &str) -> Result<(), InfraError> {
     ))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn generate_blocks_impl(
     state: &AppState,
     date: String,
     account_id: Option<String>,
 ) -> Result<Vec<Block>, InfraError> {
-    generate_blocks_with_limit_impl(state, date, account_id, None, false).await
+    crate::application::block_generation::generate_blocks(state, date, account_id).await
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn generate_one_block_impl(
     state: &AppState,
     date: String,
     account_id: Option<String>,
 ) -> Result<Vec<Block>, InfraError> {
-    generate_blocks_with_limit_impl(state, date, account_id, Some(1), true).await
-}
-
-async fn generate_blocks_with_limit_impl(
-    state: &AppState,
-    date: String,
-    account_id: Option<String>,
-    generation_limit: Option<usize>,
-    allow_overlap: bool,
-) -> Result<Vec<Block>, InfraError> {
-    let started_at = Instant::now();
-    let account_id = normalize_account_id(account_id);
-    let date = NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d")
-        .map_err(|error| InfraError::InvalidConfig(format!("date must be YYYY-MM-DD: {error}")))?;
-    let policy = load_runtime_policy(state.config_dir());
-    let max_generated_blocks = generation_limit.unwrap_or(usize::MAX);
-    if max_generated_blocks == 0 {
-        return Ok(Vec::new());
-    }
-    if !policy.work_days.contains(&date.weekday()) {
-        return Ok(Vec::new());
-    }
-    if policy.work_end <= policy.work_start {
-        return Ok(Vec::new());
-    }
-
-    let window_start = local_datetime_to_utc(date, policy.work_start, policy.timezone)?;
-    let window_end = local_datetime_to_utc(date, policy.work_end, policy.timezone)?;
-    let block_duration = Duration::minutes(policy.block_duration_minutes as i64);
-    let gap = Duration::minutes(policy.min_block_gap_minutes as i64);
-
-    let (existing_blocks, synced_events_by_account, mut blocks_calendar_ids) = {
-        let runtime = lock_runtime(state)?;
-        (
-            runtime
-                .blocks
-                .values()
-                .filter(|stored| stored.block.date == date.to_string())
-                .cloned()
-                .collect::<Vec<_>>(),
-            runtime.synced_events_by_account.clone(),
-            runtime.blocks_calendar_ids.clone(),
-        )
-    };
-    let cleared_user_deleted_suppressions = if policy.respect_suppression && existing_blocks.is_empty()
-    {
-        clear_user_deleted_suppressions_for_date(state.database_path(), date)?
-    } else {
-        0
-    };
-    let suppressed_instances = if policy.respect_suppression {
-        load_suppressions(state.database_path())?
-    } else {
-        HashSet::new()
-    };
-
-    let mut busy_intervals = Vec::new();
-    for events in synced_events_by_account.values() {
-        for event in events {
-            if let Some(interval) = event_to_interval(event)
-                .and_then(|interval| clip_interval(interval, window_start, window_end))
-            {
-                busy_intervals.push(interval);
-            }
-        }
-    }
-    for stored in &existing_blocks {
-        busy_intervals.push(Interval {
-            start: stored.block.start_at,
-            end: stored.block.end_at,
-        });
-    }
-    let busy_intervals = merge_intervals(busy_intervals);
-    let busy_interval_count = busy_intervals.len();
-    let mut occupied_intervals = busy_intervals.clone();
-
-    let mut existing_instances = existing_blocks
-        .iter()
-        .map(|stored| stored.block.instance.clone())
-        .collect::<HashSet<_>>();
-    let mut existing_ranges = existing_blocks
-        .iter()
-        .map(|stored| {
-            (
-                stored.block.start_at.timestamp_millis(),
-                stored.block.end_at.timestamp_millis(),
-            )
-        })
-        .collect::<HashSet<_>>();
-    let mut generated = Vec::new();
-    let recipes = configured_recipes::load_configured_recipes(state.config_dir());
-    let candidate_plans =
-        configured_block_plans::load_configured_block_plans(state.config_dir(), date, &policy, &recipes);
-    let candidate_plan_count = candidate_plans.len();
-
-    for plan in candidate_plans {
-        if generated.len() >= max_generated_blocks {
-            break;
-        }
-        if plan.end_at <= plan.start_at {
-            continue;
-        }
-        if plan.start_at < window_start || plan.end_at > window_end {
-            continue;
-        }
-        let interval = Interval {
-            start: plan.start_at,
-            end: plan.end_at,
-        };
-        if !allow_overlap
-            && occupied_intervals
-                .iter()
-                .any(|busy| intervals_overlap(busy, &interval))
-        {
-            continue;
-        }
-
-        let range_key = (
-            plan.start_at.timestamp_millis(),
-            plan.end_at.timestamp_millis(),
-        );
-        let is_suppressed = !allow_overlap
-            && policy.respect_suppression
-            && suppressed_instances.contains(plan.instance.as_str());
-
-        if !is_suppressed
-            && (allow_overlap
-                || (existing_instances.insert(plan.instance.clone())
-                    && existing_ranges.insert(range_key)))
-        {
-            let block = Block {
-                id: next_id("blk"),
-                instance: plan.instance,
-                date: date.to_string(),
-                start_at: plan.start_at,
-                end_at: plan.end_at,
-                firmness: plan.firmness,
-                planned_pomodoros: plan.planned_pomodoros,
-                source: plan.source,
-                source_id: plan.source_id,
-                recipe_id: plan.recipe_id,
-                auto_drive_mode: plan.auto_drive_mode,
-                contents: BlockContents::default(),
-            };
-            generated.push(StoredBlock {
-                block,
-                calendar_event_id: None,
-                calendar_account_id: Some(account_id.clone()),
-            });
-            occupied_intervals.push(interval);
-            if generated.len() >= max_generated_blocks {
-                break;
-            }
-        }
-    }
-
-    let occupied_intervals = merge_intervals(occupied_intervals);
-    let max_auto_blocks_per_day = policy.max_auto_blocks_per_day as usize;
-    let used_capacity = existing_blocks.len().saturating_add(generated.len());
-    let mut remaining_auto_capacity = if allow_overlap {
-        max_generated_blocks.saturating_sub(generated.len())
-    } else {
-        max_auto_blocks_per_day.saturating_sub(used_capacity)
-    };
-    let mut remaining_generation_capacity = max_generated_blocks.saturating_sub(generated.len());
-    let auto_instance_prefix = format!("rtn:auto:{}:", date);
-    let mut instance_index: u32 = existing_instances
-        .iter()
-        .filter_map(|instance| instance.strip_prefix(auto_instance_prefix.as_str()))
-        .filter_map(|suffix| suffix.parse::<u32>().ok())
-        .max()
-        .map(|max_index| max_index.saturating_add(1))
-        .unwrap_or(0);
-    let auto_slots = if allow_overlap {
-        vec![Interval {
-            start: window_start,
-            end: window_end,
-        }]
-    } else {
-        free_slots(window_start, window_end, &occupied_intervals)
-    };
-    let mut auto_generated_count = 0usize;
-    for slot in auto_slots {
-        if remaining_auto_capacity == 0 || remaining_generation_capacity == 0 {
-            break;
-        }
-        let mut cursor = slot.start;
-        while cursor + block_duration <= slot.end
-            && remaining_auto_capacity > 0
-            && remaining_generation_capacity > 0
-        {
-            let candidate_end = cursor + block_duration;
-            let (recipe_id, auto_drive_mode) =
-                configured_block_plans::resolve_recipe_for_plan(None, None, &recipes);
-            let plan = BlockPlan {
-                instance: format!("rtn:auto:{}:{}", date, instance_index),
-                start_at: cursor,
-                end_at: candidate_end,
-                firmness: Firmness::Draft,
-                planned_pomodoros: planned_pomodoros(
-                    policy.block_duration_minutes,
-                    policy.break_duration_minutes,
-                ),
-                source: "routine".to_string(),
-                source_id: Some("auto".to_string()),
-                recipe_id,
-                auto_drive_mode,
-            };
-            instance_index = instance_index.saturating_add(1);
-
-            let range_key = (
-                plan.start_at.timestamp_millis(),
-                plan.end_at.timestamp_millis(),
-            );
-            let is_suppressed = !allow_overlap
-                && policy.respect_suppression
-                && suppressed_instances.contains(plan.instance.as_str());
-
-            if !is_suppressed
-                && (allow_overlap
-                    || (existing_instances.insert(plan.instance.clone())
-                        && existing_ranges.insert(range_key)))
-            {
-                let block = Block {
-                    id: next_id("blk"),
-                    instance: plan.instance,
-                    date: date.to_string(),
-                    start_at: plan.start_at,
-                    end_at: plan.end_at,
-                    firmness: plan.firmness,
-                    planned_pomodoros: plan.planned_pomodoros,
-                    source: plan.source,
-                    source_id: plan.source_id,
-                    recipe_id: plan.recipe_id,
-                    auto_drive_mode: plan.auto_drive_mode,
-                    contents: BlockContents::default(),
-                };
-                generated.push(StoredBlock {
-                    block,
-                    calendar_event_id: None,
-                    calendar_account_id: Some(account_id.clone()),
-                });
-                auto_generated_count = auto_generated_count.saturating_add(1);
-                remaining_auto_capacity = remaining_auto_capacity.saturating_sub(1);
-                remaining_generation_capacity = remaining_generation_capacity.saturating_sub(1);
-            }
-
-            cursor = candidate_end + gap;
-        }
-    }
-
-    if generated.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let access_token = try_access_token(Some(account_id.clone())).await?;
-    if !blocks_calendar_ids.contains_key(&account_id) {
-        if let Some(token) = access_token.as_deref() {
-            let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-            let resolved = ensure_blocks_calendar_id(
-                state.config_dir(),
-                token,
-                Arc::clone(&calendar_client),
-                &account_id,
-            )
-            .await?;
-            blocks_calendar_ids.insert(account_id.clone(), resolved.clone());
-            let mut runtime = lock_runtime(state)?;
-            runtime
-                .blocks_calendar_ids
-                .insert(account_id.clone(), resolved);
-        }
-    }
-
-    let calendar_id = blocks_calendar_ids.get(&account_id).map(String::as_str);
-    if let (Some(token), Some(calendar_id)) = (access_token.as_deref(), calendar_id) {
-        let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-        let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-        let sync_service = Arc::new(CalendarSyncService::new(
-            Arc::clone(&calendar_client),
-            sync_state_repo,
-            Arc::clone(&state.calendar_cache),
-        ));
-        create_calendar_events_for_generated_blocks(sync_service, token, calendar_id, &mut generated)
-            .await?;
-    }
-
-    {
-        let mut runtime = lock_runtime(state)?;
-        if let Some(calendar_id) = blocks_calendar_ids.get(&account_id).cloned() {
-            runtime
-                .blocks_calendar_ids
-                .insert(account_id.clone(), calendar_id);
-        }
-        for stored in &generated {
-            runtime
-                .blocks
-                .insert(stored.block.id.clone(), stored.clone());
-        }
-    }
-
-    let elapsed_ms = started_at.elapsed().as_millis();
-    state.log_info(
-        "generate_blocks",
-        &format!(
-            "generated_count={} auto_generated_count={} candidate_plan_count={} busy_interval_count={} cleared_user_deleted_suppressions={} elapsed_ms={} date={} account_id={}",
-            generated.len(),
-            auto_generated_count,
-            candidate_plan_count,
-            busy_interval_count,
-            cleared_user_deleted_suppressions,
-            elapsed_ms,
-            date,
-            account_id
-        ),
-    );
-    if elapsed_ms > BLOCK_GENERATION_TARGET_MS {
-        state.log_error(
-            "generate_blocks",
-            &format!(
-                "generation for {} exceeded target {}ms (actual={}ms)",
-                date, BLOCK_GENERATION_TARGET_MS, elapsed_ms
-            ),
-        );
-    }
-
-    Ok(generated.into_iter().map(|stored| stored.block).collect())
+    crate::application::block_generation::generate_one_block(state, date, account_id).await
 }
 
 pub async fn approve_blocks_impl(
@@ -1794,16 +1456,12 @@ pub fn delete_module_impl(state: &AppState, module_id: String) -> Result<bool, I
     Ok(deleted)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn generate_today_blocks_impl(
     state: &AppState,
     account_id: Option<String>,
 ) -> Result<Vec<Block>, InfraError> {
-    let policy = load_runtime_policy(state.config_dir());
-    if !policy.auto_enabled {
-        return Ok(Vec::new());
-    }
-    let today = Utc::now().with_timezone(&policy.timezone).date_naive().to_string();
-    generate_blocks_impl(state, today, account_id).await
+    crate::application::block_generation::generate_today_blocks(state, account_id).await
 }
 
 pub fn start_block_timer_impl(
@@ -2239,7 +1897,7 @@ fn lock_runtime(state: &AppState) -> Result<MutexGuard<'_, RuntimeState>, InfraE
         .map_err(|error| InfraError::InvalidConfig(format!("runtime lock poisoned: {error}")))
 }
 
-pub(crate) fn studio_runtime_snapshot(
+pub(crate) fn block_runtime_snapshot(
     state: &AppState,
     date: NaiveDate,
 ) -> Result<
@@ -2263,11 +1921,25 @@ pub(crate) fn studio_runtime_snapshot(
     ))
 }
 
-pub(crate) fn persist_generated_block(
+pub(crate) fn studio_runtime_snapshot(
+    state: &AppState,
+    date: NaiveDate,
+) -> Result<
+    (
+        Vec<StoredBlock>,
+        HashMap<String, Vec<GoogleCalendarEvent>>,
+        HashMap<String, String>,
+    ),
+    InfraError,
+> {
+    block_runtime_snapshot(state, date)
+}
+
+pub(crate) fn persist_generated_blocks(
     state: &AppState,
     account_id: &str,
     blocks_calendar_ids: &HashMap<String, String>,
-    created: StoredBlock,
+    created: &[StoredBlock],
 ) -> Result<(), InfraError> {
     let mut runtime = lock_runtime(state)?;
     if let Some(calendar_id) = blocks_calendar_ids.get(account_id).cloned() {
@@ -2275,8 +1947,21 @@ pub(crate) fn persist_generated_block(
             .blocks_calendar_ids
             .insert(account_id.to_string(), calendar_id);
     }
-    runtime.blocks.insert(created.block.id.clone(), created);
+    for stored in created {
+        runtime
+            .blocks
+            .insert(stored.block.id.clone(), stored.clone());
+    }
     Ok(())
+}
+
+pub(crate) fn persist_generated_block(
+    state: &AppState,
+    account_id: &str,
+    blocks_calendar_ids: &HashMap<String, String>,
+    created: StoredBlock,
+) -> Result<(), InfraError> {
+    persist_generated_blocks(state, account_id, blocks_calendar_ids, std::slice::from_ref(&created))
 }
 
 #[cfg(test)]
@@ -2564,7 +2249,7 @@ fn instance_matches_date(instance: &str, date_key: &str) -> bool {
     instance.ends_with(&format!(":{date_key}")) || instance.contains(&format!(":{date_key}:"))
 }
 
-fn clear_user_deleted_suppressions_for_date(
+pub(crate) fn clear_user_deleted_suppressions_for_date(
     database_path: &Path,
     date: NaiveDate,
 ) -> Result<usize, InfraError> {
@@ -2644,7 +2329,7 @@ pub(crate) fn save_suppressions(
     Ok(saved)
 }
 
-fn load_suppressions(database_path: &Path) -> Result<HashSet<String>, InfraError> {
+pub(crate) fn load_suppressions(database_path: &Path) -> Result<HashSet<String>, InfraError> {
     let connection = Connection::open(database_path)?;
     let mut statement = connection.prepare("SELECT instance FROM suppressions")?;
     let mut rows = statement.query([])?;
@@ -2894,6 +2579,7 @@ async fn collect_created_event_id(
 mod tests {
     use super::*;
     use crate::application::studio_template_application;
+    use crate::domain::models::{AutoDriveMode, BlockContents};
     use crate::infrastructure::event_mapper::{CalendarEventDateTime, GoogleCalendarEvent};
     use chrono::{NaiveTime, TimeZone};
     use std::fs;

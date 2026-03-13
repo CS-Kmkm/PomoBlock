@@ -1,3 +1,4 @@
+use crate::application::block_generation;
 use crate::application::commands::legacy;
 use crate::application::studio_template_application::{self, ApplyStudioResult};
 use crate::domain::models::Block;
@@ -17,7 +18,7 @@ impl<'a> BlockService<'a> {
         date: String,
         account_id: Option<String>,
     ) -> Result<Vec<Block>, InfraError> {
-        legacy::generate_blocks_impl(self.state, date, account_id).await
+        block_generation::generate_blocks(self.state, date, account_id).await
     }
 
     pub async fn generate_one_block(
@@ -25,14 +26,14 @@ impl<'a> BlockService<'a> {
         date: String,
         account_id: Option<String>,
     ) -> Result<Vec<Block>, InfraError> {
-        legacy::generate_one_block_impl(self.state, date, account_id).await
+        block_generation::generate_one_block(self.state, date, account_id).await
     }
 
     pub async fn generate_today_blocks(
         &self,
         account_id: Option<String>,
     ) -> Result<Vec<Block>, InfraError> {
-        legacy::generate_today_blocks_impl(self.state, account_id).await
+        block_generation::generate_today_blocks(self.state, account_id).await
     }
 
     pub async fn approve_blocks(&self, block_ids: Vec<String>) -> Result<Vec<Block>, InfraError> {
