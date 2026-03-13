@@ -4,6 +4,7 @@ pub mod calendar_sync;
 pub mod calendar_setup;
 pub mod commands;
 pub mod block_service;
+pub mod configured_block_plans;
 pub mod external_edit_service;
 pub mod oauth;
 pub mod policy_service;
