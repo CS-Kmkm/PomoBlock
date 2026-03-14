@@ -1,15 +1,15 @@
-use crate::application::commands::legacy;
+use crate::application::commands::{legacy, AppState};
 use crate::domain::models::Task;
 use crate::infrastructure::error::InfraError;
 use chrono::Utc;
 use std::collections::HashSet;
 
 pub struct TaskService<'a> {
-    state: &'a legacy::AppState,
+    state: &'a AppState,
 }
 
 impl<'a> TaskService<'a> {
-    pub fn new(state: &'a legacy::AppState) -> Self {
+    pub fn new(state: &'a AppState) -> Self {
         Self { state }
     }
 
@@ -322,8 +322,8 @@ mod tests {
             Self { path }
         }
 
-        fn app_state(&self) -> legacy::AppState {
-            legacy::AppState::new(self.path.clone()).expect("initialize app state")
+        fn app_state(&self) -> AppState {
+            AppState::new(self.path.clone()).expect("initialize app state")
         }
     }
 

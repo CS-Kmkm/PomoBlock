@@ -5,7 +5,7 @@ use crate::infrastructure::error::InfraError;
 pub use super::legacy::CarryOverTaskResponse;
 
 pub fn create_task_impl(
-    state: &super::legacy::AppState,
+    state: &super::bootstrap::AppState,
     title: String,
     description: Option<String>,
     estimated_pomodoros: Option<u32>,
@@ -13,12 +13,12 @@ pub fn create_task_impl(
     TaskService::new(state).create_task(title, description, estimated_pomodoros)
 }
 
-pub fn list_tasks_impl(state: &super::legacy::AppState) -> Result<Vec<Task>, InfraError> {
+pub fn list_tasks_impl(state: &super::bootstrap::AppState) -> Result<Vec<Task>, InfraError> {
     TaskService::new(state).list_tasks()
 }
 
 pub fn update_task_impl(
-    state: &super::legacy::AppState,
+    state: &super::bootstrap::AppState,
     task_id: String,
     title: Option<String>,
     description: Option<String>,
@@ -29,14 +29,14 @@ pub fn update_task_impl(
 }
 
 pub fn delete_task_impl(
-    state: &super::legacy::AppState,
+    state: &super::bootstrap::AppState,
     task_id: String,
 ) -> Result<bool, InfraError> {
     TaskService::new(state).delete_task(task_id)
 }
 
 pub fn split_task_impl(
-    state: &super::legacy::AppState,
+    state: &super::bootstrap::AppState,
     task_id: String,
     parts: u32,
 ) -> Result<Vec<Task>, InfraError> {
@@ -44,7 +44,7 @@ pub fn split_task_impl(
 }
 
 pub fn carry_over_task_impl(
-    state: &super::legacy::AppState,
+    state: &super::bootstrap::AppState,
     task_id: String,
     from_block_id: String,
     candidate_block_ids: Option<Vec<String>>,

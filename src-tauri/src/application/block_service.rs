@@ -1,16 +1,16 @@
 use crate::application::block_generation;
 use crate::application::block_operations;
-use crate::application::commands::legacy;
+use crate::application::commands::AppState;
 use crate::application::studio_template_application::{self, ApplyStudioResult};
 use crate::domain::models::Block;
 use crate::infrastructure::error::InfraError;
 
 pub struct BlockService<'a> {
-    state: &'a legacy::AppState,
+    state: &'a AppState,
 }
 
 impl<'a> BlockService<'a> {
-    pub fn new(state: &'a legacy::AppState) -> Self {
+    pub fn new(state: &'a AppState) -> Self {
         Self { state }
     }
 
@@ -90,6 +90,7 @@ impl<'a> BlockService<'a> {
 mod tests {
     use super::*;
     use crate::application::calendar_sync::CalendarSyncService;
+    use crate::application::commands::legacy;
     use crate::application::reflection_service::ReflectionService;
     use crate::infrastructure::calendar_cache::{CalendarCacheRepository, InMemoryCalendarCacheRepository};
     use crate::infrastructure::event_mapper::{encode_block_event, CalendarEventExtendedProperties, GoogleCalendarEvent};
@@ -122,8 +123,8 @@ mod tests {
             Self { path }
         }
 
-        fn app_state(&self) -> legacy::AppState {
-            legacy::AppState::new(self.path.clone()).expect("initialize app state")
+        fn app_state(&self) -> AppState {
+            AppState::new(self.path.clone()).expect("initialize app state")
         }
     }
 

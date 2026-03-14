@@ -1,12 +1,12 @@
 use crate::application::calendar_window::parse_datetime_input;
-use crate::application::commands::legacy;
+use crate::application::commands::{legacy, AppState};
 use crate::domain::models::PomodoroPhase;
 use crate::infrastructure::error::InfraError;
 use chrono::{Duration, Utc};
 use serde::Serialize;
 
 pub struct ReflectionService<'a> {
-    state: &'a legacy::AppState,
+    state: &'a AppState,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,7 +31,7 @@ pub struct ReflectionSummaryResponse {
 }
 
 impl<'a> ReflectionService<'a> {
-    pub fn new(state: &'a legacy::AppState) -> Self {
+    pub fn new(state: &'a AppState) -> Self {
         Self { state }
     }
 

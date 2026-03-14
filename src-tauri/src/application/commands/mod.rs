@@ -5,6 +5,7 @@ mod catalog;
 pub(crate) mod legacy;
 mod pomodoro;
 mod reflection;
+mod state;
 mod tasks;
 
 pub use blocks::{

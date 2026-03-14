@@ -1,4 +1,4 @@
-use crate::application::commands::legacy;
+use crate::application::commands::{legacy, AppState};
 use crate::application::configured_recipes;
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::pomodoro_session_plan;
@@ -81,11 +81,11 @@ pub struct PomodoroStateResponse {
 }
 
 pub struct PomodoroService<'a> {
-    state: &'a legacy::AppState,
+    state: &'a AppState,
 }
 
 impl<'a> PomodoroService<'a> {
-    pub fn new(state: &'a legacy::AppState) -> Self {
+    pub fn new(state: &'a AppState) -> Self {
         Self { state }
     }
 
@@ -529,8 +529,8 @@ mod tests {
             Self { path }
         }
 
-        fn app_state(&self) -> legacy::AppState {
-            legacy::AppState::new(self.path.clone()).expect("initialize app state")
+        fn app_state(&self) -> AppState {
+            AppState::new(self.path.clone()).expect("initialize app state")
         }
     }
 

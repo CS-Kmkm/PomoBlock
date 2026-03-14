@@ -1,1 +1,1 @@
-pub use super::legacy::AppState;
+pub use super::state::AppState;
