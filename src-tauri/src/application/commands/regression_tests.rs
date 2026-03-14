@@ -1,6 +1,10 @@
+mod auth_support;
 mod auth_calendar_tests;
+mod block_support;
 mod block_generation_tests;
 mod pomodoro_reflection_tests;
+mod pomodoro_support;
+mod runtime_support;
 mod studio_catalog_tests;
-mod support;
 mod task_tests;
+mod workspace_support;

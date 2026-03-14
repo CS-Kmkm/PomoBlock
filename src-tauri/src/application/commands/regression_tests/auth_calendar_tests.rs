@@ -1,4 +1,6 @@
-use super::support::{lock_runtime, load_oauth_config_from_lookup, InfraError, TempWorkspace, DEFAULT_ACCOUNT_ID};
+use super::auth_support::{load_oauth_config_from_lookup, InfraError, DEFAULT_ACCOUNT_ID};
+use super::runtime_support::lock_runtime;
+use super::workspace_support::TempWorkspace;
 use crate::infrastructure::event_mapper::{CalendarEventDateTime, GoogleCalendarEvent};
 
 #[test]
