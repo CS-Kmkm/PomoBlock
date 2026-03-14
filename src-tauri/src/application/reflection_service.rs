@@ -1,5 +1,6 @@
 use crate::application::calendar_window::parse_datetime_input;
-use crate::application::commands::{legacy, AppState};
+use crate::application::commands::AppState;
+use crate::application::pomodoro_log_store::load_pomodoro_logs;
 use crate::domain::models::PomodoroPhase;
 use crate::infrastructure::error::InfraError;
 use chrono::{Duration, Utc};
@@ -55,7 +56,7 @@ impl<'a> ReflectionService<'a> {
             ));
         }
 
-        let logs_in_range = legacy::load_pomodoro_logs(self.state.database_path(), start, end)?;
+        let logs_in_range = load_pomodoro_logs(self.state.database_path(), start, end)?;
 
         let completed_count = logs_in_range
             .iter()

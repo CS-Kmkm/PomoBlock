@@ -1,3 +1,4 @@
+pub mod audit_log;
 pub mod bootstrap;
 pub mod calendar_runtime;
 pub mod calendar_window;
@@ -15,10 +16,12 @@ pub mod external_edit_service;
 pub mod id_factory;
 pub mod oauth;
 pub mod policy_service;
+pub mod pomodoro_log_store;
 pub mod pomodoro_session_plan;
 pub mod pomodoro_service;
 pub mod reflection_service;
 pub mod routine_sync_service;
 pub mod studio_template_application;
 pub mod task_service;
+pub mod task_runtime;
 pub mod time_slots;

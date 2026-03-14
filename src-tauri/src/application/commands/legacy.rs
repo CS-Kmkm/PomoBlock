@@ -1,14 +1,5 @@
-use crate::application::calendar_window::parse_datetime_input;
-use crate::domain::models::{PomodoroLog, PomodoroPhase, TaskStatus};
-use crate::infrastructure::error::InfraError;
-use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
-use std::path::Path;
-pub(crate) use super::state::{lock_runtime, RuntimeState};
 #[cfg(test)]
-pub(crate) use super::state::{
-    assigned_task_for_block_for_tests, seed_synced_events_for_tests, StoredBlock,
-};
+pub(crate) use super::state::{lock_runtime, RuntimeState, StoredBlock};
 #[cfg(test)]
 pub(crate) use crate::application::calendar_runtime::collect_relocation_target_block_ids;
 #[cfg(test)]
@@ -26,11 +17,15 @@ use crate::application::pomodoro_session_plan;
 #[cfg(test)]
 use crate::application::configured_recipes;
 #[cfg(test)]
+use crate::domain::models::TaskStatus;
+#[cfg(test)]
 use crate::domain::models::Block;
+#[cfg(test)]
+use crate::infrastructure::error::InfraError;
 #[cfg(test)]
 use crate::application::time_slots::{intervals_overlap, Interval};
 #[cfg(test)]
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 #[cfg(test)]
 use std::path::PathBuf;
 #[cfg(test)]
@@ -38,110 +33,6 @@ use std::time::Instant;
 
 #[cfg(test)]
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
-
-fn parse_pomodoro_phase(value: &str) -> Result<PomodoroPhase, InfraError> {
-    match value.trim() {
-        "focus" => Ok(PomodoroPhase::Focus),
-        "break" => Ok(PomodoroPhase::Break),
-        "long_break" => Ok(PomodoroPhase::LongBreak),
-        "paused" => Ok(PomodoroPhase::Paused),
-        other => Err(InfraError::InvalidConfig(format!(
-            "unsupported pomodoro phase: {}",
-            other
-        ))),
-    }
-}
-
-pub(crate) fn append_audit_log(
-    database_path: &Path,
-    event_type: &str,
-    payload: &serde_json::Value,
-) -> Result<(), InfraError> {
-    let connection = Connection::open(database_path)?;
-    connection.execute(
-        "INSERT INTO audit_logs (event_type, payload_json, created_at) VALUES (?1, ?2, ?3)",
-        params![event_type, serde_json::to_string(payload)?, Utc::now().to_rfc3339()],
-    )?;
-    Ok(())
-}
-
-pub(crate) fn load_pomodoro_logs(
-    database_path: &Path,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> Result<Vec<PomodoroLog>, InfraError> {
-    let connection = Connection::open(database_path)?;
-    let mut statement = connection.prepare(
-        "SELECT id, block_id, task_id, start_time, end_time, phase, interruption_reason
-         FROM pomodoro_logs
-         WHERE start_time >= ?1 AND start_time <= ?2
-         ORDER BY start_time ASC",
-    )?;
-    let mut rows = statement.query(params![start.to_rfc3339(), end.to_rfc3339()])?;
-    let mut logs = Vec::new();
-    while let Some(row) = rows.next()? {
-        let start_time = parse_datetime_input(&row.get::<_, String>(3)?, "pomodoro_logs.start_time")?;
-        let end_time = row
-            .get::<_, Option<String>>(4)?
-            .map(|value| parse_datetime_input(&value, "pomodoro_logs.end_time"))
-            .transpose()?;
-        logs.push(PomodoroLog {
-            id: row.get(0)?,
-            block_id: row.get(1)?,
-            task_id: row.get(2)?,
-            start_time,
-            end_time,
-            phase: parse_pomodoro_phase(&row.get::<_, String>(5)?)?,
-            interruption_reason: row.get(6)?,
-        });
-    }
-    Ok(logs)
-}
-
-pub(crate) fn parse_task_status(value: &str) -> Result<TaskStatus, InfraError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "pending" => Ok(TaskStatus::Pending),
-        "in_progress" | "in-progress" => Ok(TaskStatus::InProgress),
-        "completed" => Ok(TaskStatus::Completed),
-        "deferred" => Ok(TaskStatus::Deferred),
-        other => Err(InfraError::InvalidConfig(format!(
-            "unsupported task status: {}",
-            other
-        ))),
-    }
-}
-
-pub(crate) fn task_status_as_str(value: &TaskStatus) -> &'static str {
-    match value {
-        TaskStatus::Pending => "pending",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::Completed => "completed",
-        TaskStatus::Deferred => "deferred",
-    }
-}
-
-pub(crate) fn assign_task_to_block(runtime: &mut RuntimeState, task_id: &str, block_id: &str) {
-    if let Some(previous_block_id) = runtime
-        .task_assignments_by_task
-        .insert(task_id.to_string(), block_id.to_string())
-    {
-        runtime.task_assignments_by_block.remove(previous_block_id.as_str());
-    }
-    if let Some(previous_task_id) = runtime
-        .task_assignments_by_block
-        .insert(block_id.to_string(), task_id.to_string())
-    {
-        runtime.task_assignments_by_task.remove(previous_task_id.as_str());
-    }
-}
-
-pub(crate) fn unassign_task(runtime: &mut RuntimeState, task_id: &str) -> Option<String> {
-    let previous_block_id = runtime.task_assignments_by_task.remove(task_id)?;
-    runtime
-        .task_assignments_by_block
-        .remove(previous_block_id.as_str());
-    Some(previous_block_id)
-}
 
 #[cfg(test)]
 mod tests {

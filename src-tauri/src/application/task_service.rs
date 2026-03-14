@@ -1,6 +1,10 @@
-use crate::application::commands::{legacy, AppState};
-use crate::domain::models::Task;
+use crate::application::audit_log::append_audit_log;
+use crate::application::commands::{lock_runtime, AppState};
 use crate::application::id_factory::next_id;
+use crate::application::task_runtime::{
+    assign_task_to_block, parse_task_status, task_status_as_str, unassign_task,
+};
+use crate::domain::models::Task;
 use crate::infrastructure::error::InfraError;
 use chrono::Utc;
 use serde::Serialize;
@@ -51,7 +55,7 @@ impl<'a> TaskService<'a> {
         };
 
         {
-            let mut runtime = legacy::lock_runtime(self.state)?;
+            let mut runtime = lock_runtime(self.state)?;
             runtime.task_order.push(task.id.clone());
             runtime.tasks.insert(task.id.clone(), task.clone());
         }
@@ -62,7 +66,7 @@ impl<'a> TaskService<'a> {
     }
 
     pub fn list_tasks(&self) -> Result<Vec<Task>, InfraError> {
-        let runtime = legacy::lock_runtime(self.state)?;
+        let runtime = lock_runtime(self.state)?;
         let mut tasks = runtime
             .task_order
             .iter()
@@ -87,7 +91,7 @@ impl<'a> TaskService<'a> {
             ));
         }
 
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         let Some(task) = runtime.tasks.get_mut(task_id) else {
             return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
         };
@@ -116,7 +120,7 @@ impl<'a> TaskService<'a> {
         }
 
         if let Some(status) = status {
-            task.status = legacy::parse_task_status(&status)?;
+            task.status = parse_task_status(&status)?;
         }
 
         let updated = task.clone();
@@ -134,13 +138,13 @@ impl<'a> TaskService<'a> {
             ));
         }
 
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         let removed = runtime.tasks.remove(task_id).is_some();
         if !removed {
             return Ok(false);
         }
         runtime.task_order.retain(|candidate| candidate != task_id);
-        legacy::unassign_task(&mut runtime, task_id);
+        unassign_task(&mut runtime, task_id);
         if runtime.pomodoro.current_task_id.as_deref() == Some(task_id) {
             runtime.pomodoro.current_task_id = None;
         }
@@ -161,7 +165,7 @@ impl<'a> TaskService<'a> {
             return Err(InfraError::InvalidConfig("parts must be >= 2".to_string()));
         }
 
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         let Some(parent) = runtime.tasks.get_mut(task_id) else {
             return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
         };
@@ -175,7 +179,7 @@ impl<'a> TaskService<'a> {
         if runtime.pomodoro.current_task_id.as_deref() == Some(task_id) {
             runtime.pomodoro.current_task_id = None;
         }
-        legacy::unassign_task(&mut runtime, task_id);
+        unassign_task(&mut runtime, task_id);
 
         let mut children = Vec::new();
         let now = Utc::now();
@@ -195,7 +199,7 @@ impl<'a> TaskService<'a> {
         }
 
         drop(runtime);
-        legacy::append_audit_log(
+        append_audit_log(
             self.state.database_path(),
             "task_split",
             &serde_json::json!({
@@ -236,7 +240,7 @@ impl<'a> TaskService<'a> {
             .filter(|value| !value.is_empty())
             .collect::<HashSet<_>>();
 
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if !runtime.tasks.contains_key(task_id) {
             return Err(InfraError::InvalidConfig(format!("task not found: {}", task_id)));
         }
@@ -265,7 +269,7 @@ impl<'a> TaskService<'a> {
             .find(|block| !runtime.task_assignments_by_block.contains_key(block.id.as_str()))
             .ok_or_else(|| InfraError::InvalidConfig("no available block for carry-over".to_string()))?;
 
-        legacy::assign_task_to_block(&mut runtime, task_id, next_block.id.as_str());
+        assign_task_to_block(&mut runtime, task_id, next_block.id.as_str());
         if let Some(task) = runtime.tasks.get_mut(task_id) {
             task.status = crate::domain::models::TaskStatus::InProgress;
         }
@@ -273,7 +277,7 @@ impl<'a> TaskService<'a> {
         let status = runtime
             .tasks
             .get(task_id)
-            .map(|task| legacy::task_status_as_str(&task.status).to_string())
+            .map(|task| task_status_as_str(&task.status).to_string())
             .unwrap_or_else(|| "in_progress".to_string());
         let response = CarryOverTaskResponse {
             task_id: task_id.to_string(),
@@ -283,7 +287,7 @@ impl<'a> TaskService<'a> {
         };
 
         drop(runtime);
-        legacy::append_audit_log(
+        append_audit_log(
             self.state.database_path(),
             "task_carried_over",
             &serde_json::json!({
@@ -307,6 +311,7 @@ impl<'a> TaskService<'a> {
 mod tests {
     use super::*;
     use crate::application::block_service::BlockService;
+    use crate::application::commands::lock_runtime;
     use crate::application::pomodoro_service::PomodoroService;
     use crate::domain::models::TaskStatus;
     use crate::infrastructure::local_repository::LocalRepository;
@@ -366,9 +371,11 @@ mod tests {
 
         assert_eq!(started.current_task_id.as_deref(), Some(task.id.as_str()));
         assert_eq!(
-            legacy::assigned_task_for_block_for_tests(&state, &blocks[0].id)
-                .expect("assignment lookup")
-                .as_deref(),
+            lock_runtime(&state)
+                .expect("runtime lock")
+                .task_assignments_by_block
+                .get(blocks[0].id.as_str())
+                .map(String::as_str),
             Some(task.id.as_str())
         );
         assert!(audit_logs.iter().any(|row| {
@@ -413,9 +420,11 @@ mod tests {
         assert_eq!(result.to_block_id, blocks[1].id);
         assert_eq!(result.status, "in_progress");
         assert_eq!(
-            legacy::assigned_task_for_block_for_tests(&state, &blocks[1].id)
-                .expect("assignment lookup")
-                .as_deref(),
+            lock_runtime(&state)
+                .expect("runtime lock")
+                .task_assignments_by_block
+                .get(blocks[1].id.as_str())
+                .map(String::as_str),
             Some(task.id.as_str())
         );
         assert!(audit_logs.iter().any(|row| {

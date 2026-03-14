@@ -1,14 +1,15 @@
-use crate::application::commands::{legacy, AppState};
+use crate::application::audit_log::append_audit_log;
+use crate::application::commands::{lock_runtime, AppState};
 use crate::application::configured_recipes;
 use crate::application::id_factory::next_id;
 use crate::application::policy_service::load_runtime_policy;
+use crate::application::pomodoro_log_store::save_pomodoro_log;
 use crate::application::pomodoro_session_plan;
+use crate::application::task_runtime::assign_task_to_block;
 use crate::domain::models::{PomodoroLog, PomodoroPhase, TaskStatus};
 use crate::infrastructure::error::InfraError;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
 use serde::Serialize;
-use std::path::Path;
 
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
@@ -103,7 +104,7 @@ impl<'a> PomodoroService<'a> {
         }
 
         let policy = load_runtime_policy(self.state.config_dir());
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         let block = runtime
             .blocks
             .get(block_id)
@@ -137,7 +138,7 @@ impl<'a> PomodoroService<'a> {
         runtime.pomodoro.current_block_id = Some(block_id.to_string());
         runtime.pomodoro.current_task_id = normalized_task_id;
         if let Some(task_id) = runtime.pomodoro.current_task_id.clone() {
-            legacy::assign_task_to_block(&mut runtime, task_id.as_str(), block_id);
+            assign_task_to_block(&mut runtime, task_id.as_str(), block_id);
             if let Some(task) = runtime.tasks.get_mut(task_id.as_str()) {
                 if task.status != TaskStatus::Completed {
                     task.status = TaskStatus::InProgress;
@@ -153,7 +154,7 @@ impl<'a> PomodoroService<'a> {
         start_pomodoro_phase(&mut runtime.pomodoro, PomodoroRuntimePhase::Focus, now)?;
 
         if let Some(task_id) = runtime.pomodoro.current_task_id.clone() {
-            legacy::append_audit_log(
+            append_audit_log(
                 self.state.database_path(),
                 "task_selected",
                 &serde_json::json!({
@@ -194,7 +195,7 @@ impl<'a> PomodoroService<'a> {
         &self,
         reason: Option<String>,
     ) -> Result<PomodoroStateResponse, InfraError> {
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if runtime.pomodoro.phase == PomodoroRuntimePhase::Idle {
             return Ok(to_pomodoro_state_response(&runtime.pomodoro));
         }
@@ -224,7 +225,7 @@ impl<'a> PomodoroService<'a> {
         &self,
         reason: Option<String>,
     ) -> Result<PomodoroStateResponse, InfraError> {
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if runtime.pomodoro.phase != PomodoroRuntimePhase::Focus
             && runtime.pomodoro.phase != PomodoroRuntimePhase::Break
         {
@@ -259,7 +260,7 @@ impl<'a> PomodoroService<'a> {
     }
 
     pub fn resume_pomodoro(&self) -> Result<PomodoroStateResponse, InfraError> {
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if runtime.pomodoro.phase != PomodoroRuntimePhase::Paused {
             return Err(InfraError::InvalidConfig("timer is not paused".to_string()));
         }
@@ -304,7 +305,7 @@ impl<'a> PomodoroService<'a> {
     }
 
     pub fn advance_pomodoro(&self) -> Result<PomodoroStateResponse, InfraError> {
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if runtime.pomodoro.phase != PomodoroRuntimePhase::Focus
             && runtime.pomodoro.phase != PomodoroRuntimePhase::Break
         {
@@ -353,7 +354,7 @@ impl<'a> PomodoroService<'a> {
     }
 
     pub fn complete_pomodoro(&self) -> Result<PomodoroStateResponse, InfraError> {
-        let mut runtime = legacy::lock_runtime(self.state)?;
+        let mut runtime = lock_runtime(self.state)?;
         if runtime.pomodoro.phase == PomodoroRuntimePhase::Idle {
             return Ok(to_pomodoro_state_response(&runtime.pomodoro));
         }
@@ -377,7 +378,7 @@ impl<'a> PomodoroService<'a> {
     }
 
     pub fn get_state(&self) -> Result<PomodoroStateResponse, InfraError> {
-        let runtime = legacy::lock_runtime(self.state)?;
+        let runtime = lock_runtime(self.state)?;
         Ok(to_pomodoro_state_response(&runtime.pomodoro))
     }
 }
@@ -466,40 +467,6 @@ fn to_pomodoro_state_response(state: &PomodoroRuntimeState) -> PomodoroStateResp
         total_cycles: state.total_cycles,
         completed_cycles: state.completed_cycles,
         current_cycle: state.current_cycle,
-    }
-}
-
-fn save_pomodoro_log(database_path: &Path, log: &PomodoroLog) -> Result<(), InfraError> {
-    let connection = Connection::open(database_path)?;
-    connection.execute(
-        "INSERT INTO pomodoro_logs (id, block_id, task_id, start_time, end_time, phase, interruption_reason)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-         ON CONFLICT(id) DO UPDATE SET
-           block_id = excluded.block_id,
-           task_id = excluded.task_id,
-           start_time = excluded.start_time,
-           end_time = excluded.end_time,
-           phase = excluded.phase,
-           interruption_reason = excluded.interruption_reason",
-        params![
-            log.id,
-            log.block_id,
-            log.task_id,
-            log.start_time.to_rfc3339(),
-            log.end_time.map(|value| value.to_rfc3339()),
-            pomodoro_phase_as_str(&log.phase),
-            log.interruption_reason,
-        ],
-    )?;
-    Ok(())
-}
-
-fn pomodoro_phase_as_str(value: &PomodoroPhase) -> &'static str {
-    match value {
-        PomodoroPhase::Focus => "focus",
-        PomodoroPhase::Break => "break",
-        PomodoroPhase::LongBreak => "long_break",
-        PomodoroPhase::Paused => "paused",
     }
 }
 

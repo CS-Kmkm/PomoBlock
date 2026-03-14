@@ -90,7 +90,7 @@ impl<'a> BlockService<'a> {
 mod tests {
     use super::*;
     use crate::application::calendar_sync::CalendarSyncService;
-    use crate::application::commands::legacy;
+    use crate::application::commands::seed_synced_events_for_tests;
     use crate::application::reflection_service::ReflectionService;
     use crate::infrastructure::calendar_cache::{CalendarCacheRepository, InMemoryCalendarCacheRepository};
     use crate::infrastructure::event_mapper::{encode_block_event, CalendarEventExtendedProperties, GoogleCalendarEvent};
@@ -356,7 +356,7 @@ mod tests {
             .expect("generate blocks");
         let block = generated[0].clone();
 
-        legacy::seed_synced_events_for_tests(
+        seed_synced_events_for_tests(
             &state,
             "default",
             vec![GoogleCalendarEvent {
@@ -401,7 +401,7 @@ mod tests {
             .expect("generate blocks");
         let block = generated[0].clone();
 
-        legacy::seed_synced_events_for_tests(
+        seed_synced_events_for_tests(
             &state,
             "default",
             vec![GoogleCalendarEvent {
