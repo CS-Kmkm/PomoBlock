@@ -1,9 +1,13 @@
 use crate::application::calendar_sync::CalendarSyncService;
+use crate::application::calendar_runtime::{
+    clear_user_deleted_suppressions_for_date, load_suppressions,
+};
+use crate::application::commands::{
+    block_runtime_snapshot, ensure_blocks_calendar_id, normalize_account_id,
+    persist_generated_blocks, try_access_token, AppState, StoredBlock,
+};
 use crate::application::commands::legacy::{
-    block_runtime_snapshot, clear_user_deleted_suppressions_for_date,
-    create_calendar_events_for_generated_blocks, ensure_blocks_calendar_id, load_suppressions,
-    next_id, normalize_account_id, persist_generated_blocks, planned_pomodoros,
-    try_access_token, AppState, StoredBlock,
+    create_calendar_events_for_generated_blocks, next_id, planned_pomodoros,
 };
 use crate::application::configured_block_plans;
 use crate::application::configured_recipes;

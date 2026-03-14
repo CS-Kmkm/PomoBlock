@@ -1,7 +1,7 @@
 use crate::application::calendar_sync::CalendarSyncService;
-use crate::application::commands::legacy::{
-    is_cancelled_event, lock_runtime, normalize_account_id, save_suppression,
-    try_access_token, AppState, DEFAULT_ACCOUNT_ID,
+use crate::application::calendar_runtime::{is_cancelled_event, save_suppression};
+use crate::application::commands::{
+    lock_runtime, normalize_account_id, try_access_token, AppState, DEFAULT_ACCOUNT_ID,
 };
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::time_slots::{

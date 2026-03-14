@@ -1,3 +1,4 @@
+mod auth;
 mod blocks;
 mod bootstrap;
 mod calendar;
@@ -33,4 +34,11 @@ pub use crate::application::studio_template_application::ApplyStudioResult;
 pub use tasks::{
     carry_over_task_impl, create_task_impl, delete_task_impl, list_tasks_impl, split_task_impl,
     update_task_impl, CarryOverTaskResponse,
+};
+pub(crate) use auth::{
+    ensure_blocks_calendar_id, normalize_account_id, try_access_token, DEFAULT_ACCOUNT_ID,
+};
+pub(crate) use state::{
+    block_runtime_snapshot, lock_runtime, persist_generated_block, persist_generated_blocks,
+    studio_runtime_snapshot, RuntimeState, StoredBlock,
 };

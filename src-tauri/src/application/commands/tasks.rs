@@ -1,8 +1,7 @@
+pub use crate::application::task_service::CarryOverTaskResponse;
 use crate::application::task_service::TaskService;
 use crate::domain::models::Task;
 use crate::infrastructure::error::InfraError;
-
-pub use super::legacy::CarryOverTaskResponse;
 
 pub fn create_task_impl(
     state: &super::bootstrap::AppState,

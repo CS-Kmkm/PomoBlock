@@ -1,8 +1,8 @@
 use super::bootstrap::AppState;
-use super::legacy::{
-    auto_relocate_after_sync, ensure_blocks_calendar_id, normalize_account_id,
-    required_access_token, save_suppressions,
+use super::auth::{
+    ensure_blocks_calendar_id, normalize_account_id, required_access_token,
 };
+use crate::application::calendar_runtime::{auto_relocate_after_sync, save_suppressions};
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::calendar_window::resolve_sync_window;
 use crate::application::policy_service::load_runtime_policy;
@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-pub use super::legacy::{
+pub use super::auth::{
     authenticate_google_impl, authenticate_google_sso_impl, AuthenticateGoogleResponse,
 };
 

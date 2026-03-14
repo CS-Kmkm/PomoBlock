@@ -1,8 +1,10 @@
 use crate::application::calendar_sync::CalendarSyncService;
+use crate::application::commands::{
+    ensure_blocks_calendar_id, normalize_account_id, persist_generated_block,
+    studio_runtime_snapshot, try_access_token, AppState, StoredBlock,
+};
 use crate::application::commands::legacy::{
-    create_calendar_events_for_generated_blocks, ensure_blocks_calendar_id, next_id,
-    normalize_account_id, persist_generated_block, planned_pomodoros, studio_runtime_snapshot,
-    try_access_token, AppState, StoredBlock,
+    create_calendar_events_for_generated_blocks, next_id, planned_pomodoros,
 };
 use crate::application::configured_recipes;
 use crate::application::policy_service::load_runtime_policy;

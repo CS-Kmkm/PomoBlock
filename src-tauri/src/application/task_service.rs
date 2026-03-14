@@ -2,7 +2,16 @@ use crate::application::commands::{legacy, AppState};
 use crate::domain::models::Task;
 use crate::infrastructure::error::InfraError;
 use chrono::Utc;
+use serde::Serialize;
 use std::collections::HashSet;
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CarryOverTaskResponse {
+    pub task_id: String,
+    pub from_block_id: String,
+    pub to_block_id: String,
+    pub status: String,
+}
 
 pub struct TaskService<'a> {
     state: &'a AppState,
@@ -205,7 +214,7 @@ impl<'a> TaskService<'a> {
         task_id: String,
         from_block_id: String,
         candidate_block_ids: Option<Vec<String>>,
-    ) -> Result<legacy::CarryOverTaskResponse, InfraError> {
+    ) -> Result<CarryOverTaskResponse, InfraError> {
         let task_id = task_id.trim();
         if task_id.is_empty() {
             return Err(InfraError::InvalidConfig(
@@ -265,7 +274,7 @@ impl<'a> TaskService<'a> {
             .get(task_id)
             .map(|task| legacy::task_status_as_str(&task.status).to_string())
             .unwrap_or_else(|| "in_progress".to_string());
-        let response = legacy::CarryOverTaskResponse {
+        let response = CarryOverTaskResponse {
             task_id: task_id.to_string(),
             from_block_id: from_block_id.to_string(),
             to_block_id: next_block.id,
