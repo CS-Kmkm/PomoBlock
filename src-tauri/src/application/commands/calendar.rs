@@ -1,18 +1,17 @@
 use super::bootstrap::AppState;
 use super::auth::{
-    ensure_blocks_calendar_id, normalize_account_id, required_access_token,
+    normalize_account_id, required_access_token,
+};
+use crate::application::calendar_services::{
+    build_reqwest_calendar_sync_service, ensure_blocks_calendar_for_account,
 };
 use crate::application::calendar_runtime::{auto_relocate_after_sync, save_suppressions};
-use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::calendar_window::resolve_sync_window;
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::time_slots::{clip_interval, event_to_interval, merge_intervals};
 use crate::infrastructure::error::InfraError;
-use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
-use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
 use serde::Serialize;
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Instant;
 
 pub use super::auth::{
@@ -50,21 +49,8 @@ pub async fn sync_calendar_impl(
     let policy = load_runtime_policy(state.config_dir());
     let access_token = required_access_token(Some(account_id.clone())).await?;
     let (window_start, window_end) = resolve_sync_window(time_min, time_max)?;
-    let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-    let calendar_id = ensure_blocks_calendar_id(
-        state.config_dir(),
-        &access_token,
-        Arc::clone(&calendar_client),
-        &account_id,
-    )
-    .await?;
-
-    let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-    let sync_service = CalendarSyncService::new(
-        Arc::clone(&calendar_client),
-        sync_state_repo,
-        state.calendar_cache(),
-    );
+    let calendar_id = ensure_blocks_calendar_for_account(state, &access_token, &account_id).await?;
+    let sync_service = build_reqwest_calendar_sync_service(state);
     let sync_result = sync_service
         .sync(&access_token, &calendar_id, window_start, window_end)
         .await?;

@@ -1,6 +1,7 @@
 pub mod audit_log;
 pub mod bootstrap;
 pub mod calendar_runtime;
+pub(crate) mod calendar_services;
 pub mod calendar_window;
 pub mod calendar_sync;
 pub mod calendar_setup;

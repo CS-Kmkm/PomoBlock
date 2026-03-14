@@ -12,7 +12,7 @@ const ROUTINES_JSON: &str = "routines.json";
 const RECIPES_JSON: &str = "recipes.json";
 const MODULES_JSON: &str = "modules.json";
 const OVERRIDES_JSON: &str = "overrides.json";
-const DEFAULT_ACCOUNT_ID: &str = "default";
+pub(crate) const DEFAULT_ACCOUNT_ID: &str = "default";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigBundle {

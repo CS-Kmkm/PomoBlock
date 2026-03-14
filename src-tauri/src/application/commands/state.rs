@@ -2,10 +2,8 @@ use crate::application::bootstrap::bootstrap_workspace;
 use crate::application::pomodoro_service::PomodoroRuntimeState;
 use crate::domain::models::{Block, Task};
 use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
-use crate::infrastructure::config::ensure_default_configs;
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::event_mapper::GoogleCalendarEvent;
-use crate::infrastructure::storage::initialize_database;
 use chrono::{NaiveDate, Utc};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -44,16 +42,11 @@ pub struct AppState {
 impl AppState {
     pub fn new(workspace_root: PathBuf) -> Result<Self, InfraError> {
         let bootstrap = bootstrap_workspace(&workspace_root)?;
-        let config_dir = workspace_root.join("config");
-        let logs_dir = workspace_root.join("logs");
-
-        ensure_default_configs(&config_dir)?;
-        initialize_database(&bootstrap.database_path)?;
 
         Ok(Self {
-            config_dir,
+            config_dir: bootstrap.config_dir,
             database_path: bootstrap.database_path,
-            logs_dir,
+            logs_dir: bootstrap.logs_dir,
             calendar_cache: Arc::new(InMemoryCalendarCacheRepository::default()),
             runtime: Mutex::new(RuntimeState::default()),
             log_guard: Mutex::new(()),

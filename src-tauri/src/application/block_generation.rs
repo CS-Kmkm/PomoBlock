@@ -1,13 +1,15 @@
 use crate::application::block_calendar_events::{
     create_calendar_events_for_generated_blocks, planned_pomodoros,
 };
-use crate::application::calendar_sync::CalendarSyncService;
+use crate::application::calendar_services::{
+    build_reqwest_calendar_sync_service, resolve_cached_blocks_calendar_id,
+};
 use crate::application::calendar_runtime::{
     clear_user_deleted_suppressions_for_date, load_suppressions,
 };
 use crate::application::commands::{
-    block_runtime_snapshot, ensure_blocks_calendar_id, normalize_account_id,
-    persist_generated_blocks, try_access_token, AppState, StoredBlock,
+    block_runtime_snapshot, normalize_account_id, persist_generated_blocks, try_access_token,
+    AppState, StoredBlock,
 };
 use crate::application::configured_block_plans;
 use crate::application::configured_recipes;
@@ -18,13 +20,9 @@ use crate::application::time_slots::{
     merge_intervals, Interval,
 };
 use crate::domain::models::{Block, BlockContents, Firmness};
-use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::error::InfraError;
-use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
-use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
 use chrono::{Datelike, Duration, NaiveDate, Utc};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::Instant;
 
 const BLOCK_GENERATION_TARGET_MS: u128 = 30_000;
@@ -282,31 +280,15 @@ async fn generate_blocks_with_limit(
     }
 
     let access_token = try_access_token(Some(account_id.clone())).await?;
-    if !blocks_calendar_ids.contains_key(&account_id) {
-        if let Some(token) = access_token.as_deref() {
-            let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-            let resolved = ensure_blocks_calendar_id(
-                state.config_dir(),
-                token,
-                Arc::clone(&calendar_client),
-                &account_id,
-            )
-            .await?;
-            blocks_calendar_ids.insert(account_id.clone(), resolved);
-        }
-    }
-
-    let calendar_id = blocks_calendar_ids.get(&account_id).map(String::as_str);
-    if let (Some(token), Some(calendar_id)) = (access_token.as_deref(), calendar_id) {
-        let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-        let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-        let sync_service = Arc::new(
-            CalendarSyncService::<
-                ReqwestGoogleCalendarClient,
-                SqliteSyncStateRepository,
-                InMemoryCalendarCacheRepository,
-            >::new(Arc::clone(&calendar_client), sync_state_repo, state.calendar_cache()),
-        );
+    let calendar_id = resolve_cached_blocks_calendar_id(
+        state,
+        access_token.as_deref(),
+        &account_id,
+        &mut blocks_calendar_ids,
+    )
+    .await?;
+    if let (Some(token), Some(calendar_id)) = (access_token.as_deref(), calendar_id.as_deref()) {
+        let sync_service = std::sync::Arc::new(build_reqwest_calendar_sync_service(state));
         create_calendar_events_for_generated_blocks(sync_service, token, calendar_id, &mut generated)
             .await?;
     }

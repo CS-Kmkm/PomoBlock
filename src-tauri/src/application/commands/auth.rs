@@ -2,6 +2,7 @@ use super::state::AppState;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
 use crate::application::id_factory::next_id;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
+pub(crate) use crate::infrastructure::config::DEFAULT_ACCOUNT_ID;
 use crate::infrastructure::credential_store::WindowsCredentialManagerStore;
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
@@ -17,7 +18,6 @@ use url::Url;
 
 const DEFAULT_REDIRECT_URI: &str = "http://127.0.0.1:8080/oauth2/callback";
 const DEFAULT_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
-pub(crate) const DEFAULT_ACCOUNT_ID: &str = "default";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AuthenticateGoogleResponse {

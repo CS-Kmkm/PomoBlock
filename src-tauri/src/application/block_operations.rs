@@ -1,4 +1,6 @@
-use crate::application::calendar_sync::CalendarSyncService;
+use crate::application::calendar_services::{
+    build_reqwest_calendar_sync_service, ReqwestCalendarSyncService,
+};
 use crate::application::calendar_runtime::{is_cancelled_event, save_suppression};
 use crate::application::commands::{
     lock_runtime, normalize_account_id, try_access_token, AppState, DEFAULT_ACCOUNT_ID,
@@ -9,14 +11,10 @@ use crate::application::time_slots::{
     merge_intervals, parse_rfc3339_input, Interval,
 };
 use crate::domain::models::{Block, Firmness};
-use crate::infrastructure::calendar_cache::InMemoryCalendarCacheRepository;
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::event_mapper::encode_block_event;
-use crate::infrastructure::google_calendar_client::ReqwestGoogleCalendarClient;
-use crate::infrastructure::sync_state_repository::SqliteSyncStateRepository;
 use chrono::NaiveDate;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 pub async fn approve_blocks(
     state: &AppState,
@@ -396,14 +394,6 @@ pub fn list_blocks(state: &AppState, date: Option<String>) -> Result<Vec<Block>,
     Ok(blocks)
 }
 
-fn build_sync_service(
-    state: &AppState,
-) -> CalendarSyncService<
-    ReqwestGoogleCalendarClient,
-    SqliteSyncStateRepository,
-    InMemoryCalendarCacheRepository,
-> {
-    let calendar_client = Arc::new(ReqwestGoogleCalendarClient::new());
-    let sync_state_repo = Arc::new(SqliteSyncStateRepository::new(state.database_path()));
-    CalendarSyncService::new(calendar_client, sync_state_repo, state.calendar_cache())
+fn build_sync_service(state: &AppState) -> ReqwestCalendarSyncService {
+    build_reqwest_calendar_sync_service(state)
 }
