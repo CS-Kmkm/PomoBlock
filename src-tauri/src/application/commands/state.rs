@@ -230,12 +230,3 @@ pub(crate) fn seed_synced_events_for_tests(
         .insert(account_id.trim().to_string(), events);
     Ok(())
 }
-
-#[cfg(test)]
-pub(crate) fn assigned_task_for_block_for_tests(
-    state: &AppState,
-    block_id: &str,
-) -> Result<Option<String>, InfraError> {
-    let runtime = lock_runtime(state)?;
-    Ok(runtime.task_assignments_by_block.get(block_id).cloned())
-}

@@ -3,6 +3,7 @@ mod blocks;
 mod bootstrap;
 mod calendar;
 mod catalog;
+#[cfg(test)]
 pub(crate) mod legacy;
 mod pomodoro;
 mod reflection;
