@@ -4,7 +4,7 @@ use super::block_support::{
     BLOCK_GENERATION_TARGET_MS,
 };
 use super::runtime_support::{lock_runtime, StoredBlock};
-use super::workspace_support::TempWorkspace;
+use crate::application::test_support::workspace::TempWorkspace;
 use crate::application::commands::{
     adjust_block_time_impl, approve_blocks_impl, delete_block_impl, generate_blocks_impl,
     generate_one_block_impl, list_blocks_impl, relocate_if_needed_impl,

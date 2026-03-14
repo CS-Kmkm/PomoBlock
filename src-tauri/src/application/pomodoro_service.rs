@@ -475,38 +475,7 @@ mod tests {
     use super::*;
     use crate::application::block_service::BlockService;
     use crate::application::reflection_service::ReflectionService;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static NEXT_TEMP_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
-
-    struct TempWorkspace {
-        path: PathBuf,
-    }
-
-    impl TempWorkspace {
-        fn new() -> Self {
-            let sequence = NEXT_TEMP_WORKSPACE.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "pomoblock-pomodoro-service-tests-{}-{}",
-                std::process::id(),
-                sequence
-            ));
-            fs::create_dir_all(&path).expect("create temp workspace");
-            Self { path }
-        }
-
-        fn app_state(&self) -> AppState {
-            AppState::new(self.path.clone()).expect("initialize app state")
-        }
-    }
-
-    impl Drop for TempWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
+    use crate::application::test_support::workspace::TempWorkspace;
 
     #[tokio::test]
     async fn property_16_break_phase_starts_automatically_after_focus_ends() {

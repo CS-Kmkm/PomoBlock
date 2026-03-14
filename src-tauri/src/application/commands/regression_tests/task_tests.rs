@@ -1,5 +1,5 @@
 use super::runtime_support::{lock_runtime, TaskStatus};
-use super::workspace_support::TempWorkspace;
+use crate::application::test_support::workspace::TempWorkspace;
 use crate::application::commands::{
     carry_over_task_impl, create_task_impl, delete_task_impl, generate_blocks_impl, list_tasks_impl,
     split_task_impl, update_task_impl,

@@ -2,7 +2,7 @@ use super::auth_support::DEFAULT_ACCOUNT_ID;
 use super::block_support::{collect_relocation_target_block_ids, Block, DateTime, Interval, Utc};
 use super::pomodoro_support::configured_recipes;
 use super::runtime_support::{lock_runtime, RuntimeState, StoredBlock};
-use super::workspace_support::TempWorkspace;
+use crate::application::test_support::workspace::TempWorkspace;
 use crate::application::commands::{
     create_module_impl, create_recipe_impl, delete_module_impl, list_blocks_impl,
     list_modules_impl, list_recipes_impl, update_module_impl, update_recipe_impl,

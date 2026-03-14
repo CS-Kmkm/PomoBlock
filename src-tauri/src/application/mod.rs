@@ -23,4 +23,6 @@ pub mod reflection_service;
 pub mod studio_template_application;
 pub mod task_service;
 pub mod task_runtime;
+#[cfg(test)]
+pub mod test_support;
 pub mod time_slots;

@@ -43,5 +43,3 @@ pub(crate) use state::{
     block_runtime_snapshot, lock_runtime, persist_generated_block, persist_generated_blocks,
     studio_runtime_snapshot, RuntimeState, StoredBlock,
 };
-#[cfg(test)]
-pub(crate) use state::seed_synced_events_for_tests;

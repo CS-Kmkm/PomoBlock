@@ -90,8 +90,9 @@ impl<'a> BlockService<'a> {
 mod tests {
     use super::*;
     use crate::application::calendar_sync::CalendarSyncService;
-    use crate::application::commands::seed_synced_events_for_tests;
     use crate::application::reflection_service::ReflectionService;
+    use crate::application::test_support::runtime_seed::seed_synced_events;
+    use crate::application::test_support::workspace::TempWorkspace;
     use crate::infrastructure::calendar_cache::{CalendarCacheRepository, InMemoryCalendarCacheRepository};
     use crate::infrastructure::event_mapper::{encode_block_event, CalendarEventExtendedProperties, GoogleCalendarEvent};
     use crate::infrastructure::google_calendar_client::{
@@ -100,39 +101,7 @@ mod tests {
     use crate::infrastructure::sync_state_repository::InMemorySyncStateRepository;
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
-
-    static NEXT_TEMP_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
-
-    struct TempWorkspace {
-        path: PathBuf,
-    }
-
-    impl TempWorkspace {
-        fn new() -> Self {
-            let sequence = NEXT_TEMP_WORKSPACE.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "pomoblock-block-service-tests-{}-{}",
-                std::process::id(),
-                sequence
-            ));
-            fs::create_dir_all(&path).expect("create temp workspace");
-            Self { path }
-        }
-
-        fn app_state(&self) -> AppState {
-            AppState::new(self.path.clone()).expect("initialize app state")
-        }
-    }
-
-    impl Drop for TempWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
 
     #[derive(Debug, Default)]
     struct FakeGoogleCalendarClient {
@@ -356,7 +325,7 @@ mod tests {
             .expect("generate blocks");
         let block = generated[0].clone();
 
-        seed_synced_events_for_tests(
+        seed_synced_events(
             &state,
             "default",
             vec![GoogleCalendarEvent {
@@ -401,7 +370,7 @@ mod tests {
             .expect("generate blocks");
         let block = generated[0].clone();
 
-        seed_synced_events_for_tests(
+        seed_synced_events(
             &state,
             "default",
             vec![GoogleCalendarEvent {

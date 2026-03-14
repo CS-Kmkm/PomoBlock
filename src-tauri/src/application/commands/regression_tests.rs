@@ -7,4 +7,3 @@ mod pomodoro_support;
 mod runtime_support;
 mod studio_catalog_tests;
 mod task_tests;
-mod workspace_support;

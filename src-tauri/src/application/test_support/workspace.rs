@@ -1,4 +1,4 @@
-use crate::application::commands::state::AppState;
+use crate::application::commands::AppState;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,7 +13,7 @@ impl TempWorkspace {
     pub(crate) fn new() -> Self {
         let sequence = NEXT_TEMP_WORKSPACE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pomblock-command-tests-{}-{}",
+            "pomoblock-tests-{}-{}",
             std::process::id(),
             sequence
         ));

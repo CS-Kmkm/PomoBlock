@@ -313,40 +313,9 @@ mod tests {
     use crate::application::block_service::BlockService;
     use crate::application::commands::lock_runtime;
     use crate::application::pomodoro_service::PomodoroService;
+    use crate::application::test_support::db_assertions::load_audit_logs;
+    use crate::application::test_support::workspace::TempWorkspace;
     use crate::domain::models::TaskStatus;
-    use crate::infrastructure::local_repository::LocalRepository;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static NEXT_TEMP_WORKSPACE: AtomicUsize = AtomicUsize::new(0);
-
-    struct TempWorkspace {
-        path: PathBuf,
-    }
-
-    impl TempWorkspace {
-        fn new() -> Self {
-            let sequence = NEXT_TEMP_WORKSPACE.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "pomoblock-task-service-tests-{}-{}",
-                std::process::id(),
-                sequence
-            ));
-            fs::create_dir_all(&path).expect("create temp workspace");
-            Self { path }
-        }
-
-        fn app_state(&self) -> AppState {
-            AppState::new(self.path.clone()).expect("initialize app state")
-        }
-    }
-
-    impl Drop for TempWorkspace {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
 
     #[tokio::test]
     async fn property_19_20_task_assignment_links_task_to_block_and_records_history_audit() {
@@ -366,8 +335,7 @@ mod tests {
         let started = pomodoro_service
             .start_pomodoro(blocks[0].id.clone(), Some(task.id.clone()))
             .expect("start pomodoro with task");
-        let repository = LocalRepository::new(state.database_path()).expect("open local repository");
-        let audit_logs = repository.load_audit_logs(100).expect("load audit logs");
+        let audit_logs = load_audit_logs(state.database_path(), 100).expect("load audit logs");
 
         assert_eq!(started.current_task_id.as_deref(), Some(task.id.as_str()));
         assert_eq!(
@@ -414,8 +382,7 @@ mod tests {
                 Some(vec![blocks[1].id.clone()]),
             )
             .expect("carry over task");
-        let repository = LocalRepository::new(state.database_path()).expect("open local repository");
-        let audit_logs = repository.load_audit_logs(100).expect("load audit logs");
+        let audit_logs = load_audit_logs(state.database_path(), 100).expect("load audit logs");
 
         assert_eq!(result.to_block_id, blocks[1].id);
         assert_eq!(result.status, "in_progress");
@@ -447,8 +414,7 @@ mod tests {
             .split_task(parent.id.clone(), 4)
             .expect("split task");
         let listed = task_service.list_tasks().expect("list tasks");
-        let repository = LocalRepository::new(state.database_path()).expect("open local repository");
-        let audit_logs = repository.load_audit_logs(100).expect("load audit logs");
+        let audit_logs = load_audit_logs(state.database_path(), 100).expect("load audit logs");
 
         assert_eq!(children.len(), 4);
         assert!(children
