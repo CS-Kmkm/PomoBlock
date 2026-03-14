@@ -3,7 +3,6 @@ pub mod config;
 pub mod credential_store;
 pub mod error;
 pub mod event_mapper;
-pub mod git_backed_config;
 pub mod google_calendar_client;
 pub mod local_repository;
 pub mod oauth_client;
