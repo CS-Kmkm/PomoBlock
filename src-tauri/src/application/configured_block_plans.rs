@@ -1,3 +1,4 @@
+use crate::application::block_calendar_events::planned_pomodoros;
 use crate::application::policy_service::{parse_weekday, RuntimePolicy};
 use crate::domain::models::{AutoDriveMode, Firmness, Recipe};
 use chrono::{Datelike, NaiveDate, NaiveTime, Weekday};
@@ -222,11 +223,6 @@ pub fn resolve_recipe_for_plan(
 
 fn default_recipe_id() -> &'static str {
     "rcp-default"
-}
-
-fn planned_pomodoros(block_duration_minutes: u32, break_duration_minutes: u32) -> i32 {
-    let cycle_minutes = 25u32.saturating_add(break_duration_minutes.max(1));
-    (block_duration_minutes / cycle_minutes).max(1) as i32
 }
 
 fn read_config_array(config_dir: &Path, file_name: &str, array_key: &str) -> Vec<serde_json::Value> {

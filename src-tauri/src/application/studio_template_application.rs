@@ -1,12 +1,13 @@
+use crate::application::block_calendar_events::{
+    create_calendar_events_for_generated_blocks, planned_pomodoros,
+};
 use crate::application::calendar_sync::CalendarSyncService;
 use crate::application::commands::{
     ensure_blocks_calendar_id, normalize_account_id, persist_generated_block,
     studio_runtime_snapshot, try_access_token, AppState, StoredBlock,
 };
-use crate::application::commands::legacy::{
-    create_calendar_events_for_generated_blocks, next_id, planned_pomodoros,
-};
 use crate::application::configured_recipes;
+use crate::application::id_factory::next_id;
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::time_slots::{
     event_to_interval, free_slots, intervals_overlap, local_datetime_to_utc, merge_intervals,

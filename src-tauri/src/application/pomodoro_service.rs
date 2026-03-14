@@ -1,5 +1,6 @@
 use crate::application::commands::{legacy, AppState};
 use crate::application::configured_recipes;
+use crate::application::id_factory::next_id;
 use crate::application::policy_service::load_runtime_policy;
 use crate::application::pomodoro_session_plan;
 use crate::domain::models::{PomodoroLog, PomodoroPhase, TaskStatus};
@@ -288,7 +289,7 @@ impl<'a> PomodoroService<'a> {
         runtime.pomodoro.phase = resume_phase;
         runtime.pomodoro.start_time = Some(now);
         runtime.pomodoro.active_log = Some(PomodoroLog {
-            id: legacy::next_id("pom"),
+            id: next_id("pom"),
             block_id,
             task_id: runtime.pomodoro.current_task_id.clone(),
             phase,
@@ -415,7 +416,7 @@ fn start_pomodoro_phase(
         _ => 0,
     };
     runtime.active_log = Some(PomodoroLog {
-        id: legacy::next_id("pom"),
+        id: next_id("pom"),
         block_id,
         task_id: runtime.current_task_id.clone(),
         phase: log_phase,

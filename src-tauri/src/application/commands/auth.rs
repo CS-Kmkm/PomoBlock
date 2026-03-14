@@ -1,5 +1,6 @@
 use super::state::AppState;
 use crate::application::calendar_setup::{BlocksCalendarInitializer, EnsureBlocksCalendarResult};
+use crate::application::id_factory::next_id;
 use crate::application::oauth::{EnsureTokenResult, OAuthConfig, OAuthManager};
 use crate::infrastructure::credential_store::WindowsCredentialManagerStore;
 use crate::infrastructure::error::InfraError;
@@ -81,7 +82,7 @@ pub async fn authenticate_google_impl(
             expires_at: Some(token.expires_at.to_rfc3339()),
         }),
         EnsureTokenResult::ReauthenticationRequired => {
-            let auth_state = super::legacy::next_id("oauth-state");
+            let auth_state = next_id("oauth-state");
             let authorization_url = manager.build_authorization_url(&auth_state)?;
             Ok(AuthenticateGoogleResponse {
                 account_id,
@@ -124,7 +125,7 @@ pub async fn authenticate_google_sso_impl(
         }
     }
 
-    let auth_state = super::legacy::next_id("oauth-state");
+    let auth_state = next_id("oauth-state");
     let authorization_url = manager.build_authorization_url(&auth_state)?;
     let callback_task = tokio::task::spawn_blocking(wait_for_loopback_callback(
         oauth_config.redirect_uri.clone(),

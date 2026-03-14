@@ -1,5 +1,6 @@
 use crate::application::commands::{legacy, AppState};
 use crate::domain::models::Task;
+use crate::application::id_factory::next_id;
 use crate::infrastructure::error::InfraError;
 use chrono::Utc;
 use serde::Serialize;
@@ -36,7 +37,7 @@ impl<'a> TaskService<'a> {
         }
 
         let task = Task {
-            id: legacy::next_id("tsk"),
+            id: next_id("tsk"),
             title: title.to_string(),
             description: description
                 .as_deref()
@@ -180,7 +181,7 @@ impl<'a> TaskService<'a> {
         let now = Utc::now();
         for index in 1..=parts {
             let child = Task {
-                id: legacy::next_id("tsk"),
+                id: next_id("tsk"),
                 title: format!("{parent_title} ({index}/{parts})"),
                 description: parent_description.clone(),
                 estimated_pomodoros: child_estimated_pomodoros,
