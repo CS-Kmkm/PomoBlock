@@ -4,7 +4,7 @@ mod bootstrap;
 mod calendar;
 mod catalog;
 #[cfg(test)]
-pub(crate) mod legacy;
+mod regression_tests;
 mod pomodoro;
 mod reflection;
 mod state;
