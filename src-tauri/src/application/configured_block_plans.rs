@@ -531,18 +531,9 @@ fn local_datetime_to_utc(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::test_support::config_fs::TempConfigDir;
     use crate::domain::models::AutoDriveMode;
     use chrono::NaiveTime;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_config_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("pomoblock-plans-{label}-{nanos}"))
-    }
 
     fn sample_policy() -> RuntimePolicy {
         RuntimePolicy {
@@ -605,8 +596,7 @@ mod tests {
 
     #[test]
     fn load_configured_block_plans_reads_templates_and_routines() {
-        let config_dir = temp_config_dir("roundtrip");
-        fs::create_dir_all(&config_dir).expect("config dir");
+        let config_dir = TempConfigDir::new("plans", "roundtrip");
         fs::write(
             config_dir.join("templates.json"),
             r#"{
@@ -645,7 +635,7 @@ mod tests {
         .expect("write routines");
 
         let plans = load_configured_block_plans(
-            &config_dir,
+            config_dir.path(),
             NaiveDate::from_ymd_opt(2026, 2, 16).expect("date"),
             &sample_policy(),
             &sample_recipes(),
@@ -656,7 +646,5 @@ mod tests {
         assert_eq!(plans[0].source_id.as_deref(), Some("tpl-deep"));
         assert_eq!(plans[1].source, "routine");
         assert_eq!(plans[1].source_id.as_deref(), Some("rtn-daily"));
-
-        let _ = fs::remove_dir_all(config_dir);
     }
 }

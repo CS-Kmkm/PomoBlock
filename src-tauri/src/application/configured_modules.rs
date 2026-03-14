@@ -501,22 +501,13 @@ fn value_by_keys<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_config_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("pomoblock-modules-{label}-{nanos}"))
-    }
+    use crate::application::test_support::config_fs::TempConfigDir;
 
     #[test]
     fn module_crud_roundtrip_preserves_pomodoro_and_hints() {
-        let config_dir = temp_config_dir("crud");
-        fs::create_dir_all(&config_dir).expect("config dir");
+        let config_dir = TempConfigDir::new("modules", "crud");
         let created = create_module(
-            &config_dir,
+            config_dir.path(),
             &serde_json::json!({
                 "id": "mod-test",
                 "name": "Test Module",
@@ -537,7 +528,7 @@ mod tests {
         )
         .expect("create module");
         let updated = update_module(
-            &config_dir,
+            config_dir.path(),
             "mod-test",
             &serde_json::json!({
                 "name": "Test Module Updated",
@@ -548,8 +539,8 @@ mod tests {
             }),
         )
         .expect("update module");
-        let listed = load_configured_modules(&config_dir);
-        let deleted = delete_module(&config_dir, "mod-test").expect("delete module");
+        let listed = load_configured_modules(config_dir.path());
+        let deleted = delete_module(config_dir.path(), "mod-test").expect("delete module");
 
         assert_eq!(created.id, "mod-test");
         assert_eq!(updated.name, "Test Module Updated");
@@ -559,10 +550,9 @@ mod tests {
 
     #[test]
     fn load_configured_modules_falls_back_to_default_catalog() {
-        let config_dir = temp_config_dir("defaults");
-        fs::create_dir_all(&config_dir).expect("config dir");
+        let config_dir = TempConfigDir::new("modules", "defaults");
 
-        let modules = load_configured_modules(&config_dir);
+        let modules = load_configured_modules(config_dir.path());
 
         assert!(!modules.is_empty());
         assert!(modules.iter().any(|module| module.id == "mod-pomodoro-focus"));

@@ -174,30 +174,13 @@ pub fn parse_weekday(value: &str) -> Option<Weekday> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_config_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("pomoblock-policy-{label}-{nanos}"))
-    }
-
-    fn write_json(path: &Path, value: serde_json::Value) {
-        fs::create_dir_all(path.parent().expect("parent")).expect("create parent");
-        fs::write(path, format!("{}\n", serde_json::to_string_pretty(&value).expect("json")))
-            .expect("write json");
-    }
+    use crate::application::test_support::config_fs::{write_json, TempConfigDir};
 
     #[test]
     fn load_runtime_policy_returns_defaults_when_config_is_missing() {
-        let config_dir = temp_config_dir("defaults");
-        fs::create_dir_all(&config_dir).expect("create config dir");
+        let config_dir = TempConfigDir::new("policy", "defaults");
 
-        let policy = load_runtime_policy(&config_dir);
+        let policy = load_runtime_policy(config_dir.path());
 
         assert_eq!(policy.timezone, Tz::UTC);
         assert_eq!(policy.work_start, NaiveTime::from_hms_opt(9, 0, 0).expect("time"));
@@ -208,12 +191,11 @@ mod tests {
             DEFAULT_MAX_RELOCATIONS_PER_SYNC
         );
 
-        let _ = fs::remove_dir_all(config_dir);
     }
 
     #[test]
     fn load_runtime_policy_reads_timezone_and_generation_limits() {
-        let config_dir = temp_config_dir("configured");
+        let config_dir = TempConfigDir::new("policy", "configured");
         write_json(
             &config_dir.join("app.json"),
             serde_json::json!({
@@ -244,7 +226,7 @@ mod tests {
             }),
         );
 
-        let policy = load_runtime_policy(&config_dir);
+        let policy = load_runtime_policy(config_dir.path());
 
         assert_eq!(policy.timezone, chrono_tz::Asia::Tokyo);
         assert_eq!(policy.work_start, NaiveTime::from_hms_opt(10, 0, 0).expect("time"));
@@ -258,7 +240,5 @@ mod tests {
         assert_eq!(policy.min_block_gap_minutes, 3);
         assert_eq!(policy.max_auto_blocks_per_day, 12);
         assert_eq!(policy.max_relocations_per_sync, 8);
-
-        let _ = fs::remove_dir_all(config_dir);
     }
 }

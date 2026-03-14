@@ -603,23 +603,13 @@ fn value_by_keys<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_config_dir(label: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("pomoblock-recipes-{label}-{nanos}"))
-    }
+    use crate::application::test_support::config_fs::TempConfigDir;
 
     #[test]
     fn recipe_crud_roundtrip_preserves_studio_metadata() {
-        let config_dir = temp_config_dir("crud");
-        fs::create_dir_all(&config_dir).expect("config dir");
+        let config_dir = TempConfigDir::new("recipes", "crud");
         let created = create_recipe(
-            &config_dir,
+            config_dir.path(),
             &serde_json::json!({
                 "id": "tpl-standup",
                 "name": "Standup",
@@ -640,7 +630,7 @@ mod tests {
         )
         .expect("create recipe");
         let updated = update_recipe(
-            &config_dir,
+            config_dir.path(),
             "tpl-standup",
             &serde_json::json!({
                 "name": "Standup Updated",
@@ -659,8 +649,8 @@ mod tests {
             }),
         )
         .expect("update recipe");
-        let listed = load_configured_recipes(&config_dir);
-        let deleted = delete_recipe(&config_dir, "tpl-standup").expect("delete recipe");
+        let listed = load_configured_recipes(config_dir.path());
+        let deleted = delete_recipe(config_dir.path(), "tpl-standup").expect("delete recipe");
 
         assert_eq!(created.id, "tpl-standup");
         assert_eq!(updated.name, "Standup Updated");
@@ -671,10 +661,9 @@ mod tests {
 
     #[test]
     fn load_configured_recipes_falls_back_to_default_catalog() {
-        let config_dir = temp_config_dir("defaults");
-        fs::create_dir_all(&config_dir).expect("config dir");
+        let config_dir = TempConfigDir::new("recipes", "defaults");
 
-        let recipes = load_configured_recipes(&config_dir);
+        let recipes = load_configured_recipes(config_dir.path());
 
         assert_eq!(recipes.len(), 1);
         assert_eq!(recipes[0].id, "rcp-default");
