@@ -15,11 +15,6 @@ const OVERRIDES_JSON: &str = "overrides.json";
 const DEFAULT_ACCOUNT_ID: &str = "default";
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ConfigFile {
-    pub schema: u8,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigBundle {
     pub app: serde_json::Value,
     pub calendars: serde_json::Value,

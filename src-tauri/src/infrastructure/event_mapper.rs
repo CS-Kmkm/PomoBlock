@@ -1,6 +1,4 @@
-use crate::domain::models::{AutoDriveMode, Block, BlockContents, Firmness};
-use crate::infrastructure::error::InfraError;
-use chrono::{DateTime, Utc};
+use crate::domain::models::{AutoDriveMode, Block, Firmness};
 use std::collections::HashMap;
 
 const KEY_BLOCK_ID: &str = "bs_block_id";
@@ -100,149 +98,11 @@ pub fn encode_block_event(block: &Block) -> GoogleCalendarEvent {
     }
 }
 
-pub fn decode_block_event(event: &GoogleCalendarEvent) -> Result<Option<Block>, InfraError> {
-    let Some(private) = event
-        .extended_properties
-        .as_ref()
-        .map(|properties| &properties.private)
-    else {
-        return Ok(None);
-    };
-
-    let Some(instance) = private.get(KEY_INSTANCE).map(|value| value.trim().to_string()) else {
-        return Ok(None);
-    };
-    if instance.is_empty() {
-        return Ok(None);
-    }
-
-    let start_at = parse_rfc3339_utc(&event.start.date_time, "start.dateTime")?;
-    let end_at = parse_rfc3339_utc(&event.end.date_time, "end.dateTime")?;
-    if end_at <= start_at {
-        return Err(InfraError::OAuth(
-            "invalid block event: end is not after start".to_string(),
-        ));
-    }
-
-    let block_id = private
-        .get(KEY_BLOCK_ID)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| event.id.as_deref().map(str::trim).map(ToOwned::to_owned))
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| instance.clone());
-
-    let date = private
-        .get(KEY_DATE)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| start_at.date_naive().to_string());
-
-    let firmness = private
-        .get(KEY_FIRMNESS)
-        .map(String::as_str)
-        .map(parse_firmness)
-        .transpose()?
-        .unwrap_or(Firmness::Draft);
-
-    let planned_pomodoros = private
-        .get(KEY_PLANNED_POMODOROS)
-        .map(String::as_str)
-        .map(parse_positive_i32)
-        .transpose()?
-        .unwrap_or(1);
-
-    let source = private
-        .get(KEY_SOURCE)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| "calendar".to_string());
-
-    let source_id = private
-        .get(KEY_SOURCE_ID)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    let recipe_id = private
-        .get(KEY_RECIPE_ID)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| "rcp-default".to_string());
-    let auto_drive_mode = private
-        .get(KEY_AUTO_DRIVE_MODE)
-        .map(String::as_str)
-        .map(parse_auto_drive_mode)
-        .transpose()?
-        .unwrap_or(AutoDriveMode::Manual);
-
-    Ok(Some(Block {
-        id: block_id,
-        instance,
-        date,
-        start_at,
-        end_at,
-        firmness,
-        planned_pomodoros,
-        source,
-        source_id,
-        recipe_id,
-        auto_drive_mode,
-        contents: BlockContents::default(),
-    }))
-}
-
-fn parse_rfc3339_utc(value: &str, field_name: &str) -> Result<DateTime<Utc>, InfraError> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|value| value.with_timezone(&Utc))
-        .map_err(|error| {
-            InfraError::OAuth(format!(
-                "invalid calendar event {field_name} '{value}': {error}"
-            ))
-        })
-}
-
-fn parse_firmness(value: &str) -> Result<Firmness, InfraError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "draft" => Ok(Firmness::Draft),
-        "soft" => Ok(Firmness::Soft),
-        "hard" => Ok(Firmness::Hard),
-        other => Err(InfraError::OAuth(format!("invalid bs_firmness value: {other}"))),
-    }
-}
-
-fn parse_positive_i32(value: &str) -> Result<i32, InfraError> {
-    let parsed = value
-        .trim()
-        .parse::<i32>()
-        .map_err(|error| InfraError::OAuth(format!("invalid integer value '{value}': {error}")))?;
-    if parsed <= 0 {
-        return Err(InfraError::OAuth(format!(
-            "invalid integer value '{value}': expected positive number"
-        )));
-    }
-    Ok(parsed)
-}
-
 fn firmness_to_string(value: &Firmness) -> &'static str {
     match value {
         Firmness::Draft => "draft",
         Firmness::Soft => "soft",
         Firmness::Hard => "hard",
-    }
-}
-
-fn parse_auto_drive_mode(value: &str) -> Result<AutoDriveMode, InfraError> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "manual" => Ok(AutoDriveMode::Manual),
-        "auto" => Ok(AutoDriveMode::Auto),
-        "auto-silent" | "auto_silent" => Ok(AutoDriveMode::AutoSilent),
-        other => Err(InfraError::OAuth(format!(
-            "invalid bs_auto_drive_mode value: {other}"
-        ))),
     }
 }
 
@@ -257,6 +117,8 @@ fn auto_drive_mode_to_string(value: &AutoDriveMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::models::BlockContents;
+    use chrono::{DateTime, Utc};
 
     fn sample_block() -> Block {
         Block {
@@ -280,57 +142,29 @@ mod tests {
     }
 
     #[test]
-    fn encode_and_decode_roundtrip_preserves_bs_instance() {
+    fn encode_preserves_managed_block_metadata() {
         let block = sample_block();
         let encoded = encode_block_event(&block);
-        let decoded = decode_block_event(&encoded)
-            .expect("decode should succeed")
-            .expect("managed event");
+        let private = encoded
+            .extended_properties
+            .expect("extended properties")
+            .private;
 
-        assert_eq!(decoded.instance, block.instance);
-        assert_eq!(decoded.id, block.id);
-        assert_eq!(decoded.date, block.date);
-        assert_eq!(decoded.start_at, block.start_at);
-        assert_eq!(decoded.end_at, block.end_at);
-        assert_eq!(decoded.firmness, block.firmness);
-        assert_eq!(decoded.planned_pomodoros, block.planned_pomodoros);
-        assert_eq!(decoded.source, block.source);
-        assert_eq!(decoded.source_id, block.source_id);
-        assert_eq!(decoded.recipe_id, block.recipe_id);
-        assert_eq!(decoded.auto_drive_mode, block.auto_drive_mode);
-    }
-
-    #[test]
-    fn decode_ignores_non_managed_events_without_bs_instance() {
-        let event = GoogleCalendarEvent {
-            id: Some("external-event".to_string()),
-            summary: Some("Meeting".to_string()),
-            description: None,
-            status: Some("confirmed".to_string()),
-            updated: None,
-            etag: None,
-            start: CalendarEventDateTime {
-                date_time: "2026-02-16T00:00:00Z".to_string(),
-                time_zone: None,
-            },
-            end: CalendarEventDateTime {
-                date_time: "2026-02-16T01:00:00Z".to_string(),
-                time_zone: None,
-            },
-            extended_properties: Some(CalendarEventExtendedProperties::default()),
-        };
-
-        let decoded = decode_block_event(&event).expect("decode should not fail");
-        assert!(decoded.is_none());
-    }
-
-    #[test]
-    fn decode_returns_error_when_datetime_is_invalid() {
-        let mut event = encode_block_event(&sample_block());
-        event.start.date_time = "invalid-timestamp".to_string();
-
-        let result = decode_block_event(&event);
-        assert!(result.is_err());
+        assert_eq!(private.get(KEY_INSTANCE).map(String::as_str), Some(block.instance.as_str()));
+        assert_eq!(private.get(KEY_BLOCK_ID).map(String::as_str), Some(block.id.as_str()));
+        assert_eq!(private.get(KEY_DATE).map(String::as_str), Some(block.date.as_str()));
+        assert_eq!(private.get(KEY_FIRMNESS).map(String::as_str), Some("draft"));
+        assert_eq!(
+            private.get(KEY_PLANNED_POMODOROS).map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(private.get(KEY_SOURCE).map(String::as_str), Some(block.source.as_str()));
+        assert_eq!(
+            private.get(KEY_SOURCE_ID).map(String::as_str),
+            block.source_id.as_deref()
+        );
+        assert_eq!(private.get(KEY_RECIPE_ID).map(String::as_str), Some(block.recipe_id.as_str()));
+        assert_eq!(private.get(KEY_AUTO_DRIVE_MODE).map(String::as_str), Some("manual"));
     }
 
     #[test]

@@ -69,13 +69,9 @@ where
         }
     }
 
+    #[cfg(test)]
     pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
         self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_now_provider(mut self, now_provider: NowProvider) -> Self {
-        self.now_provider = now_provider;
         self
     }
 

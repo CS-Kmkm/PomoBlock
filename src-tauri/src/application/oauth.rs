@@ -73,11 +73,6 @@ where
         }
     }
 
-    pub fn with_now_provider(mut self, now_provider: NowProvider) -> Self {
-        self.now_provider = now_provider;
-        self
-    }
-
     pub fn is_token_valid(&self, token: &OAuthToken) -> bool {
         token.is_valid_at((self.now_provider)(), 60)
     }
@@ -161,11 +156,6 @@ where
             Ok(EnsureTokenResult::ReauthenticationRequired)
         }
     }
-
-    pub fn clear_stored_token(&self) -> Result<(), InfraError> {
-        self.credential_store.delete_token()
-    }
-
     fn token_from_response(
         &self,
         response: OAuthTokenResponse,
