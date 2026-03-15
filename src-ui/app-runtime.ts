@@ -687,6 +687,7 @@ function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
     const includeDetail = optionsRecord.includeDetail !== false;
     const includeBoard = optionsRecord.includeBoard !== false;
     const includeTimeline = optionsRecord.includeTimeline !== false;
+    const compactSummary = optionsRecord.compactSummary === true;
     const typedModel = model as DayCalendarModel & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; };
     const renderDailyDetail = (selected: unknown) => renderDailyDetailValue(selected, {
         escapeHtml,
@@ -710,7 +711,7 @@ function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
         timezoneOffsetLabel,
-        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendarValue(calendarModel, renderOptions, {
+        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendarValue(calendarModel, { ...renderOptions, compactSummary }, {
             escapeHtml,
             intervalRangeLabel,
             toDurationLabel: (minutes: number) => toDurationLabel(minutes),
@@ -1106,6 +1107,16 @@ function buildPageRenderDeps(): PageRenderDeps {
         },
     };
 }
+function shouldUseNowHalfLayout() {
+    const screenWidth = Math.max(window.screen?.availWidth || 0, window.screen?.width || 0, window.innerWidth);
+    if (screenWidth < 1024) {
+        return false;
+    }
+    return window.innerWidth <= Math.floor(screenWidth / 2);
+}
+function syncResponsiveRouteClasses(route: string) {
+    document.body.classList.toggle("route-now-half", route === "now" && shouldUseNowHalfLayout());
+}
 function render() {
     const route = getRoute();
     const pageDeps = buildPageRenderDeps();
@@ -1114,6 +1125,7 @@ function render() {
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
     document.body.classList.toggle("route-routines", route === "routines");
+    syncResponsiveRouteClasses(route);
     appRoot.classList.toggle("view-root--week", isWeekRoute);
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
@@ -1326,6 +1338,9 @@ export function startApp(): void {
     appStarted = true;
     window.addEventListener("hashchange", () => {
         render();
+    });
+    window.addEventListener("resize", () => {
+        syncResponsiveRouteClasses(getRoute());
     });
     setInterval(async () => {
         const route = getRoute();

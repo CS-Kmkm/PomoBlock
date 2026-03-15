@@ -2628,10 +2628,18 @@ th {
   gap: 10px;
 }
 
+.day-simple-timeline-compact {
+  gap: 8px;
+}
+
 .day-simple-scale {
   position: relative;
   height: 16px;
   margin-left: 84px;
+}
+
+.day-simple-timeline-compact .day-simple-scale {
+  margin-left: 0;
 }
 
 .day-simple-scale span {
@@ -2664,6 +2672,10 @@ th {
   border-radius: 999px;
   background: #edf2eb;
   overflow: hidden;
+}
+
+.day-simple-track-compact {
+  height: 28px;
 }
 
 .day-simple-track-occupancy {
@@ -2936,6 +2948,107 @@ th {
   }
 }
 
+.route-now.route-now-half {
+  --now-track-height: clamp(320px, 42vh, 460px);
+  --now-ring-size: min(180px, 100%);
+  --now-objective-width: 100%;
+}
+
+.route-now.route-now-half .now-layout {
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "main"
+    "right";
+  align-items: start;
+}
+
+.route-now.route-now-half .now-mobile-schedule-shell,
+.route-now.route-now-half .now-mobile-notes-shell {
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 0;
+}
+
+.route-now.route-now-half .now-mobile-notes-shell {
+  padding-top: 0;
+}
+
+.route-now.route-now-half .now-mobile-schedule.day-calendar {
+  margin-top: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: var(--surface-strong);
+  gap: 10px;
+}
+
+.route-now.route-now-half .now-mobile-schedule .day-simple-scale {
+  margin-left: 56px;
+}
+
+.route-now.route-now-half .now-mobile-schedule .day-simple-row {
+  grid-template-columns: 48px 1fr;
+  gap: 8px;
+}
+
+.route-now.route-now-half .now-mobile-schedule .day-simple-track {
+  height: 22px;
+}
+
+.route-now.route-now-half .now-left-rail {
+  display: none;
+}
+
+.route-now.route-now-half .now-right-rail {
+  border-left: none;
+  border-right: none;
+  border-top: 1px solid var(--line);
+  max-height: none;
+  overflow: visible;
+}
+
+.route-now.route-now-half .now-desktop-notes {
+  display: none;
+}
+
+.route-now.route-now-half .now-left-head {
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.route-now.route-now-half .now-main-pane {
+  padding: 14px;
+  gap: 10px;
+}
+
+.route-now.route-now-half .now-ring-core {
+  width: calc(100% - 14px);
+  height: calc(100% - 14px);
+  padding: 12px;
+}
+
+.route-now.route-now-half .now-ring-time {
+  font-size: clamp(2rem, 9vw, 3rem);
+}
+
+.route-now.route-now-half .now-ring-caption {
+  font-size: 0.9rem;
+}
+
+.route-now.route-now-half .now-controls {
+  gap: 6px;
+}
+
+.route-now.route-now-half .now-controls .now-control {
+  width: 54px;
+  height: 54px;
+}
+
+.route-now.route-now-half .now-controls .now-control--primary {
+  width: 62px;
+  height: 62px;
+}
+
 @media (max-width: 1400px) and (min-width: 981px) {
   .routine-studio-layout {
     grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
@@ -3021,16 +3134,12 @@ th {
   }
 
   .now-mobile-schedule .day-simple-scale {
-    margin-left: 56px;
+    margin-left: 0;
   }
 
-  .now-mobile-schedule .day-simple-row {
-    grid-template-columns: 48px 1fr;
-    gap: 8px;
-  }
-
-  .now-mobile-schedule .day-simple-track {
-    height: 22px;
+  .now-mobile-schedule .day-simple-track,
+  .now-mobile-schedule .day-simple-track-compact {
+    height: 24px;
   }
 
   .now-left-rail {

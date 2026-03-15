@@ -71,6 +71,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
     showViewToggle: false,
     includeDetail: false,
     includeTimeline: true,
+    compactSummary: true,
   });
 
   appRoot.innerHTML = `
