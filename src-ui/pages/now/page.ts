@@ -17,9 +17,11 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const todayDate = helpers.isoDate(new Date());
   const todayBlocks = helpers.resolveNowBlocks();
   const todayPlannerModel = helpers.buildPlannerStripModel([todayDate], todayDate, uiState.blocks, uiState.calendarEvents) as {
-    days?: Array<{ combinedItems?: unknown[] }>;
+    days?: Array<{ blockItems?: unknown[]; eventItems?: unknown[] }>;
   };
-  const todayScheduleCount = Array.isArray(todayPlannerModel.days?.[0]?.combinedItems) ? todayPlannerModel.days[0].combinedItems.length : 0;
+  const todayScheduleCount =
+    (Array.isArray(todayPlannerModel.days?.[0]?.blockItems) ? todayPlannerModel.days[0].blockItems.length : 0) +
+    (Array.isArray(todayPlannerModel.days?.[0]?.eventItems) ? todayPlannerModel.days[0].eventItems.length : 0);
   const orderedTasks = helpers.getNowOrderedTasks(true);
   const openTasks = orderedTasks.filter((task) => task.status !== "completed");
   const currentBlockId = typeof state.current_block_id === "string" ? state.current_block_id : null;
@@ -100,7 +102,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
           ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
         </div>
       </aside>
-      <div class="pane-splitter" data-pane-resize="now-left" aria-hidden="true"></div>
+      <div class="pane-splitter" data-pane-resize="now-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
 
       <section class="now-main-pane">
         <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} MODE</p>
@@ -124,7 +126,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
           <p class="small">Block: ${helpers.escapeHtml(objectiveBlockId)}</p>
         </section>
       </section>
-      <div class="pane-splitter" data-pane-resize="now-right" aria-hidden="true"></div>
+      <div class="pane-splitter" data-pane-resize="now-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
 
       <aside class="now-right-rail">
         <header class="row spread">

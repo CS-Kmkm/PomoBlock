@@ -129,7 +129,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
               })()}
             </div>
           </aside>
-          <div class="pane-splitter" data-pane-resize="rs-left" aria-hidden="true"></div>
+          <div class="pane-splitter" data-pane-resize="rs-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
           <section class="rs-canvas">
             <header class="rs-canvas-head">
               <div>
@@ -173,7 +173,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
               </div>
             </div>
           </section>
-          <div class="pane-splitter" data-pane-resize="rs-right" aria-hidden="true"></div>
+          <div class="pane-splitter" data-pane-resize="rs-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
           <aside class="rs-intel">
             <header class="rs-intel-head">
               <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
