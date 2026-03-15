@@ -125,4 +125,4 @@
 - 本レビューは静的レビュー結果。
 - 実装変更・テスト実行はこのドキュメント作成では未実施。
 
-関連タスク: doc/v2/typescript_refactor_tasks_2026-03-05.md
+関連タスク: doc/v2/log/typescript_refactor_tasks_2026-03-05.md

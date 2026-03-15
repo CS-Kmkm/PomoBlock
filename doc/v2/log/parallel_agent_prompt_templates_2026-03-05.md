@@ -1,6 +1,6 @@
 ﻿# Parallel Agent Prompt Templates (TSR, Conflict-Safe)
 
-用途: `doc/v2/typescript_refactor_tasks_2026-03-05.md` を、ファイル競合なしで並列実装する。
+用途: `doc/v2/log/typescript_refactor_tasks_2026-03-05.md` を、ファイル競合なしで並列実装する。
 
 ## 共通テンプレート
 
@@ -8,8 +8,8 @@
 あなたは担当タスクのみ実装してください。
 
 前提:
-- 参照: doc/v2/typescript_refactor_tasks_2026-03-05.md
-- 参照: doc/v2/typescript_refactor_review_2026-03-05.md
+- 参照: doc/v2/log/typescript_refactor_tasks_2026-03-05.md
+- 参照: doc/v2/log/typescript_refactor_review_2026-03-05.md
 - 作業は現在の worktree のみ
 
 必須ルール:
@@ -55,7 +55,7 @@
 - Tasks: `TSR-005/006 foundation`
 - Allowed:
   - `src-ui/runtime/*` (新規作成/分離先実装)
-  - `doc/v2/*` (必要時)
+  - `doc/v2/core/*`, `doc/v2/log/*` (必要時)
 - Forbidden:
   - `src-ui/app-runtime.ts`
 
@@ -68,7 +68,7 @@
 - Tasks: `TSR-008, TSR-009`
 - Allowed:
   - `src/infrastructure/localStorageRepository.ts`
-  - `doc/v2/*`
+  - `doc/v2/core/*`, `doc/v2/log/*`
 - Forbidden:
   - `src-ui/app-runtime.ts`
 
@@ -81,7 +81,7 @@
   - `src-ui/app-runtime.ts`
   - `src-ui/runtime/*`
   - `tests/*`
-  - `doc/v2/*`
+  - `doc/v2/core/*`, `doc/v2/log/*`
 - Forbidden:
   - なし
 

@@ -1,10 +1,10 @@
 ﻿# PomBlock v2コンセプト差分ドキュメント（現行実装同列評価）
 
 作成日: 2026-02-25  
-比較基準: `doc/v2/concept.md` vs 現行実装（`src`・`src-ui`・`src-tauri`・`config`）
+比較基準: `doc/v2/core/concept.md` vs 現行実装（`src`・`src-ui`・`src-tauri`・`config`）
 
 ## 1. 目的と比較範囲
-- 本書の目的は、`doc/v2/concept.md` を基準に、現行プロダクトとの差分を実装観点で可視化すること。
+- 本書の目的は、`doc/v2/core/concept.md` を基準に、現行プロダクトとの差分を実装観点で可視化すること。
 - 差分は「欠落」だけでなく「既に一致している点」も含めて整理する。
 - 本書は実装者が次の着手判断を追加で行わなくてよい粒度（API/型/設定/優先度）で記述する。
 
@@ -52,27 +52,27 @@
 
 | ID | カテゴリ | v2要件 | 現状実装 | 差分 | 影響 | 推奨対応 | 優先度 | 根拠 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| G01 | コンセプト軸 | 日常運用の主語を「計画」ではなく「開始」に置く | `dashboard` で同期・生成を手動実行する導線が中心 | 開始より計画操作が前面 | 毎日5分以内で「迷わず着手」の体験が弱い | Today画面を「確認+微調整」に限定し、生成/同期を自動化 | P0 | `doc/v2/concept.md`, `src-ui/app.js:1775`, `src-ui/app.js:1828` |
-| G02 | コンセプト軸 | マクロ制約（Block）+ ミクロ制約（Recipe/Timer）の二層 | Block + Pomodoro はあるが Recipe 概念は未導入 | ミクロ制約が「レシピ化」されていない | v2の核である「毎回同じ手順で開始」が成立しない | Recipe中心モデルへ再編 | P0 | `doc/v2/concept.md`, `src-tauri/src/domain/models.rs:25`, `src/domain/models.js:116` |
+| G01 | コンセプト軸 | 日常運用の主語を「計画」ではなく「開始」に置く | `dashboard` で同期・生成を手動実行する導線が中心 | 開始より計画操作が前面 | 毎日5分以内で「迷わず着手」の体験が弱い | Today画面を「確認+微調整」に限定し、生成/同期を自動化 | P0 | `doc/v2/core/concept.md`, `src-ui/app.js:1775`, `src-ui/app.js:1828` |
+| G02 | コンセプト軸 | マクロ制約（Block）+ ミクロ制約（Recipe/Timer）の二層 | Block + Pomodoro はあるが Recipe 概念は未導入 | ミクロ制約が「レシピ化」されていない | v2の核である「毎回同じ手順で開始」が成立しない | Recipe中心モデルへ再編 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/domain/models.rs:25`, `src/domain/models.js:116` |
 | G03 | コンセプト軸 | 制約強度 `draft/soft/hard` を使い分ける | `Firmness` と承認で `soft` への昇格を実装 | 概念は概ね一致 | v2移行時の再利用余地が高い | 現行挙動を維持しつつ Recipe連携へ拡張 | P2 | `src-tauri/src/domain/models.rs:6`, `src-tauri/src/application/commands.rs:1222` |
-| G04 | ドメインモデル | Blockに必須Recipeを紐づける | Blockは `planned_pomodoros` のみで `recipe_id` なし | Recipe参照軸が欠落 | ブロック開始時の自動選択不能 | `Block.recipe_id` を追加し必須化 | P0 | `doc/v2/concept.md`, `src-tauri/src/domain/models.rs:25`, `src/domain/models.js:116` |
-| G05 | ドメインモデル | Block Contents（task list/memo/checklist/time split）を保持 | JS Blockに `taskRefs` はあるが構造化 contents はない。Rust Blockは task参照自体なし | 中身情報モデルが不足 | Now画面での実行補助情報が薄い | `Block.contents` を構造化追加 | P0 | `doc/v2/concept.md`, `src/domain/models.js:139`, `src-tauri/src/domain/models.rs:25` |
-| G06 | ドメインモデル | Routine = Block定義 + Recipe定義のセット | Routineは rrule と block属性中心。`recipe_id` なし | Routineの責務がv2より狭い | ルーチン実行の再現性不足 | `Routine.recipe_id` と発生/制約項目を明示追加 | P0 | `doc/v2/concept.md`, `src-tauri/src/domain/models.rs:267`, `src-tauri/src/application/commands.rs:3207` |
-| G07 | タイマー実行 | Auto-Drive (`manual`/`auto`/`auto-silent`) | 手動 `start_pomodoro` 起点のみ | 自動開始モード未実装 | 「時間になったら始まる」体験がない | AutoDriveMode導入、ブロック時刻トリガー起動を追加 | P0 | `doc/v2/concept.md`, `src-tauri/src/lib.rs:167`, `src-ui/app.js:2047` |
-| G08 | タイマー実行 | レシピのステップ種別（pomodoro/micro/free）実行 | Focus/Break中心の単一セッションモデル | ステップ種別が不足 | マイクロタイマー要件を満たせない | `RecipeStep` 実行エンジンを追加 | P0 | `doc/v2/concept.md`, `src-tauri/src/domain/models.rs:85`, `src/domain/pomodoroTimer.js:97` |
-| G09 | タイマー実行 | Now画面で `Next/Pause/Interrupt/Resume` を提供 | Backendに `advance_pomodoro` はあるが、UIは Next/Interrupt を露出していない | UI操作セットが不足 | 実行中の介入がv2要件と不一致 | `next_step` と `interrupt_timer` をUI/コマンドに追加 | P0 | `doc/v2/concept.md`, `src-tauri/src/lib.rs:192`, `src-ui/app.js:2031` |
-| G10 | 自動生成 | 毎朝自動生成 + 起動時キャッチアップ | 生成コマンドは手動実行中心。policy項目はあるが導線未接続 | オーケストレーション不足 | 日次運用の自動化が未成立 | `generate_today_blocks` と起動時自動実行フックを実装 | P0 | `doc/v2/concept.md`, `config/policies.json`, `src-ui/app.js:1837`, `src/cli.js:14` |
-| G11 | 自動生成 | 生成時に各ブロックへレシピ紐づけ済み | ブロックは duration/pomodoros ベースで生成 | レシピ事前紐付けなし | 開始時に迷いが発生 | 生成時に `recipe_id` を解決して埋める | P0 | `doc/v2/concept.md`, `src-tauri/src/application/commands.rs:3172`, `config/routines.json` |
-| G12 | 自動生成 | 未完了タスクを翌日ブロックへ自動吸収 | `carry_over_task` は手動操作で実行 | 自動持ち越し未実装 | タスク再配置の手作業が残る | 日次生成フローに未完了自動割当を追加 | P1 | `doc/v2/concept.md`, `src-tauri/src/lib.rs:259`, `src-ui/app.js:2200` |
-| G13 | UI情報設計 | 4画面（Today/Now/Routines/Insights）へ収束 | 現行は `dashboard/blocks/pomodoro/tasks/reflection/settings` | IAがv2と不一致 | 学習コストと操作分散が増える | 画面再編（Today/Now/Routines/Insights）を実施 | P0 | `doc/v2/concept.md`, `src-ui/app.js:10`, `src-ui/index.html:52` |
-| G14 | UI情報設計 | Routines内に Routine/Micro/Pomodoro 編集画面 | SettingsにJSONテキスト欄のみ | 専用編集UX不足 | ルーチン整備の継続性が低い | Routines専用エディタ群を実装 | P0 | `doc/v2/concept.md`, `src-ui/app.js:2270` |
-| G15 | UI情報設計 | Insightsで日次/週次傾向を可視化 | Reflectionは期間集計とログ一覧中心 | トレンド分析が限定的 | 改善サイクルの解像度不足 | Insightsで週次推移/未完傾向/完了率を追加 | P1 | `doc/v2/concept.md`, `src-ui/app.js:2215`, `src-tauri/src/application/commands.rs:2241` |
+| G04 | ドメインモデル | Blockに必須Recipeを紐づける | Blockは `planned_pomodoros` のみで `recipe_id` なし | Recipe参照軸が欠落 | ブロック開始時の自動選択不能 | `Block.recipe_id` を追加し必須化 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/domain/models.rs:25`, `src/domain/models.js:116` |
+| G05 | ドメインモデル | Block Contents（task list/memo/checklist/time split）を保持 | JS Blockに `taskRefs` はあるが構造化 contents はない。Rust Blockは task参照自体なし | 中身情報モデルが不足 | Now画面での実行補助情報が薄い | `Block.contents` を構造化追加 | P0 | `doc/v2/core/concept.md`, `src/domain/models.js:139`, `src-tauri/src/domain/models.rs:25` |
+| G06 | ドメインモデル | Routine = Block定義 + Recipe定義のセット | Routineは rrule と block属性中心。`recipe_id` なし | Routineの責務がv2より狭い | ルーチン実行の再現性不足 | `Routine.recipe_id` と発生/制約項目を明示追加 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/domain/models.rs:267`, `src-tauri/src/application/commands.rs:3207` |
+| G07 | タイマー実行 | Auto-Drive (`manual`/`auto`/`auto-silent`) | 手動 `start_pomodoro` 起点のみ | 自動開始モード未実装 | 「時間になったら始まる」体験がない | AutoDriveMode導入、ブロック時刻トリガー起動を追加 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/lib.rs:167`, `src-ui/app.js:2047` |
+| G08 | タイマー実行 | レシピのステップ種別（pomodoro/micro/free）実行 | Focus/Break中心の単一セッションモデル | ステップ種別が不足 | マイクロタイマー要件を満たせない | `RecipeStep` 実行エンジンを追加 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/domain/models.rs:85`, `src/domain/pomodoroTimer.js:97` |
+| G09 | タイマー実行 | Now画面で `Next/Pause/Interrupt/Resume` を提供 | Backendに `advance_pomodoro` はあるが、UIは Next/Interrupt を露出していない | UI操作セットが不足 | 実行中の介入がv2要件と不一致 | `next_step` と `interrupt_timer` をUI/コマンドに追加 | P0 | `doc/v2/core/concept.md`, `src-tauri/src/lib.rs:192`, `src-ui/app.js:2031` |
+| G10 | 自動生成 | 毎朝自動生成 + 起動時キャッチアップ | 生成コマンドは手動実行中心。policy項目はあるが導線未接続 | オーケストレーション不足 | 日次運用の自動化が未成立 | `generate_today_blocks` と起動時自動実行フックを実装 | P0 | `doc/v2/core/concept.md`, `config/policies.json`, `src-ui/app.js:1837`, `src/cli.js:14` |
+| G11 | 自動生成 | 生成時に各ブロックへレシピ紐づけ済み | ブロックは duration/pomodoros ベースで生成 | レシピ事前紐付けなし | 開始時に迷いが発生 | 生成時に `recipe_id` を解決して埋める | P0 | `doc/v2/core/concept.md`, `src-tauri/src/application/commands.rs:3172`, `config/routines.json` |
+| G12 | 自動生成 | 未完了タスクを翌日ブロックへ自動吸収 | `carry_over_task` は手動操作で実行 | 自動持ち越し未実装 | タスク再配置の手作業が残る | 日次生成フローに未完了自動割当を追加 | P1 | `doc/v2/core/concept.md`, `src-tauri/src/lib.rs:259`, `src-ui/app.js:2200` |
+| G13 | UI情報設計 | 4画面（Today/Now/Routines/Insights）へ収束 | 現行は `dashboard/blocks/pomodoro/tasks/reflection/settings` | IAがv2と不一致 | 学習コストと操作分散が増える | 画面再編（Today/Now/Routines/Insights）を実施 | P0 | `doc/v2/core/concept.md`, `src-ui/app.js:10`, `src-ui/index.html:52` |
+| G14 | UI情報設計 | Routines内に Routine/Micro/Pomodoro 編集画面 | SettingsにJSONテキスト欄のみ | 専用編集UX不足 | ルーチン整備の継続性が低い | Routines専用エディタ群を実装 | P0 | `doc/v2/core/concept.md`, `src-ui/app.js:2270` |
+| G15 | UI情報設計 | Insightsで日次/週次傾向を可視化 | Reflectionは期間集計とログ一覧中心 | トレンド分析が限定的 | 改善サイクルの解像度不足 | Insightsで週次推移/未完傾向/完了率を追加 | P1 | `doc/v2/core/concept.md`, `src-ui/app.js:2215`, `src-tauri/src/application/commands.rs:2241` |
 | G16 | データ永続化 | 実行ログをローカルDBへ詳細保存 | `src` 側は保存、`src-tauri` 側はメモリ中心 | 実装間で保存戦略が不統一 | 再起動後の再現性が実装ごとに変化 | 永続化責務をTauri側へ統一し単一仕様化 | P1 | `src/infrastructure/localStorageRepository.js:193`, `src-tauri/src/application/commands.rs:150`, `src-tauri/sql/schema.sql` |
-| G17 | データ永続化 | ログ肥大化を抑える自動アーカイブ | アーカイブポリシー未定義 | 運用ポリシー欠落 | 長期運用でDB肥大・性能低下リスク | ログ保持期間と集約アーカイブバッチを追加 | P1 | `doc/v2/concept.md`, `src-tauri/sql/schema.sql`, `src/infrastructure/sql/schema.sql` |
-| G18 | データ永続化 | 外部反映は日次/週次集計中心 | 集計の外部書き戻し仕様が未実装 | 連携方針の未実装 | ローカル実績と外部可視化が分断 | 集計イベント生成APIを追加（任意ON） | P2 | `doc/v2/concept.md`, `src-tauri/src/application/commands.rs:2241` |
+| G17 | データ永続化 | ログ肥大化を抑える自動アーカイブ | アーカイブポリシー未定義 | 運用ポリシー欠落 | 長期運用でDB肥大・性能低下リスク | ログ保持期間と集約アーカイブバッチを追加 | P1 | `doc/v2/core/concept.md`, `src-tauri/sql/schema.sql`, `src/infrastructure/sql/schema.sql` |
+| G18 | データ永続化 | 外部反映は日次/週次集計中心 | 集計の外部書き戻し仕様が未実装 | 連携方針の未実装 | ローカル実績と外部可視化が分断 | 集計イベント生成APIを追加（任意ON） | P2 | `doc/v2/core/concept.md`, `src-tauri/src/application/commands.rs:2241` |
 | G19 | 設定/運用 | `recipes.json` を設定スキーマに追加 | 設定は app/calendars/policies/templates/routines/overrides のみ | レシピ定義の保存先なし | Recipe機能実装の前提欠落 | `recipes.json` 新設 + schema=1定義 | P0 | `config`, `src/config/defaults.js`, `src-tauri/src/infrastructure/config.rs` |
-| G20 | 設定/運用 | Routineに recipe関連項目を保持 | routineは時刻/期間/block属性中心 | ルーチンとレシピの結合不足 | 自動選択ロジックが構築できない | `routines.json` に `recipeId/autoDriveMode` を追加 | P0 | `doc/v2/concept.md`, `config/routines.json`, `src-tauri/src/application/commands.rs:3207` |
-| G21 | 設定/運用 | observed/estimated + soft/hard/temporary上書き運用 | JSは `mode` と重みあり、Tauriは最小上書き | 運用パラメータ体系が不完全/不統一 | 働き方非依存設計の説明可能性が弱い | overrideモデルを統一し由来メタデータを追加 | P1 | `doc/v2/concept.md`, `src/domain/models.js:83`, `src-tauri/src/domain/models.rs:210`, `config/overrides.json` |
+| G20 | 設定/運用 | Routineに recipe関連項目を保持 | routineは時刻/期間/block属性中心 | ルーチンとレシピの結合不足 | 自動選択ロジックが構築できない | `routines.json` に `recipeId/autoDriveMode` を追加 | P0 | `doc/v2/core/concept.md`, `config/routines.json`, `src-tauri/src/application/commands.rs:3207` |
+| G21 | 設定/運用 | observed/estimated + soft/hard/temporary上書き運用 | JSは `mode` と重みあり、Tauriは最小上書き | 運用パラメータ体系が不完全/不統一 | 働き方非依存設計の説明可能性が弱い | overrideモデルを統一し由来メタデータを追加 | P1 | `doc/v2/core/concept.md`, `src/domain/models.js:83`, `src-tauri/src/domain/models.rs:210`, `config/overrides.json` |
 | G22 | 同期連携 | 外部編集吸収と削除復活防止 | cancelled同期→suppression保存、再生成時に抑止 | 主要要件は一致 | v2移行時の基盤として活用可能 | 現行方針を維持し、Recipe関連メタを同様に同期 | P2 | `src-tauri/src/application/calendar_sync.rs`, `src-tauri/src/application/commands.rs:932`, `src/application/externalEditService.js` |
 | G23 | 同期連携 | OAuth機密の安全保存（ローカル保護） | Windows Credential Manager 保存を実装 | 要件一致（Tauri側） | 認証運用の安全性は確保済み | 維持。複数アカウント運用のUI整備のみ追加 | P2 | `src-tauri/src/application/commands.rs:2335`, `src-tauri/src/infrastructure/credential_store.rs` |
 | G24 | 同期連携 | プロダクト全体で一貫したSoTと実装責務 | `src` と `src-tauri` で実装責務が分散し重複 | 仕様解釈が二重化 | v2移行時の実装コストと不整合リスク増大 | v2では Tauri主系へ責務一本化、`src`は補助用途へ整理 | P1 | `src`, `src-tauri`, `package.json` |
@@ -241,7 +241,7 @@ interface Routine {
 
 ## 8. 根拠一覧（参照ファイル）
 - v2基準
-  - `doc/v2/concept.md`
+  - `doc/v2/core/concept.md`
 - 現行UI
   - `src-ui/index.html`
   - `src-ui/app.js`

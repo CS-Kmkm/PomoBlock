@@ -1,6 +1,6 @@
 ﻿# TypeScript Refactor 実装タスク (2026-03-05)
 
-元ドキュメント: `doc/v2/typescript_refactor_review_2026-03-05.md`
+元ドキュメント: `doc/v2/log/typescript_refactor_review_2026-03-05.md`
 
 ## 1. タスク定義ルール
 - ID形式: `TSR-xxx`
@@ -26,7 +26,7 @@
 | TSR-006 | todo | P1 | timer loop 分離 | PHASE-1(C) + PHASE-2(E) | `src-ui/runtime/*`, `src-ui/app-runtime.ts` | 分離先実装 + 統合完了 |
 | TSR-007 | todo | P2 | `app-runtime.ts` の薄いラッパー関数削減 | PHASE-2(E) | `src-ui/app-runtime.ts` | adapter最小化、可読性向上 |
 | TSR-008 | done | P2 | `task_refs` 検索改善(短期) | PHASE-1(D) | `src/infrastructure/localStorageRepository.ts` | 誤更新リスクを低減 |
-| TSR-009 | done | P2 | repository分割方針の設計文書化 | PHASE-1(D) | `doc/v2/*` | 分割単位/移行順を明記 |
+| TSR-009 | done | P2 | repository分割方針の設計文書化 | PHASE-1(D) | `doc/v2/core/*`, `doc/v2/log/*` | 分割単位/移行順を明記 |
 | TSR-010 | todo | P1 | 統合回帰確認 | PHASE-2(E) | `npm run typecheck`, `npm test` | typecheck/test + 手動確認完了 |
 
 ## 4. 実行順

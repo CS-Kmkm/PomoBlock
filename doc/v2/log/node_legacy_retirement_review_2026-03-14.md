@@ -2,7 +2,7 @@
 
 Date: 2026-03-14
 
-Related plan: `doc/v2/node_legacy_retirement_plan_2026-03-12.md`
+Related plan: `doc/v2/log/node_legacy_retirement_plan_2026-03-12.md`
 
 ## Goal Review
 
