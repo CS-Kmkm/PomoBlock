@@ -1,13 +1,15 @@
-﻿# PomBlock v2 差分実装 Issue分解
+# PomBlock v2 差分実装 Issue分解
 
-本ドキュメントは `doc/v2/core/gap_current_vs_v2.md` の差分（G01-G24）を、実装可能な粒度へ分解した Issue 一覧。
+> Historical note: この文書は 2026-02-25 時点の差分記録を元にした task breakdown です。現状判断には `doc/v2/core/` と最新コードを優先してください。
+
+本ドキュメントは `doc/v2/log/gap_current_vs_v2_2026-02-25.md` の差分（G01-G24）を、実装可能な粒度へ分解した Issue 一覧。
 
 ## 1. 運用ルール
 - ID 形式: `V2-xxx`
 - 優先度: `P0`（v2成立に必須） / `P1`（運用安定化） / `P2`（維持改善）
 - 見積: 実作業日ベース（1人日換算）
 - 依存: 先行完了が必要な Issue ID
-- 対応元: `Gxx` は `doc/v2/core/gap_current_vs_v2.md` の差分ID
+- 対応元: `Gxx` は `doc/v2/log/gap_current_vs_v2_2026-02-25.md` の差分ID
 
 ## 2. Epic 一覧
 | Epic | 目的 | 主な対応Gap |
@@ -92,7 +94,7 @@
 
 ## 5. 完了定義（DoD）
 - `V2-xxx` の受け入れ条件が全てテストまたは手順で検証済み。
-- `doc/v2/core/gap_current_vs_v2.md` の G01-G24 が少なくとも1つの `V2-xxx` に紐づいている。
+- `doc/v2/log/gap_current_vs_v2_2026-02-25.md` の G01-G24 が少なくとも1つの `V2-xxx` に紐づいている。
 - 互換レイヤ（旧pomodoro API）を残す範囲と廃止条件が `V2-072` に明文化されている。
 - S1-S8 がCIで再実行可能で、回帰検出できる状態である。
 

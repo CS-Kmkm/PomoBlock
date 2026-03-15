@@ -1,5 +1,7 @@
 # Node Legacy Retirement Review
 
+> Historical note: この文書は 2026-03-14 時点の review snapshot です。後続の cleanup により一部記述は現状と一致しません。
+
 Date: 2026-03-14
 
 Related plan: `doc/v2/log/node_legacy_retirement_plan_2026-03-12.md`

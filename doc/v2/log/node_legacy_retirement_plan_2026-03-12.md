@@ -1,5 +1,7 @@
 # Node Legacy Retirement Plan
 
+> Historical note: この文書は 2026-03-12 時点の retirement plan です。現状の達成状況はコードと後続 log を優先してください。
+
 Date: 2026-03-12
 
 ## Summary

@@ -1,5 +1,7 @@
 ﻿# PomBlock v2コンセプト差分ドキュメント（現行実装同列評価）
 
+> Historical note: この文書は 2026-02-25 時点の実装との差分記録です。現状の SoT ではなく、当時の比較結果を保持するために `log/` に置いています。
+
 作成日: 2026-02-25  
 比較基準: `doc/v2/core/concept.md` vs 現行実装（`src`・`src-ui`・`src-tauri`・`config`）
 
