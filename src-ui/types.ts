@@ -229,6 +229,7 @@ export interface PageRenderDeps {
     buildWeeklyPlannerModel: (dateValue: unknown, blocks: unknown, events: unknown) => unknown;
     buildPlannerStripModel: (dateKeys: string[], currentDateKey: string, blocks: unknown, events: unknown) => unknown;
     renderWeeklyPlannerCalendar: (model: unknown) => string;
+    renderSingleDayPlannerCalendar: (model: unknown) => string;
   };
   nowHelpers: {
     normalizePomodoroState: (state: unknown) => PomodoroState;

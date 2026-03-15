@@ -38,6 +38,7 @@ import {
   saveStudioModule,
 } from "./studio/actions.js";
 import { renderRoutinesMarkup } from "./view.js";
+import { bindPaneResizers } from "../../pane-resizer.js";
 
 
 export function renderRoutinesEvents(deps: PageRenderDeps): void {
@@ -143,6 +144,34 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         routineStudioContexts,
         escapeHtml,
     }));
+    bindPaneResizers(appRoot, [
+        {
+            layoutSelector: ".routine-studio-layout",
+            handleSelector: "[data-pane-resize='rs-left']",
+            paneSelector: ".rs-library",
+            cssVar: "--rs-left-width",
+            storageKey: "pane-width:routines:left",
+            edge: "left",
+            minWidth: 220,
+            maxWidth: 420,
+            mainMinWidth: 420,
+            oppositePaneSelector: ".rs-intel",
+            splitterCount: 2,
+        },
+        {
+            layoutSelector: ".routine-studio-layout",
+            handleSelector: "[data-pane-resize='rs-right']",
+            paneSelector: ".rs-intel",
+            cssVar: "--rs-right-width",
+            storageKey: "pane-width:routines:right",
+            edge: "right",
+            minWidth: 260,
+            maxWidth: 460,
+            mainMinWidth: 420,
+            oppositePaneSelector: ".rs-library",
+            splitterCount: 2,
+        },
+    ]);
     const rerender = () => renderRoutines();
     const persistTemplate = async () => persistStudioTemplate({
         studio,

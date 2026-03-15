@@ -1,8 +1,8 @@
 import { createCommandService, isUnknownCommandError as isUnknownCommandErrorValue } from "./services/command-service.js";
 import { createMockInvoke } from "./mock/mock-invoke.js";
 import { buildDailyCalendarModel as buildDailyCalendarModelValue, buildPlannerStripModel as buildPlannerStripModelValue, buildWeeklyPlannerModel as buildWeeklyPlannerModelValue, dayItemKey as dayItemKeyValue, invertTimelineIntervals as invertTimelineIntervalsValue, mergeTimelineIntervals as mergeTimelineIntervalsValue, minutesBetween as minutesBetweenValue, sumIntervalMinutes as sumIntervalMinutesValue, toClippedInterval as toClippedIntervalValue, toTimelineIntervals as toTimelineIntervalsValue, } from "./calendar-model.js";
-import { renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
-import type { DayCalendarModel } from "./calendar-render.js";
+import { renderDailyCalendar as renderDailyCalendarValue, renderDailyDetail as renderDailyDetailValue, renderGridDailyCalendar as renderGridDailyCalendarValue, renderSimpleDailyCalendar as renderSimpleDailyCalendarValue, renderSingleDayPlannerCalendar as renderSingleDayPlannerCalendarValue, renderWeeklyPlannerCalendar as renderWeeklyPlannerCalendarValue, } from "./calendar-render.js";
+import type { DayCalendarModel, PlannerStripRenderModel } from "./calendar-render.js";
 import { getById } from "./dom.js";
 import { blockDurationMinutes as blockDurationMinutesValue, blockPomodoroTarget as blockPomodoroTargetValue, getNowOrderedTasks as getNowOrderedTasksValue, normalizePomodoroState as normalizePomodoroStateValue, nowBufferAvailableMinutes as nowBufferAvailableMinutesValue, pomodoroPhaseLabel as pomodoroPhaseLabelValue, pomodoroProgressPercent as pomodoroProgressPercentValue, resolveCurrentFocusTask as resolveCurrentFocusTaskValue, resolveNowAutoStartBlock as resolveNowAutoStartBlockValue, resolveNowAutoStartTask as resolveNowAutoStartTaskValue, resolveNowBlocks as resolveNowBlocksValue, resolveNowDayBounds as resolveNowDayBoundsValue, syncNowTaskOrder as syncNowTaskOrderValue, syncNowTimerDisplay as syncNowTimerDisplayValue, } from "./now.js";
 import { formatHHmm as formatHHmmValue, formatTime as formatTimeValue, fromLocalInputValue as fromLocalInputValueValue, isoDate as isoDateValue, nowIso as nowIsoValue, resolveDayBounds as resolveDayBoundsValue, resolveWeekBounds as resolveWeekBoundsValue, resolveWeekBufferDateKeys as resolveWeekBufferDateKeysValue, resolveWeekDateKeys as resolveWeekDateKeysValue, toLocalInputValue as toLocalInputValueValue, toSyncWindowPayload as toSyncWindowPayloadValue, toTimerText as toTimerTextValue, } from "./time.js";
@@ -650,19 +650,15 @@ function buildPlannerStripModel(dateKeys: string[], currentDateKey: string, bloc
     return model;
 }
 function renderWeeklyPlannerCalendar(model: unknown) {
-    return renderWeeklyPlannerCalendarValue(model as Parameters<typeof renderWeeklyPlannerCalendarValue>[0] & {
-        days: Array<{
-            dayKey: string;
-            isCurrent: boolean;
-            isToday: boolean;
-            dayNumber: string;
-            weekdayLabel: string;
-            combinedItems: Array<Record<string, unknown> & { kind: string; }>;
-            dayStartMs: number;
-            dayEndMs: number;
-        }>;
-        selectedItem: { key?: string; } | null;
-    }, {
+    return renderWeeklyPlannerCalendarValue(model as PlannerStripRenderModel, {
+        escapeHtml,
+        intervalRangeLabel,
+        toDurationLabel: (minutes: number) => toDurationLabel(minutes),
+        toClockText: (milliseconds: number) => toClockText(milliseconds),
+    });
+}
+function renderSingleDayPlannerCalendar(model: unknown) {
+    return renderSingleDayPlannerCalendarValue(model as PlannerStripRenderModel, {
         escapeHtml,
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
@@ -691,6 +687,7 @@ function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
     const includeDetail = optionsRecord.includeDetail !== false;
     const includeBoard = optionsRecord.includeBoard !== false;
     const includeTimeline = optionsRecord.includeTimeline !== false;
+    const compactSummary = optionsRecord.compactSummary === true;
     const typedModel = model as DayCalendarModel & { totals: { blockMinutes: number; eventMinutes: number; freeMinutes: number; }; };
     const renderDailyDetail = (selected: unknown) => renderDailyDetailValue(selected, {
         escapeHtml,
@@ -714,7 +711,7 @@ function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
         intervalRangeLabel,
         toDurationLabel: (minutes: number) => toDurationLabel(minutes),
         timezoneOffsetLabel,
-        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendarValue(calendarModel, renderOptions, {
+        renderSimpleDailyCalendar: (calendarModel, renderOptions) => renderSimpleDailyCalendarValue(calendarModel, { ...renderOptions, compactSummary }, {
             escapeHtml,
             intervalRangeLabel,
             toDurationLabel: (minutes: number) => toDurationLabel(minutes),
@@ -1076,6 +1073,7 @@ function buildPageRenderDeps(): PageRenderDeps {
             buildWeeklyPlannerModel,
             buildPlannerStripModel,
             renderWeeklyPlannerCalendar,
+            renderSingleDayPlannerCalendar,
         },
         nowHelpers: {
             normalizePomodoroState,
@@ -1109,6 +1107,13 @@ function buildPageRenderDeps(): PageRenderDeps {
         },
     };
 }
+const COMPACT_TOPBAR_BREAKPOINT_PX = 980;
+function shouldUseNowHalfLayout() {
+    return window.innerWidth <= COMPACT_TOPBAR_BREAKPOINT_PX;
+}
+function syncResponsiveRouteClasses(route: string) {
+    document.body.classList.toggle("route-now-half", route === "now" && shouldUseNowHalfLayout());
+}
 function render() {
     const route = getRoute();
     const pageDeps = buildPageRenderDeps();
@@ -1117,6 +1122,7 @@ function render() {
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
     document.body.classList.toggle("route-routines", route === "routines");
+    syncResponsiveRouteClasses(route);
     appRoot.classList.toggle("view-root--week", isWeekRoute);
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
@@ -1329,6 +1335,9 @@ export function startApp(): void {
     appStarted = true;
     window.addEventListener("hashchange", () => {
         render();
+    });
+    window.addEventListener("resize", () => {
+        syncResponsiveRouteClasses(getRoute());
     });
     setInterval(async () => {
         const route = getRoute();

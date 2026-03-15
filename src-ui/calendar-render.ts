@@ -49,6 +49,23 @@ export type DayCalendarModel = {
   selectedItem: { key?: string } | null;
 };
 
+export type PlannerStripRenderDay = {
+  dayKey: string;
+  isCurrent: boolean;
+  isToday: boolean;
+  dayNumber: string;
+  monthDayLabel: string;
+  weekdayLabel: string;
+  combinedItems: Array<RenderItem & { kind: string }>;
+  dayStartMs: number;
+  dayEndMs: number;
+};
+
+export type PlannerStripRenderModel = {
+  days: PlannerStripRenderDay[];
+  selectedItem: { key?: string } | null;
+};
+
 export function renderDayLaneItems(
   kind: string,
   items: RenderItem[],
@@ -163,6 +180,40 @@ export function renderSimpleTimelineSegments(
     .join("");
 }
 
+export function renderSimpleMergedTimelineSegments(
+  items: Array<RenderItem & { kind: string }>,
+  dayStartMs: number,
+  dayEndMs: number,
+  selectedItem: { key?: string } | null,
+  helpers: RenderHelpers
+): string {
+  const totalRange = Math.max(1, dayEndMs - dayStartMs);
+  return items
+    .map((item) => {
+      const left = ((item.startMs - dayStartMs) / totalRange) * 100;
+      const width = Math.max(0.9, ((item.endMs - item.startMs) / totalRange) * 100);
+      const selectedClass = selectedItem && selectedItem.key === item.key ? "is-selected" : "";
+      const dragClass = item.kind === "block" ? "is-draggable" : "";
+      return `
+        <button
+          type="button"
+          class="day-simple-segment day-simple-segment-${item.kind} ${selectedClass} ${dragClass}"
+          style="left:${left}%;width:${width}%"
+          data-day-item-kind="${item.kind}"
+          data-day-item-id="${helpers.escapeHtml(item.id)}"
+          data-day-start-ms="${dayStartMs}"
+          data-day-end-ms="${dayEndMs}"
+          data-day-item-start-ms="${item.startMs}"
+          data-day-item-end-ms="${item.endMs}"
+          title="${helpers.escapeHtml(`${item.title} | ${helpers.intervalRangeLabel(item)}`)}"
+        >
+          <span>${helpers.escapeHtml(item.title)}</span>
+        </button>
+      `;
+    })
+    .join("");
+}
+
 export function renderSimpleOccupancySegments(
   intervals: Array<{ startMs: number; endMs: number }>,
   dayStartMs: number,
@@ -241,7 +292,7 @@ export function renderSimpleTimelineScale(): string {
 
 export function renderSimpleDailyCalendar(
   model: DayCalendarModel,
-  options: { includeDetail?: boolean; includeTimeline?: boolean } | undefined,
+  options: { includeDetail?: boolean; includeTimeline?: boolean; compactSummary?: boolean } | undefined,
   deps: RenderHelpers & {
     minutesBetween: (startMs: number, endMs: number) => number;
     renderDailyDetail: (selectedItem: unknown) => string;
@@ -249,13 +300,25 @@ export function renderSimpleDailyCalendar(
 ): string {
   const includeDetail = options?.includeDetail !== false;
   const includeTimeline = options?.includeTimeline !== false;
+  const compactSummary = options?.compactSummary === true;
+  const combinedItems = [...model.blockItems, ...model.eventItems, ...model.freeItems].sort(
+    (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
+  ) as Array<RenderItem & { kind: string }>;
   return `
     <div class="day-view-simple">
       ${
         includeTimeline
           ? `
-      <div class="panel day-simple-timeline">
+      <div class="panel day-simple-timeline ${compactSummary ? "day-simple-timeline-compact" : ""}">
         <div class="day-simple-scale">${renderSimpleTimelineScale()}</div>
+        ${
+          compactSummary
+            ? `
+        <div class="day-simple-track day-simple-track-compact">
+          ${renderSimpleMergedTimelineSegments(combinedItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps) || '<span class="day-simple-empty">なし</span>'}
+        </div>
+        `
+            : `
         <div class="day-simple-row">
           <span class="day-simple-row-label">埋まり具合</span>
           <div class="day-simple-track day-simple-track-occupancy">
@@ -269,6 +332,8 @@ export function renderSimpleDailyCalendar(
         ${renderSimpleTimelineRow("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         ${renderSimpleTimelineRow("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         ${renderSimpleTimelineRow("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
+        `
+        }
       </div>
       `
           : ""
@@ -312,27 +377,43 @@ export function renderGridDailyCalendar(
   `;
 }
 
+function renderPlannerDayLane(
+  day: PlannerStripRenderDay,
+  selectedItem: { key?: string } | null,
+  deps: RenderHelpers
+): string {
+  const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, selectedItem, deps);
+  const nowMs = Date.now();
+  const totalRange = Math.max(1, day.dayEndMs - day.dayStartMs);
+  const nowTop = ((nowMs - day.dayStartMs) / totalRange) * 100;
+  const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
+
+  return `
+    <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
+      <div class="day-lane-track week-day-track">
+        ${renderDayHourGuides()}
+        ${
+          showNowLine
+            ? `
+          <div class="week-now-line" style="top:${nowTop}%">
+            <span class="week-now-dot" aria-hidden="true"></span>
+          </div>
+        `
+            : ""
+        }
+        ${entries || '<span class="day-lane-empty">なし</span>'}
+      </div>
+    </section>
+  `;
+}
+
 export function renderWeeklyPlannerCalendar(
-  model: {
-    days: Array<{
-      dayKey: string;
-      isCurrent: boolean;
-      isToday: boolean;
-      dayNumber: string;
-      monthDayLabel: string;
-      weekdayLabel: string;
-      combinedItems: Array<RenderItem & { kind: string }>;
-      dayStartMs: number;
-      dayEndMs: number;
-    }>;
-    selectedItem: { key?: string } | null;
-  },
+  model: PlannerStripRenderModel,
   deps: RenderHelpers & { toClockText: (milliseconds: number) => string }
 ): string {
   if (!model.days.length) {
     return '<div class="panel"><p class="small">週次データがありません。</p></div>';
   }
-  const nowMs = Date.now();
   const gridColumns = `repeat(${model.days.length}, minmax(150px, 1fr))`;
   return `
     <div class="week-board" data-week-scroll-container tabindex="0">
@@ -361,32 +442,27 @@ export function renderWeeklyPlannerCalendar(
         </div>
         <div class="week-board-body" style="grid-template-columns:${gridColumns}">
           ${model.days
-            .map((day) => {
-              const entries = renderCombinedDayLaneItems(day.combinedItems, day.dayStartMs, day.dayEndMs, model.selectedItem, deps);
-              const totalRange = Math.max(1, day.dayEndMs - day.dayStartMs);
-              const nowTop = ((nowMs - day.dayStartMs) / totalRange) * 100;
-              const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
-              return `
-                <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
-                  <div class="day-lane-track week-day-track">
-                    ${renderDayHourGuides()}
-                    ${
-                      showNowLine
-                        ? `
-                      <div class="week-now-line" style="top:${nowTop}%">
-                        <span class="week-now-dot" aria-hidden="true"></span>
-                      </div>
-                    `
-                        : ""
-                    }
-                    ${entries || '<span class="day-lane-empty">なし</span>'}
-                  </div>
-                </section>
-              `;
-            })
+            .map((day) => renderPlannerDayLane(day, model.selectedItem, deps))
             .join("")}
         </div>
       </div>
+    </div>
+  `;
+}
+
+export function renderSingleDayPlannerCalendar(
+  model: PlannerStripRenderModel,
+  deps: RenderHelpers & { toClockText: (milliseconds: number) => string }
+): string {
+  const day = model.days[0];
+  if (!day) {
+    return '<div class="panel"><p class="small">今日の予定はありません。</p></div>';
+  }
+
+  return `
+    <div class="now-day-schedule">
+      ${renderDayTimeAxis(day.dayStartMs, day.dayEndMs, deps.toClockText)}
+      ${renderPlannerDayLane(day, model.selectedItem, deps)}
     </div>
   `;
 }
