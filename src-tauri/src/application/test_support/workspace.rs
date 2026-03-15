@@ -21,6 +21,10 @@ impl TempWorkspace {
         Self { path }
     }
 
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
     pub(crate) fn app_state(&self) -> AppState {
         AppState::new(self.path.clone()).expect("initialize app state")
     }

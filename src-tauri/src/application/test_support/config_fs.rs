@@ -20,6 +20,13 @@ impl TempConfigDir {
         Self { path }
     }
 
+    pub(crate) fn with_default_configs(prefix: &str, label: &str) -> Self {
+        let temp = Self::new(prefix, label);
+        crate::infrastructure::config::ensure_default_configs(temp.path())
+            .expect("initialize default configs");
+        temp
+    }
+
     pub(crate) fn path(&self) -> &Path {
         &self.path
     }

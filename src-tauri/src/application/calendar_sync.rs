@@ -69,12 +69,6 @@ where
         }
     }
 
-    #[cfg(test)]
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
     pub async fn sync(
         &self,
         access_token: &str,
@@ -255,6 +249,22 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
+    fn test_service(
+        calendar_client: Arc<FakeGoogleCalendarClient>,
+        sync_state_repository: Arc<InMemorySyncStateRepository>,
+        cache_repository: Arc<InMemoryCalendarCacheRepository>,
+        retry_policy: RetryPolicy,
+    ) -> CalendarSyncService<
+        FakeGoogleCalendarClient,
+        InMemorySyncStateRepository,
+        InMemoryCalendarCacheRepository,
+    > {
+        let mut service =
+            CalendarSyncService::new(calendar_client, sync_state_repository, cache_repository);
+        service.retry_policy = retry_policy;
+        service
+    }
+
     #[derive(Debug, Clone)]
     enum FakeListResponse {
         Success(ListEventsResponse),
@@ -426,8 +436,12 @@ mod tests {
                 cache.upsert(&sample_event("evt-deleted", "will-delete", "confirmed"))
                     .expect("cache seed deleted event");
 
-                let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), Arc::clone(&cache))
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    Arc::clone(&client),
+                    Arc::clone(&sync_repo),
+                    Arc::clone(&cache),
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let result = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
 
@@ -459,8 +473,12 @@ mod tests {
                 ]));
                 let sync_repo = Arc::new(InMemorySyncStateRepository::default());
                 let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-                let service = CalendarSyncService::new(client, Arc::clone(&sync_repo), cache)
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    client,
+                    Arc::clone(&sync_repo),
+                    cache,
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let _ = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
                 let saved = sync_repo.load().expect("load state").expect("state exists");
@@ -485,8 +503,12 @@ mod tests {
                 ]));
                 let sync_repo = Arc::new(InMemorySyncStateRepository::default());
                 let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-                let service = CalendarSyncService::new(client, sync_repo, Arc::clone(&cache))
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    client,
+                    sync_repo,
+                    Arc::clone(&cache),
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let _ = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
                 let cached = cache.get_by_id(&event_id).expect("cache read").expect("cached event exists");
@@ -506,11 +528,15 @@ mod tests {
         ]));
         let sync_repo = Arc::new(InMemorySyncStateRepository::default());
         let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-        let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), cache)
-            .with_retry_policy(RetryPolicy {
+        let service = test_service(
+            Arc::clone(&client),
+            Arc::clone(&sync_repo),
+            cache,
+            RetryPolicy {
                 max_attempts: 2,
                 base_delay_ms: 1,
-            });
+            },
+        );
 
         let result = service
             .sync("access-token", "primary", fixed_time(), fixed_time())
@@ -535,11 +561,15 @@ mod tests {
             .save(Some("stale-sync-token"), fixed_time())
             .expect("seed stale token");
         let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-        let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), cache)
-            .with_retry_policy(RetryPolicy {
+        let service = test_service(
+            Arc::clone(&client),
+            Arc::clone(&sync_repo),
+            cache,
+            RetryPolicy {
                 max_attempts: 1,
                 base_delay_ms: 1,
-            });
+            },
+        );
 
         let result = service
             .sync("access-token", "primary", fixed_time(), fixed_time())
