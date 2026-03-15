@@ -390,7 +390,7 @@ function renderPlannerDayLane(
   const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
 
   return `
-    <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
+    <section class="week-day-lane ${day.isToday ? "is-today" : ""}">
       <div class="day-lane-track week-day-track">
         ${renderDayHourGuides()}
         ${
@@ -429,7 +429,7 @@ export function renderWeeklyPlannerCalendar(
               (day) => `
             <button
               type="button"
-              class="week-board-day ${day.isCurrent ? "is-current" : ""}"
+              class="week-board-day ${day.isToday ? "is-today" : ""}"
               data-week-day-key="${deps.escapeHtml(day.dayKey)}"
               data-week-open-details="${deps.escapeHtml(day.dayKey)}"
             >

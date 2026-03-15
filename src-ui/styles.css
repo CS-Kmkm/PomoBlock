@@ -2423,7 +2423,7 @@ th {
   color: var(--muted);
 }
 
-.week-board-day.is-current {
+.week-board-day.is-today {
   color: #1667cb;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 248, 255, 0.92));
   box-shadow:
@@ -2446,7 +2446,7 @@ th {
     linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(247, 250, 248, 0.94));
 }
 
-.week-day-lane.is-current .week-day-track {
+.week-day-lane.is-today .week-day-track {
   border-color: rgba(22, 103, 203, 0.45);
   box-shadow: inset 0 0 0 1px rgba(22, 103, 203, 0.15);
 }
