@@ -60,7 +60,7 @@ export function renderWeekPage(deps: PageRenderDeps): void {
         </section>
       </section>
 
-      <div class="pane-splitter" data-pane-resize="week-right" aria-hidden="true"></div>
+      <div class="pane-splitter" data-pane-resize="week-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
       ${renderWeekSidebar(deps)}
     </section>
   `;

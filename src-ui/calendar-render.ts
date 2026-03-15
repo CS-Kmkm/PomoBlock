@@ -301,9 +301,10 @@ export function renderSimpleDailyCalendar(
   const includeDetail = options?.includeDetail !== false;
   const includeTimeline = options?.includeTimeline !== false;
   const compactSummary = options?.compactSummary === true;
-  const combinedItems = [...model.blockItems, ...model.eventItems, ...model.freeItems].sort(
+  const allItems = [...model.blockItems, ...model.eventItems, ...model.freeItems].sort(
     (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
   ) as Array<RenderItem & { kind: string }>;
+  const combinedItems = compactSummary ? allItems.filter((item) => item.kind !== "free") : allItems;
   return `
     <div class="day-view-simple">
       ${
