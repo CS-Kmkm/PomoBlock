@@ -1,3 +1,4 @@
+import { bindPaneResizers } from "../../pane-resizer.js";
 import type { PageRenderDeps } from "../../types.js";
 
 export function renderNowPage(deps: PageRenderDeps): void {
@@ -99,6 +100,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
           ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
         </div>
       </aside>
+      <div class="pane-splitter" data-pane-resize="now-left" aria-hidden="true"></div>
 
       <section class="now-main-pane">
         <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} MODE</p>
@@ -122,6 +124,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
           <p class="small">Block: ${helpers.escapeHtml(objectiveBlockId)}</p>
         </section>
       </section>
+      <div class="pane-splitter" data-pane-resize="now-right" aria-hidden="true"></div>
 
       <aside class="now-right-rail">
         <header class="row spread">
@@ -165,6 +168,35 @@ export function renderNowPage(deps: PageRenderDeps): void {
       ${focusCompletion === null ? "" : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`}
     </section>
   `;
+
+  bindPaneResizers(appRoot, [
+    {
+      layoutSelector: ".now-layout",
+      handleSelector: "[data-pane-resize='now-left']",
+      paneSelector: ".now-left-rail",
+      cssVar: "--now-left-width",
+      storageKey: "pane-width:now:left",
+      edge: "left",
+      minWidth: 180,
+      maxWidth: 420,
+      mainMinWidth: 360,
+      oppositePaneSelector: ".now-right-rail",
+      splitterCount: 2,
+    },
+    {
+      layoutSelector: ".now-layout",
+      handleSelector: "[data-pane-resize='now-right']",
+      paneSelector: ".now-right-rail",
+      cssVar: "--now-right-width",
+      storageKey: "pane-width:now:right",
+      edge: "right",
+      minWidth: 220,
+      maxWidth: 460,
+      mainMinWidth: 360,
+      oppositePaneSelector: ".now-left-rail",
+      splitterCount: 2,
+    },
+  ]);
 
   ["now-left-action", "now-primary-action", "now-right-action"].forEach((id) => {
     document.getElementById(id)?.addEventListener("click", async (event: Event) => {

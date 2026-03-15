@@ -1,5 +1,6 @@
 import { attachWeekScrollStrip } from "./scroll-strip.js";
 import { buildWeekPageModel } from "./model.js";
+import { bindPaneResizers } from "../../pane-resizer.js";
 import type { PageRenderDeps } from "../../types.js";
 
 function renderWeekSidebar(deps: PageRenderDeps): string {
@@ -59,9 +60,24 @@ export function renderWeekPage(deps: PageRenderDeps): void {
         </section>
       </section>
 
+      <div class="pane-splitter" data-pane-resize="week-right" aria-hidden="true"></div>
       ${renderWeekSidebar(deps)}
     </section>
   `;
+
+  bindPaneResizers(appRoot, [
+    {
+      layoutSelector: ".week-layout",
+      handleSelector: "[data-pane-resize='week-right']",
+      paneSelector: ".week-right-rail",
+      cssVar: "--week-right-width",
+      storageKey: "pane-width:week:right",
+      edge: "right",
+      minWidth: 260,
+      maxWidth: 520,
+      mainMinWidth: 480,
+    },
+  ]);
 
   appRoot.querySelector("[data-week-jump-today]")?.addEventListener("click", async () => {
     await services.runUiAction(async () => {

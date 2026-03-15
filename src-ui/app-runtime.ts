@@ -1107,12 +1107,9 @@ function buildPageRenderDeps(): PageRenderDeps {
         },
     };
 }
+const COMPACT_TOPBAR_BREAKPOINT_PX = 980;
 function shouldUseNowHalfLayout() {
-    const screenWidth = Math.max(window.screen?.availWidth || 0, window.screen?.width || 0, window.innerWidth);
-    if (screenWidth < 1024) {
-        return false;
-    }
-    return window.innerWidth <= Math.floor(screenWidth / 2);
+    return window.innerWidth <= COMPACT_TOPBAR_BREAKPOINT_PX;
 }
 function syncResponsiveRouteClasses(route: string) {
     document.body.classList.toggle("route-now-half", route === "now" && shouldUseNowHalfLayout());
