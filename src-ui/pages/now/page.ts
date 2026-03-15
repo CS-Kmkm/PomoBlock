@@ -12,6 +12,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
     helpers.syncNowTimerDisplay(state);
   }
 
+  const nowMs = Date.now();
   const todayDate = helpers.isoDate(new Date());
   const todayBlocks = helpers.resolveNowBlocks();
   const todayPlannerModel = helpers.buildPlannerStripModel([todayDate], todayDate, uiState.blocks, uiState.calendarEvents) as {
@@ -21,6 +22,10 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const orderedTasks = helpers.getNowOrderedTasks(true);
   const openTasks = orderedTasks.filter((task) => task.status !== "completed");
   const currentBlockId = typeof state.current_block_id === "string" ? state.current_block_id : null;
+  const activeScheduleBlock =
+    currentBlockId !== null
+      ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
+      : todayBlocks.find(({ startMs, endMs }) => startMs <= nowMs && nowMs < endMs)?.block || null;
   const runningBlock = currentBlockId
     ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
     : null;
@@ -55,8 +60,31 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const totalSteps =
     totalCycles > 0 ? totalCycles : Math.max(1, Number((autoStartBlock?.planned_pomodoros as number | undefined) || 1));
   const controls = helpers.resolveTimerControlModel(state) as Record<string, unknown>;
+  const notesPanel = helpers.renderNowNotesPanel();
+  const mobileSchedule = helpers.renderDailyCalendar(todayDate, {
+    panelClass: "now-mobile-schedule",
+    forceMode: "simple",
+    syncSelection: false,
+    preferredSelection: activeScheduleBlock ? { kind: "block", id: String(activeScheduleBlock.id || "") } : null,
+    showHeader: false,
+    showMetrics: false,
+    showViewToggle: false,
+    includeDetail: false,
+    includeTimeline: true,
+  });
 
   appRoot.innerHTML = `
+    <section class="now-mobile-schedule-shell">
+      <header class="now-mobile-head">
+        <div>
+          <h3>Today's Schedule</h3>
+          <p class="small">${helpers.escapeHtml(todayDate)}</p>
+        </div>
+        <p class="small">${todayScheduleCount} items</p>
+      </header>
+      ${mobileSchedule}
+    </section>
+
     <section class="now-layout">
       <aside class="now-left-rail">
         <header class="now-left-head">
@@ -124,8 +152,11 @@ export function renderNowPage(deps: PageRenderDeps): void {
                   .join("")
           }
         </div>
-        ${helpers.renderNowNotesPanel()}
+        <div class="now-desktop-notes">${notesPanel}</div>
       </aside>
+    </section>
+    <section class="now-mobile-notes-shell">
+      ${notesPanel}
     </section>
     <section class="now-bottom-bar">
       <div class="now-bottom-item"><span>Buffer Available</span><strong>${bufferMinutes}m</strong></div>
