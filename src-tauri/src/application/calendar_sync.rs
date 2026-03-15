@@ -1,3 +1,4 @@
+use crate::application::external_edit_service::{ExternalEditResult, ExternalEditService};
 use crate::infrastructure::calendar_cache::CalendarCacheRepository;
 use crate::infrastructure::error::InfraError;
 use crate::infrastructure::event_mapper::GoogleCalendarEvent;
@@ -66,16 +67,6 @@ where
             retry_policy: RetryPolicy::default(),
             now_provider: Arc::new(Utc::now),
         }
-    }
-
-    pub fn with_retry_policy(mut self, retry_policy: RetryPolicy) -> Self {
-        self.retry_policy = retry_policy;
-        self
-    }
-
-    pub fn with_now_provider(mut self, now_provider: NowProvider) -> Self {
-        self.now_provider = now_provider;
-        self
     }
 
     pub async fn sync(
@@ -238,78 +229,9 @@ where
         }
     }
 
-    fn apply_events(&self, events: Vec<GoogleCalendarEvent>) -> Result<AppliedSyncResult, InfraError> {
-        let mut added = Vec::new();
-        let mut updated = Vec::new();
-        let mut deleted = Vec::new();
-        let mut suppressed_instances = Vec::new();
-
-        for event in events {
-            let Some(event_id) = event
-                .id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-            else {
-                continue;
-            };
-
-            let is_cancelled = event
-                .status
-                .as_deref()
-                .map(|status| status.eq_ignore_ascii_case("cancelled"))
-                .unwrap_or(false);
-            let existing = self.cache_repository.get_by_id(&event_id)?;
-
-            if is_cancelled {
-                if let Some(instance) = extract_managed_instance(&event) {
-                    suppressed_instances.push(instance);
-                }
-                if existing.is_some() {
-                    self.cache_repository.remove(&event_id)?;
-                    deleted.push(event_id);
-                }
-                continue;
-            }
-
-            match existing {
-                None => {
-                    self.cache_repository.upsert(&event)?;
-                    added.push(event);
-                }
-                Some(cached) if cached != event => {
-                    self.cache_repository.upsert(&event)?;
-                    updated.push(event);
-                }
-                Some(_) => {}
-            }
-        }
-
-        Ok(AppliedSyncResult {
-            added,
-            updated,
-            deleted,
-            suppressed_instances,
-        })
+    fn apply_events(&self, events: Vec<GoogleCalendarEvent>) -> Result<ExternalEditResult, InfraError> {
+        ExternalEditService::new(Arc::clone(&self.cache_repository)).apply_events(events)
     }
-}
-
-struct AppliedSyncResult {
-    added: Vec<GoogleCalendarEvent>,
-    updated: Vec<GoogleCalendarEvent>,
-    deleted: Vec<String>,
-    suppressed_instances: Vec<String>,
-}
-
-fn extract_managed_instance(event: &GoogleCalendarEvent) -> Option<String> {
-    event
-        .extended_properties
-        .as_ref()
-        .and_then(|properties| properties.private.get("bs_instance"))
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
@@ -326,6 +248,22 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+
+    fn test_service(
+        calendar_client: Arc<FakeGoogleCalendarClient>,
+        sync_state_repository: Arc<InMemorySyncStateRepository>,
+        cache_repository: Arc<InMemoryCalendarCacheRepository>,
+        retry_policy: RetryPolicy,
+    ) -> CalendarSyncService<
+        FakeGoogleCalendarClient,
+        InMemorySyncStateRepository,
+        InMemoryCalendarCacheRepository,
+    > {
+        let mut service =
+            CalendarSyncService::new(calendar_client, sync_state_repository, cache_repository);
+        service.retry_policy = retry_policy;
+        service
+    }
 
     #[derive(Debug, Clone)]
     enum FakeListResponse {
@@ -498,8 +436,12 @@ mod tests {
                 cache.upsert(&sample_event("evt-deleted", "will-delete", "confirmed"))
                     .expect("cache seed deleted event");
 
-                let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), Arc::clone(&cache))
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    Arc::clone(&client),
+                    Arc::clone(&sync_repo),
+                    Arc::clone(&cache),
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let result = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
 
@@ -531,8 +473,12 @@ mod tests {
                 ]));
                 let sync_repo = Arc::new(InMemorySyncStateRepository::default());
                 let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-                let service = CalendarSyncService::new(client, Arc::clone(&sync_repo), cache)
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    client,
+                    Arc::clone(&sync_repo),
+                    cache,
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let _ = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
                 let saved = sync_repo.load().expect("load state").expect("state exists");
@@ -557,8 +503,12 @@ mod tests {
                 ]));
                 let sync_repo = Arc::new(InMemorySyncStateRepository::default());
                 let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-                let service = CalendarSyncService::new(client, sync_repo, Arc::clone(&cache))
-                    .with_retry_policy(RetryPolicy { max_attempts: 1, base_delay_ms: 1 });
+                let service = test_service(
+                    client,
+                    sync_repo,
+                    Arc::clone(&cache),
+                    RetryPolicy { max_attempts: 1, base_delay_ms: 1 },
+                );
 
                 let _ = service.sync("access-token", "primary", fixed_time(), fixed_time()).await.expect("sync success");
                 let cached = cache.get_by_id(&event_id).expect("cache read").expect("cached event exists");
@@ -578,11 +528,15 @@ mod tests {
         ]));
         let sync_repo = Arc::new(InMemorySyncStateRepository::default());
         let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-        let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), cache)
-            .with_retry_policy(RetryPolicy {
+        let service = test_service(
+            Arc::clone(&client),
+            Arc::clone(&sync_repo),
+            cache,
+            RetryPolicy {
                 max_attempts: 2,
                 base_delay_ms: 1,
-            });
+            },
+        );
 
         let result = service
             .sync("access-token", "primary", fixed_time(), fixed_time())
@@ -607,11 +561,15 @@ mod tests {
             .save(Some("stale-sync-token"), fixed_time())
             .expect("seed stale token");
         let cache = Arc::new(InMemoryCalendarCacheRepository::default());
-        let service = CalendarSyncService::new(Arc::clone(&client), Arc::clone(&sync_repo), cache)
-            .with_retry_policy(RetryPolicy {
+        let service = test_service(
+            Arc::clone(&client),
+            Arc::clone(&sync_repo),
+            cache,
+            RetryPolicy {
                 max_attempts: 1,
                 base_delay_ms: 1,
-            });
+            },
+        );
 
         let result = service
             .sync("access-token", "primary", fixed_time(), fixed_time())

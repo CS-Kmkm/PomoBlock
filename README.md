@@ -3,6 +3,13 @@
 PomoBlock は、Tauri ベースのデスクトップアプリです。  
 Rust バックエンドで認証・同期・ブロック管理を扱い、TypeScript UI で操作します。
 
+## Backend Source Of Truth
+
+- 本番 backend の SoT は `src-tauri/` です。
+- 新しい backend 機能は Rust にのみ追加します。
+- Node/TypeScript backend の legacy 実装は退役済みです。
+- `npm run init` / `npm run status` は Rust CLI 実装を呼び出します。
+
 ## 前提環境
 
 - Node.js 22 以上
@@ -46,6 +53,10 @@ npm run status
 npm test
 ```
 
+- `npm test` は Rust backend の単体テストと UI 回帰テストの両方を実行します。
+- UI 回帰テストは `src-ui/now.ts` の自動開始判定を対象にし、実行前に `build:ui` を走らせます。
+- Rust のみ確認したい場合は `npm run test:rust`、UI 回帰だけ確認したい場合は `npm run test:ui` を使います。
+
 ### Rust 側チェック
 
 ```powershell
@@ -62,6 +73,12 @@ cargo tauri dev
 補足:
 - `src-tauri/tauri.conf.json` の `beforeDevCommand` で `npm --prefix . run build:ui` を実行するため、
   `cargo tauri dev` 前に手動で UI ビルドする必要はありません。
+
+### Backend 実装の扱い
+
+- UI は `src-ui/`、本番 backend は `src-tauri/` を編集対象にします。
+- backend 仕様の回帰確認は Rust テストへ集約しています。
+- UI の軽量回帰は `tests/now.test.js` で維持し、`npm test` に含めます。
 
 ## 設定方法
 
@@ -102,3 +119,8 @@ npm run build:windows
 ```powershell
 npm run build:windows:debug
 ```
+
+## Retired Node Backend
+
+- Node backend は退役済みで、backend 実装は `src-tauri/` に一本化されています。
+- `npm run build` と `npm run typecheck` は UI 対象のみです。

@@ -3,6 +3,7 @@ name = "pomoblock-tauri"
 version = "0.1.0"
 description = "PomoBlock desktop backend"
 edition = "2024"
+default-run = "pomoblock-tauri"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -24,4 +25,3 @@ url = "2"
 
 [dev-dependencies]
 proptest = "1.5"
-

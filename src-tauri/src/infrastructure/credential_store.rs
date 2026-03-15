@@ -1,11 +1,11 @@
 use crate::domain::models::OAuthToken;
 use crate::infrastructure::error::InfraError;
+#[cfg(test)]
 use std::sync::Mutex;
 
 pub trait CredentialStore: Send + Sync {
     fn save_token(&self, token: &OAuthToken) -> Result<(), InfraError>;
     fn load_token(&self) -> Result<Option<OAuthToken>, InfraError>;
-    fn delete_token(&self) -> Result<(), InfraError>;
 }
 
 #[derive(Debug, Clone)]
@@ -54,21 +54,15 @@ impl CredentialStore for WindowsCredentialManagerStore {
             .map_err(|error| InfraError::Credential(error.to_string()))?;
         Ok(Some(token))
     }
-
-    fn delete_token(&self) -> Result<(), InfraError> {
-        match self.entry()?.delete_credential() {
-            Ok(_) => Ok(()),
-            Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(InfraError::Credential(error.to_string())),
-        }
-    }
 }
 
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct InMemoryCredentialStore {
     token: Mutex<Option<OAuthToken>>,
 }
 
+#[cfg(test)]
 impl CredentialStore for InMemoryCredentialStore {
     fn save_token(&self, token: &OAuthToken) -> Result<(), InfraError> {
         let mut guard = self
@@ -85,14 +79,5 @@ impl CredentialStore for InMemoryCredentialStore {
             .lock()
             .map_err(|error| InfraError::Credential(format!("in-memory lock poisoned: {error}")))?;
         Ok(guard.clone())
-    }
-
-    fn delete_token(&self) -> Result<(), InfraError> {
-        let mut guard = self
-            .token
-            .lock()
-            .map_err(|error| InfraError::Credential(format!("in-memory lock poisoned: {error}")))?;
-        *guard = None;
-        Ok(())
     }
 }

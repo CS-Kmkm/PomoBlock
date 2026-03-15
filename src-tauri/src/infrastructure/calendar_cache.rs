@@ -7,7 +7,6 @@ pub trait CalendarCacheRepository: Send + Sync {
     fn get_by_id(&self, event_id: &str) -> Result<Option<GoogleCalendarEvent>, InfraError>;
     fn upsert(&self, event: &GoogleCalendarEvent) -> Result<(), InfraError>;
     fn remove(&self, event_id: &str) -> Result<(), InfraError>;
-    fn list_all(&self) -> Result<Vec<GoogleCalendarEvent>, InfraError>;
 }
 
 #[derive(Debug, Default)]
@@ -62,13 +61,5 @@ impl CalendarCacheRepository for InMemoryCalendarCacheRepository {
             .map_err(|error| InfraError::InvalidConfig(format!("calendar cache lock poisoned: {error}")))?;
         events.remove(&event_id);
         Ok(())
-    }
-
-    fn list_all(&self) -> Result<Vec<GoogleCalendarEvent>, InfraError> {
-        let events = self
-            .events
-            .lock()
-            .map_err(|error| InfraError::InvalidConfig(format!("calendar cache lock poisoned: {error}")))?;
-        Ok(events.values().cloned().collect())
     }
 }

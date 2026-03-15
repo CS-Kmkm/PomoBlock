@@ -888,6 +888,55 @@ p {
   margin: 0;
 }
 
+.now-left-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.now-left-head .small {
+  margin: 0;
+}
+
+.now-schedule-wrap {
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.now-schedule-calendar.day-calendar {
+  margin-top: 0;
+  gap: 12px;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.now-schedule-calendar .calendar-metrics {
+  gap: 6px;
+}
+
+.now-schedule-calendar .pill {
+  font-size: 0.72rem;
+}
+
+.now-schedule-calendar .day-simple-timeline {
+  gap: 12px;
+}
+
+.now-schedule-calendar .day-simple-scale {
+  margin-left: 72px;
+}
+
+.now-schedule-calendar .day-simple-row {
+  grid-template-columns: 62px 1fr;
+  gap: 8px;
+}
+
+.now-schedule-calendar .day-simple-track {
+  height: 28px;
+}
+
 .now-timeline-list {
   display: grid;
   gap: 10px;

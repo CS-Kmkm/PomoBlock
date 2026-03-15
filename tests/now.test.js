@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveNowAutoStartBlock } from "../src-ui/now.ts";
+import { resolveNowAutoStartBlock } from "../src-ui/dist/now.js";
 
 function localDate(year, month, day, hour, minute = 0) {
   return new Date(year, month - 1, day, hour, minute, 0, 0);

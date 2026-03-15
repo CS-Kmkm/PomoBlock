@@ -37,14 +37,14 @@ $workItems = @(
   [pscustomobject]@{
     Id = "D"; Folder = "tsr-d-storage"; Branch = "codex/tsr-d-storage"; Phase = "PHASE-1";
     Tasks = "TSR-008, TSR-009";
-    Allowed = "src/infrastructure/localStorageRepository.ts; doc/v2/*";
+    Allowed = "src/infrastructure/localStorageRepository.ts; doc/v2/core/*; doc/v2/log/*";
     Forbidden = "src-ui/app-runtime.ts";
     StartAfter = "-"
   },
   [pscustomobject]@{
     Id = "E"; Folder = "tsr-e-runtime-integration"; Branch = "codex/tsr-e-runtime-integration"; Phase = "PHASE-2";
     Tasks = "TSR-005/006 integration + TSR-007 + TSR-010";
-    Allowed = "src-ui/app-runtime.ts; src-ui/runtime/*; tests/*; doc/v2/*";
+    Allowed = "src-ui/app-runtime.ts; src-ui/runtime/*; tests/*; doc/v2/core/*; doc/v2/log/*";
     Forbidden = "-";
     StartAfter = "B merged + C merged + latest main"
   }

@@ -1,0 +1,12 @@
+use crate::application::reflection_service::ReflectionService;
+use crate::infrastructure::error::InfraError;
+
+pub use crate::application::reflection_service::ReflectionSummaryResponse;
+
+pub fn get_reflection_summary_impl(
+    state: &super::bootstrap::AppState,
+    start: Option<String>,
+    end: Option<String>,
+) -> Result<ReflectionSummaryResponse, InfraError> {
+    ReflectionService::new(state).get_summary(start, end)
+}

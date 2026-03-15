@@ -28,6 +28,15 @@ struct BootstrapResponse {
     database_path: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkspaceStatus {
+    pub workspace_root: String,
+    pub config_dir: String,
+    pub state_dir: String,
+    pub logs_dir: String,
+    pub database_path: String,
+}
+
 fn is_src_tauri_dir(path: &Path) -> bool {
     let is_src_tauri = path
         .file_name()
@@ -47,17 +56,28 @@ fn default_workspace_root() -> Result<PathBuf, String> {
     Ok(current_dir)
 }
 
-#[tauri::command]
-fn bootstrap(root: Option<String>) -> Result<BootstrapResponse, String> {
+pub fn workspace_status(root: Option<String>) -> Result<WorkspaceStatus, String> {
     let workspace_root = match root {
         Some(path) => PathBuf::from(path),
         None => default_workspace_root()?,
     };
 
     let result = bootstrap_workspace(&workspace_root).map_err(|error| error.to_string())?;
-    Ok(BootstrapResponse {
+    Ok(WorkspaceStatus {
         workspace_root: result.workspace_root.display().to_string(),
+        config_dir: result.config_dir.display().to_string(),
+        state_dir: result.state_dir.display().to_string(),
+        logs_dir: result.logs_dir.display().to_string(),
         database_path: result.database_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+fn bootstrap(root: Option<String>) -> Result<BootstrapResponse, String> {
+    let result = workspace_status(root)?;
+    Ok(BootstrapResponse {
+        workspace_root: result.workspace_root,
+        database_path: result.database_path,
     })
 }
 

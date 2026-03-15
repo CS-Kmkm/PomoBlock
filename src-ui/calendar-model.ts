@@ -1,4 +1,4 @@
-import { parseLocalDate, resolveDayBounds, resolveWeekDateKeys, toLocalDateKey, toMonthDayLabel } from "./time.js";
+import { isoDate, parseLocalDate, resolveDayBounds, resolveWeekDateKeys, toLocalDateKey, toMonthDayLabel } from "./time.js";
 import type { DayItemSelection as UiDayItemSelection } from "./types.js";
 
 export type TimelineInterval = {
@@ -282,7 +282,7 @@ export function buildPlannerStripModel(
   const fallbackDateKey = safeDateKeys[0] || currentDateKey;
   const normalizedCurrentDateKey = currentDateKey || fallbackDateKey;
   const weekStart = parseLocalDate(fallbackDateKey);
-  const todayDateKey = toLocalDateKey(new Date());
+  const todayDateKey = isoDate(new Date());
   const weekdayLabels = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
   const days = safeDateKeys.map((dayKey) => {
     const dayDate = parseLocalDate(dayKey);

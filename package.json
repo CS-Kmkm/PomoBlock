@@ -5,19 +5,20 @@
   "type": "module",
   "description": "PomoBlock core implementation from blocksched tasks",
   "scripts": {
-    "init": "npm run build:node && node dist/src/cli.js init",
-    "status": "npm run build:node && node dist/src/cli.js status",
+    "init": "cargo run --manifest-path src-tauri/Cargo.toml --bin pomoblock-cli -- init",
+    "status": "cargo run --manifest-path src-tauri/Cargo.toml --bin pomoblock-cli -- status",
     "doctor": "powershell -ExecutionPolicy Bypass -File scripts/doctor.ps1",
     "rust:check": "powershell -ExecutionPolicy Bypass -File scripts/rust-check.ps1",
     "build:windows": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1",
     "build:windows:debug": "powershell -ExecutionPolicy Bypass -File scripts/build-windows-installer.ps1 -Debug",
-    "build": "npm run build:node && npm run build:ui",
-    "build:node": "tsc -p tsconfig.node.json && npm run copy:schema",
+    "build": "npm run build:ui",
     "build:ui": "tsc -p tsconfig.ui.json",
-    "test": "npm run build:node && node --test dist/tests/**/*.test.js",
-    "test:watch": "node --test --watch",
-    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.ui.json --noEmit",
-    "copy:schema": "powershell -ExecutionPolicy Bypass -Command \"New-Item -ItemType Directory -Force -Path dist/src/infrastructure/sql | Out-Null; Copy-Item -Path src/infrastructure/sql/schema.sql -Destination dist/src/infrastructure/sql/schema.sql -Force\""
+    "build:ui:watch": "tsc -p tsconfig.ui.json --watch --preserveWatchOutput",
+    "test": "npm run test:rust && npm run test:ui",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:ui": "npm run build:ui && node --test tests/now.test.js",
+    "test:watch": "node scripts/ui-test-watch.mjs",
+    "typecheck": "tsc -p tsconfig.ui.json --noEmit"
   },
   "engines": {
     "node": ">=22"

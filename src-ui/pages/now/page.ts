@@ -13,10 +13,15 @@ export function renderNowPage(deps: PageRenderDeps): void {
   }
 
   const nowMs = Date.now();
+  const todayDate = helpers.isoDate(new Date());
   const todayBlocks = helpers.resolveNowBlocks();
   const orderedTasks = helpers.getNowOrderedTasks(true);
   const openTasks = orderedTasks.filter((task) => task.status !== "completed");
   const currentBlockId = typeof state.current_block_id === "string" ? state.current_block_id : null;
+  const activeScheduleBlock =
+    currentBlockId !== null
+      ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
+      : todayBlocks.find(({ startMs, endMs }) => startMs <= nowMs && nowMs < endMs)?.block || null;
   const runningBlock = currentBlockId
     ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
     : null;
@@ -56,30 +61,22 @@ export function renderNowPage(deps: PageRenderDeps): void {
     <section class="now-layout">
       <aside class="now-left-rail">
         <header class="now-left-head">
-          <h3>Today's Timeline</h3>
+          <div>
+            <h3>Today's Schedule</h3>
+            <p class="small">${helpers.escapeHtml(todayDate)}</p>
+          </div>
           <p class="small">${todayBlocks.length} blocks</p>
         </header>
-        <div class="now-timeline-list">
-          ${
-            todayBlocks.length === 0
-              ? '<p class="small now-empty">No blocks today.</p>'
-              : todayBlocks
-                  .map(({ block, startMs, endMs }) => {
-                    const isActive = currentBlockId === block.id || (startMs <= nowMs && nowMs < endMs && phase === "idle");
-                    const title = helpers.blockTitle(block as { id?: string } | null | undefined) || String(block.id || "");
-                    return `
-                      <article class="now-timeline-item ${isActive ? "is-active" : ""}">
-                        <div class="row spread">
-                          <p class="now-timeline-title">${helpers.escapeHtml(title)}</p>
-                          ${isActive ? '<span class="pill now-pill-active">IN PROGRESS</span>' : ""}
-                        </div>
-                        <p class="small">${helpers.escapeHtml(`${helpers.formatHHmm(String(block.start_at || ""))} - ${helpers.formatHHmm(String(block.end_at || ""))}`)}</p>
-                        <p class="small">planned ${Math.max(1, Number(block.planned_pomodoros || 0))} pomodoros</p>
-                      </article>
-                    `;
-                  })
-                  .join("")
-          }
+        <div class="now-schedule-wrap">
+          ${helpers.renderDailyCalendar(todayDate, {
+            panelClass: "now-schedule-calendar",
+            forceMode: "simple",
+            syncSelection: false,
+            preferredSelection: activeScheduleBlock ? { kind: "block", id: String(activeScheduleBlock.id || "") } : null,
+            showHeader: false,
+            showViewToggle: false,
+            includeDetail: false,
+          })}
         </div>
       </aside>
 
@@ -191,4 +188,6 @@ export function renderNowPage(deps: PageRenderDeps): void {
       renderNowPage(deps);
     });
   });
+
+  helpers.bindDailyCalendarInteractions(() => renderNowPage(deps));
 }

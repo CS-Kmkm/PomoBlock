@@ -2,6 +2,7 @@ use crate::infrastructure::error::InfraError;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,11 +75,13 @@ impl SyncStateRepository for SqliteSyncStateRepository {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct InMemorySyncStateRepository {
     state: Mutex<Option<SyncState>>,
 }
 
+#[cfg(test)]
 impl SyncStateRepository for InMemorySyncStateRepository {
     fn load(&self) -> Result<Option<SyncState>, InfraError> {
         let state = self
