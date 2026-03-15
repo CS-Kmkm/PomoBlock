@@ -53,6 +53,10 @@ npm run status
 npm test
 ```
 
+- `npm test` は Rust backend の単体テストと UI 回帰テストの両方を実行します。
+- UI 回帰テストは `src-ui/now.ts` の自動開始判定を対象にし、実行前に `build:ui` を走らせます。
+- Rust のみ確認したい場合は `npm run test:rust`、UI 回帰だけ確認したい場合は `npm run test:ui` を使います。
+
 ### Rust 側チェック
 
 ```powershell
@@ -74,6 +78,7 @@ cargo tauri dev
 
 - UI は `src-ui/`、本番 backend は `src-tauri/` を編集対象にします。
 - backend 仕様の回帰確認は Rust テストへ集約しています。
+- UI の軽量回帰は `tests/now.test.js` で維持し、`npm test` に含めます。
 
 ## 設定方法
 
