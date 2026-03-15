@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveNowAutoStartBlock } from "../src-ui/dist/now.js";
+import { resolveWeekSnapStartIndex } from "../src-ui/dist/pages/week/scroll-strip.js";
 
 function localDate(year, month, day, hour, minute = 0) {
   return new Date(year, month - 1, day, hour, minute, 0, 0);
@@ -50,4 +51,24 @@ test("resolveNowAutoStartBlock: current_block_id is prioritized when block exist
     localDate(2026, 3, 5, 9, 30)
   );
   assert.equal(selected?.id, "B");
+});
+
+test("resolveWeekSnapStartIndex: wide viewport keeps the selected day near center", () => {
+  const startIndex = resolveWeekSnapStartIndex(10, 21, 1184, 84, 157);
+  assert.equal(startIndex, 7);
+});
+
+test("resolveWeekSnapStartIndex: narrow viewport stops assuming seven visible days", () => {
+  const startIndex = resolveWeekSnapStartIndex(10, 21, 400, 84, 158);
+  assert.equal(startIndex, 9);
+});
+
+test("resolveWeekSnapStartIndex: single-day viewport keeps the selected day visible", () => {
+  const startIndex = resolveWeekSnapStartIndex(10, 21, 250, 84, 158);
+  assert.equal(startIndex, 10);
+});
+
+test("resolveWeekSnapStartIndex: end-of-buffer alignment is clamped to the last visible slot", () => {
+  const startIndex = resolveWeekSnapStartIndex(20, 21, 400, 84, 158);
+  assert.equal(startIndex, 19);
 });

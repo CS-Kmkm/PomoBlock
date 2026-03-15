@@ -47,6 +47,7 @@ const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
 const BLOCKS_INITIAL_VISIBLE = 50;
 const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
+const WEEK_RESIZE_RENDER_MS = 120;
 // Routine Studio のドラッグデータを保持するモジュール変数
 let routineStudioActiveDrag: {
     kind: string;
@@ -60,6 +61,7 @@ let _rsDragGhost: HTMLElement | null = null;
 let _rsDragSource: HTMLElement | null = null;
 let _rsDragOffsetX = 0;
 let _rsDragOffsetY = 0;
+let weekResizeRenderTimer = 0 as ReturnType<typeof setTimeout> | 0;
 const routineStudioSeedModules: Module[] = [
     {
         id: "mod-deep-work-init",
@@ -1337,7 +1339,24 @@ export function startApp(): void {
         render();
     });
     window.addEventListener("resize", () => {
-        syncResponsiveRouteClasses(getRoute());
+        const route = getRoute();
+        syncResponsiveRouteClasses(route);
+        if (route !== "week") {
+            if (weekResizeRenderTimer) {
+                clearTimeout(weekResizeRenderTimer);
+                weekResizeRenderTimer = 0;
+            }
+            return;
+        }
+        if (weekResizeRenderTimer) {
+            clearTimeout(weekResizeRenderTimer);
+        }
+        weekResizeRenderTimer = setTimeout(() => {
+            weekResizeRenderTimer = 0;
+            if (getRoute() === "week") {
+                render();
+            }
+        }, WEEK_RESIZE_RENDER_MS);
     });
     setInterval(async () => {
         const route = getRoute();
