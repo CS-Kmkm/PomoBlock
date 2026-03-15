@@ -1,3 +1,4 @@
+import { bindPaneResizers } from "../../pane-resizer.js";
 import type { PageRenderDeps } from "../../types.js";
 
 export function renderNowPage(deps: PageRenderDeps): void {
@@ -15,6 +16,12 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const nowMs = Date.now();
   const todayDate = helpers.isoDate(new Date());
   const todayBlocks = helpers.resolveNowBlocks();
+  const todayPlannerModel = helpers.buildPlannerStripModel([todayDate], todayDate, uiState.blocks, uiState.calendarEvents) as {
+    days?: Array<{ blockItems?: unknown[]; eventItems?: unknown[] }>;
+  };
+  const todayScheduleCount =
+    (Array.isArray(todayPlannerModel.days?.[0]?.blockItems) ? todayPlannerModel.days[0].blockItems.length : 0) +
+    (Array.isArray(todayPlannerModel.days?.[0]?.eventItems) ? todayPlannerModel.days[0].eventItems.length : 0);
   const orderedTasks = helpers.getNowOrderedTasks(true);
   const openTasks = orderedTasks.filter((task) => task.status !== "completed");
   const currentBlockId = typeof state.current_block_id === "string" ? state.current_block_id : null;
@@ -56,8 +63,32 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const totalSteps =
     totalCycles > 0 ? totalCycles : Math.max(1, Number((autoStartBlock?.planned_pomodoros as number | undefined) || 1));
   const controls = helpers.resolveTimerControlModel(state) as Record<string, unknown>;
+  const notesPanel = helpers.renderNowNotesPanel();
+  const mobileSchedule = helpers.renderDailyCalendar(todayDate, {
+    panelClass: "now-mobile-schedule",
+    forceMode: "simple",
+    syncSelection: false,
+    preferredSelection: activeScheduleBlock ? { kind: "block", id: String(activeScheduleBlock.id || "") } : null,
+    showHeader: false,
+    showMetrics: false,
+    showViewToggle: false,
+    includeDetail: false,
+    includeTimeline: true,
+    compactSummary: true,
+  });
 
   appRoot.innerHTML = `
+    <section class="now-mobile-schedule-shell">
+      <header class="now-mobile-head">
+        <div>
+          <h3>Today's Schedule</h3>
+          <p class="small">${helpers.escapeHtml(todayDate)}</p>
+        </div>
+        <p class="small">${todayScheduleCount} items</p>
+      </header>
+      ${mobileSchedule}
+    </section>
+
     <section class="now-layout">
       <aside class="now-left-rail">
         <header class="now-left-head">
@@ -65,20 +96,13 @@ export function renderNowPage(deps: PageRenderDeps): void {
             <h3>Today's Schedule</h3>
             <p class="small">${helpers.escapeHtml(todayDate)}</p>
           </div>
-          <p class="small">${todayBlocks.length} blocks</p>
+          <p class="small">${todayScheduleCount} items</p>
         </header>
         <div class="now-schedule-wrap">
-          ${helpers.renderDailyCalendar(todayDate, {
-            panelClass: "now-schedule-calendar",
-            forceMode: "simple",
-            syncSelection: false,
-            preferredSelection: activeScheduleBlock ? { kind: "block", id: String(activeScheduleBlock.id || "") } : null,
-            showHeader: false,
-            showViewToggle: false,
-            includeDetail: false,
-          })}
+          ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
         </div>
       </aside>
+      <div class="pane-splitter" data-pane-resize="now-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
 
       <section class="now-main-pane">
         <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} MODE</p>
@@ -102,6 +126,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
           <p class="small">Block: ${helpers.escapeHtml(objectiveBlockId)}</p>
         </section>
       </section>
+      <div class="pane-splitter" data-pane-resize="now-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
 
       <aside class="now-right-rail">
         <header class="row spread">
@@ -133,8 +158,11 @@ export function renderNowPage(deps: PageRenderDeps): void {
                   .join("")
           }
         </div>
-        ${helpers.renderNowNotesPanel()}
+        <div class="now-desktop-notes">${notesPanel}</div>
       </aside>
+    </section>
+    <section class="now-mobile-notes-shell">
+      ${notesPanel}
     </section>
     <section class="now-bottom-bar">
       <div class="now-bottom-item"><span>Buffer Available</span><strong>${bufferMinutes}m</strong></div>
@@ -142,6 +170,35 @@ export function renderNowPage(deps: PageRenderDeps): void {
       ${focusCompletion === null ? "" : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`}
     </section>
   `;
+
+  bindPaneResizers(appRoot, [
+    {
+      layoutSelector: ".now-layout",
+      handleSelector: "[data-pane-resize='now-left']",
+      paneSelector: ".now-left-rail",
+      cssVar: "--now-left-width",
+      storageKey: "pane-width:now:left",
+      edge: "left",
+      minWidth: 180,
+      maxWidth: 420,
+      mainMinWidth: 360,
+      oppositePaneSelector: ".now-right-rail",
+      splitterCount: 2,
+    },
+    {
+      layoutSelector: ".now-layout",
+      handleSelector: "[data-pane-resize='now-right']",
+      paneSelector: ".now-right-rail",
+      cssVar: "--now-right-width",
+      storageKey: "pane-width:now:right",
+      edge: "right",
+      minWidth: 220,
+      maxWidth: 460,
+      mainMinWidth: 360,
+      oppositePaneSelector: ".now-left-rail",
+      splitterCount: 2,
+    },
+  ]);
 
   ["now-left-action", "now-primary-action", "now-right-action"].forEach((id) => {
     document.getElementById(id)?.addEventListener("click", async (event: Event) => {

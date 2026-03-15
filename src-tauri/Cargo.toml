@@ -1,6 +1,6 @@
 [package]
 name = "pomoblock-tauri"
-version = "0.1.0"
+version = "0.2.1"
 description = "PomoBlock desktop backend"
 edition = "2024"
 default-run = "pomoblock-tauri"
