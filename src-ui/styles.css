@@ -29,6 +29,10 @@ body {
   --week-track-height: clamp(520px, calc(100vh - 340px), 980px);
 }
 
+.route-now {
+  --now-track-height: clamp(620px, calc(100vh - 280px), 980px);
+}
+
 .route-routines {
   --bg: #f4f7ef;
   --surface: rgba(255, 255, 255, 0.86);
@@ -901,6 +905,33 @@ p {
   min-height: 0;
   overflow: auto;
   padding-right: 2px;
+}
+
+.now-day-schedule {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+}
+
+.now-day-schedule .day-time-axis,
+.now-day-schedule .day-lane-track {
+  height: var(--now-track-height);
+}
+
+.now-day-schedule .day-time-axis {
+  position: sticky;
+  top: 0;
+  left: 0;
+  border-radius: 16px;
+}
+
+.now-day-schedule .week-day-lane {
+  min-width: 0;
+}
+
+.now-day-schedule .week-day-track {
+  border-radius: 18px;
 }
 
 .now-schedule-calendar.day-calendar {

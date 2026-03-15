@@ -12,16 +12,15 @@ export function renderNowPage(deps: PageRenderDeps): void {
     helpers.syncNowTimerDisplay(state);
   }
 
-  const nowMs = Date.now();
   const todayDate = helpers.isoDate(new Date());
   const todayBlocks = helpers.resolveNowBlocks();
+  const todayPlannerModel = helpers.buildPlannerStripModel([todayDate], todayDate, uiState.blocks, uiState.calendarEvents) as {
+    days?: Array<{ combinedItems?: unknown[] }>;
+  };
+  const todayScheduleCount = Array.isArray(todayPlannerModel.days?.[0]?.combinedItems) ? todayPlannerModel.days[0].combinedItems.length : 0;
   const orderedTasks = helpers.getNowOrderedTasks(true);
   const openTasks = orderedTasks.filter((task) => task.status !== "completed");
   const currentBlockId = typeof state.current_block_id === "string" ? state.current_block_id : null;
-  const activeScheduleBlock =
-    currentBlockId !== null
-      ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
-      : todayBlocks.find(({ startMs, endMs }) => startMs <= nowMs && nowMs < endMs)?.block || null;
   const runningBlock = currentBlockId
     ? todayBlocks.find(({ block }) => block.id === currentBlockId)?.block || null
     : null;
@@ -65,18 +64,10 @@ export function renderNowPage(deps: PageRenderDeps): void {
             <h3>Today's Schedule</h3>
             <p class="small">${helpers.escapeHtml(todayDate)}</p>
           </div>
-          <p class="small">${todayBlocks.length} blocks</p>
+          <p class="small">${todayScheduleCount} items</p>
         </header>
         <div class="now-schedule-wrap">
-          ${helpers.renderDailyCalendar(todayDate, {
-            panelClass: "now-schedule-calendar",
-            forceMode: "simple",
-            syncSelection: false,
-            preferredSelection: activeScheduleBlock ? { kind: "block", id: String(activeScheduleBlock.id || "") } : null,
-            showHeader: false,
-            showViewToggle: false,
-            includeDetail: false,
-          })}
+          ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
         </div>
       </aside>
 
