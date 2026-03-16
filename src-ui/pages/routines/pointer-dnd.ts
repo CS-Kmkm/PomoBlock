@@ -48,16 +48,6 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     }
   };
 
-  const isOutsideRoutineEditor = (clientX: number, clientY: number): boolean => {
-    const layout = appRoot.querySelector(".routine-studio-layout") as HTMLElement | null;
-    if (!layout) {
-      return false;
-    }
-    const rect = layout.getBoundingClientRect();
-    const margin = 12;
-    return clientX < rect.left - margin || clientX > rect.right + margin || clientY < rect.top - margin || clientY > rect.bottom + margin;
-  };
-
   const commitStudioDrop = (clientX: number, clientY: number) => {
     const dz = document.getElementById("routine-studio-dropzone");
     if (!dz || !activeDrag) {
@@ -70,7 +60,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     const drag = activeDrag;
     activeDrag = null;
     clearDropIndicator(dz);
-    if (!inside && drag.kind === "entry" && isOutsideRoutineEditor(clientX, clientY)) {
+    if (!inside && drag.kind === "entry") {
       applyCanvasEntries(studio.canvasEntries.filter((entry) => entry.entryId !== drag.id), true);
       if (studio.selectedEntryId === drag.id) {
         studio.selectedEntryId = String(studio.canvasEntries[0]?.entryId || "");
