@@ -347,6 +347,11 @@ fn parse_recipe_from_value(raw: &serde_json::Value) -> Option<Recipe> {
                     .filter(|value| !value.is_empty())
                     .unwrap_or("routine_studio")
                     .to_string(),
+                context: value_by_keys(meta, &["context"])
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string),
             }),
     };
     recipe.validate().ok()?;
@@ -506,6 +511,7 @@ fn recipe_to_json_value(recipe: &Recipe) -> serde_json::Value {
             serde_json::json!({
                 "version": meta.version,
                 "kind": meta.kind,
+                "context": meta.context,
             }),
         );
     }
@@ -624,7 +630,8 @@ mod tests {
                 ],
                 "studioMeta": {
                     "version": 1,
-                    "kind": "routine_studio"
+                    "kind": "routine_studio",
+                    "context": "Work - Deep Focus"
                 }
             }),
         )
@@ -644,7 +651,8 @@ mod tests {
                 ],
                 "studioMeta": {
                     "version": 1,
-                    "kind": "routine_studio"
+                    "kind": "routine_studio",
+                    "context": "Work - Deep Focus"
                 }
             }),
         )
@@ -655,6 +663,13 @@ mod tests {
         assert_eq!(created.id, "tpl-standup");
         assert_eq!(updated.name, "Standup Updated");
         assert!(recipe_is_routine_studio(&updated));
+        assert_eq!(
+            updated
+                .studio_meta
+                .as_ref()
+                .and_then(|meta| meta.context.as_deref()),
+            Some("Work - Deep Focus")
+        );
         assert!(listed.iter().any(|recipe| recipe.id == "tpl-standup"));
         assert!(deleted);
     }

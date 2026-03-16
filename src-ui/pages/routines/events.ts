@@ -129,6 +129,20 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         applyCanvasEntries,
         syncFromRecipe,
     });
+    const sanitizeDeletedModuleEntries = (entries: RoutineStudioEntry[], deletedModuleId: string): RoutineStudioEntry[] =>
+        entries.map((entry, index) => {
+            if (String(entry.moduleId || "") !== deletedModuleId) {
+                return normalizeEntry(entry, index);
+            }
+            const rawStep = { ...(entry.rawStep || {}) } as Record<string, unknown>;
+            delete rawStep.moduleId;
+            delete rawStep.module_id;
+            return normalizeEntry({
+                ...entry,
+                moduleId: "",
+                rawStep,
+            }, index);
+        });
     const { moduleAssets, complexModuleAssets, totalMinutes } = buildStudioAssets({
         studio,
         recipes,
@@ -251,6 +265,12 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 return;
             }
             studio.modules = result.modules;
+            const sanitizedCanvasEntries = sanitizeDeletedModuleEntries(studio.canvasEntries, moduleId);
+            studio.canvasEntries = toEntryRecords(sanitizedCanvasEntries);
+            studio.history = studio.history.map((snapshot) => sanitizeDeletedModuleEntries(snapshot, moduleId));
+            if (studio.selectedEntryId && studio.canvasEntries.every((entry) => entry.entryId !== studio.selectedEntryId)) {
+                studio.selectedEntryId = readEntryId(studio.canvasEntries[0]);
+            }
             if (studio.editingModuleId === moduleId) {
                 studio.editingModuleId = "";
                 studio.moduleEditor = null;
@@ -276,13 +296,17 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     const onSaveTemplate = async () => {
         await runUiAction(async () => {
             const id = await persistTemplate();
+            studio.applyTemplateId = id;
             setStatus(`template saved: ${id}`);
             rerender();
         });
     };
     const onApplyToday = async () => {
         await runUiAction(async () => {
-            const id = await persistTemplate();
+            const id = String(studio.applyTemplateId || "").trim();
+            if (!id) {
+                throw new Error("適用する保存済みルーティンを選択してください。");
+            }
             studio.lastApplyResult = await applyStudioTemplateToToday({
                 safeInvoke: (command, payload) => safeInvoke(command, payload),
                 refreshCoreData,
@@ -307,6 +331,10 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 return;
             }
             uiState.recipes = result.recipes;
+            if (studio.applyTemplateId === recipeId) {
+                const nextRecipeId = result.recipes.find((recipe) => isRoutineStudioRecipe(recipe))?.id;
+                studio.applyTemplateId = String(nextRecipeId || "");
+            }
             setStatus(`recipe deleted: ${recipeId}`);
             rerender();
         });

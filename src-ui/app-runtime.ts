@@ -235,6 +235,7 @@ const uiState: UiState = {
         search: "",
         draftName: "Morning Deep Work",
         templateId: "rcp-routine-studio",
+        applyTemplateId: "",
         triggerTime: "09:00",
         context: "Work - Deep Focus",
         autoStart: true,

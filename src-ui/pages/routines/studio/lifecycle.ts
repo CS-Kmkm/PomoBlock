@@ -29,6 +29,7 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   studio.draftName = typeof studio.draftName === "string" && studio.draftName.trim() ? studio.draftName : "Routine Draft";
   studio.templateId =
     typeof studio.templateId === "string" && studio.templateId.trim() ? studio.templateId : `rcp-${slugify(studio.draftName) || "routine-studio"}`;
+  studio.applyTemplateId = typeof studio.applyTemplateId === "string" ? studio.applyTemplateId : "";
   studio.triggerTime = typeof studio.triggerTime === "string" && /^\d{2}:\d{2}$/.test(studio.triggerTime) ? studio.triggerTime : "09:00";
   studio.context = typeof studio.context === "string" && studio.context.trim() ? studio.context : contextDefault;
   studio.autoStart = Boolean(studio.autoStart);
@@ -51,25 +52,42 @@ export function syncStudioFromRecipe(studio: RoutineStudioState, recipe: unknown
   if (!recipe) return;
   const source = recipe as Record<string, unknown>;
   const autoDriveMode = String(source.auto_drive_mode || source.autoDriveMode || "manual");
+  const studioMeta =
+    source.studioMeta && typeof source.studioMeta === "object"
+      ? (source.studioMeta as Record<string, unknown>)
+      : source.studio_meta && typeof source.studio_meta === "object"
+        ? (source.studio_meta as Record<string, unknown>)
+        : null;
   studio.templateId = String(source.id || studio.templateId);
+  studio.applyTemplateId = String(source.id || studio.applyTemplateId);
   studio.draftName = String(source.name || source.id || studio.draftName);
   studio.autoStart = autoDriveMode !== "manual";
+  if (studioMeta && typeof studioMeta.context === "string" && studioMeta.context.trim()) {
+    studio.context = studioMeta.context.trim();
+  }
 }
 
 export function bootstrapStudioState(params: BootstrapStudioStateParams): void {
   const { studio, recipes, isRoutineStudioRecipe, syncFromRecipe, recipeToEntries, moduleToEntry, cloneValue } = params;
+  const studioRecipes = recipes.filter((recipe) => isRoutineStudioRecipe(recipe));
   if (!studio.bootstrapped) {
-    const studioRecipes = recipes.filter((recipe) => isRoutineStudioRecipe(recipe));
-    if (studioRecipes.length > 0) {
-      syncFromRecipe(studioRecipes[0]);
-      studio.canvasEntries = recipeToEntries(studioRecipes[0]);
-    } else {
+    if (studio.canvasEntries.length === 0) {
       studio.canvasEntries = studio.modules.slice(0, 3).map(moduleToEntry);
+    }
+    if (!studio.applyTemplateId && studioRecipes.length > 0) {
+      studio.applyTemplateId = String(studioRecipes[0]?.id || "");
     }
     studio.bootstrapped = true;
     studio.history = [cloneValue(studio.canvasEntries)];
     studio.historyIndex = 0;
     studio.selectedEntryId = String(studio.canvasEntries[0]?.entryId || "");
+  }
+
+  if (studio.applyTemplateId && studioRecipes.every((recipe) => String(recipe.id || "") !== studio.applyTemplateId)) {
+    studio.applyTemplateId = String(studioRecipes[0]?.id || "");
+  }
+  if (!studio.applyTemplateId && studioRecipes.length > 0) {
+    studio.applyTemplateId = String(studioRecipes[0]?.id || "");
   }
 
   if (studio.history.length === 0) {

@@ -18,6 +18,12 @@ export type RoutineStudioEntryView = {
   subtitle: string;
   durationMinutes: number;
   note: string;
+  stepType: string;
+  checklist: string[];
+  pomodoro: Record<string, unknown> | null;
+  executionHints: Record<string, unknown> | null;
+  overrunPolicy: string;
+  rawStep: Record<string, unknown>;
 };
 
 export function toPositiveInt(value: unknown, fallback: number, min = 1): number {

@@ -56,6 +56,8 @@ pub struct ExecutionHints {
 pub struct RecipeStudioMeta {
     pub version: u8,
     pub kind: String,
+    #[serde(default)]
+    pub context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,6 +124,9 @@ impl Recipe {
                 return Err("recipe.studio_meta.version must be 1".to_string());
             }
             validate_non_empty(&meta.kind, "recipe.studio_meta.kind")?;
+            if let Some(context) = &meta.context {
+                validate_non_empty(context, "recipe.studio_meta.context")?;
+            }
         }
         for step in &self.steps {
             step.validate()?;

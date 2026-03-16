@@ -1,4 +1,4 @@
-import type { RoutineStudioEntry, RoutineStudioModuleEditor, RoutineStudioState } from "../../types.js";
+import type { JsonObject, JsonValue, RoutineStudioEntry, RoutineStudioModuleEditor, RoutineStudioState } from "../../types.js";
 import {
   nextRoutineStudioEntryId,
   toPositiveInt,
@@ -19,17 +19,55 @@ export function normalizeStudioModule(module: unknown, index: number): RoutineSt
   };
 }
 
+function toJsonObject(value: unknown): JsonObject | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return { ...(value as Record<string, JsonValue>) };
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
+}
+
 export function normalizeStudioEntry(entry: unknown, index: number): RoutineStudioEntry {
   const source = (entry ?? {}) as Record<string, unknown>;
+  const rawStep = toJsonObject(source.rawStep) ?? {};
+  const moduleId = String(source.moduleId || source.module_id || rawStep.moduleId || rawStep.module_id || "");
+  const note = String(source.note || rawStep.note || "");
+  const stepType = String(source.stepType || source.step_type || source.type || rawStep.type || rawStep.stepType || rawStep.step_type || "micro");
+  const checklist = toStringArray(source.checklist ?? rawStep.checklist);
+  const pomodoro = toJsonObject(source.pomodoro ?? rawStep.pomodoro);
+  const executionHints = toJsonObject(source.executionHints ?? source.execution_hints ?? rawStep.executionHints ?? rawStep.execution_hints);
+  const overrunPolicy = String(
+    source.overrunPolicy || source.overrun_policy || rawStep.overrunPolicy || rawStep.overrun_policy || "wait",
+  );
   return {
     entryId: String(source.entryId || nextRoutineStudioEntryId()),
     sourceKind: String(source.sourceKind || source.source_kind || "module"),
     sourceId: String(source.sourceId || source.source_id || ""),
-    moduleId: String(source.moduleId || source.module_id || ""),
+    moduleId,
     title: String(source.title || `Step ${index + 1}`),
     subtitle: String(source.subtitle || ""),
     durationMinutes: toPositiveInt(source.durationMinutes || source.duration_minutes, 5),
-    note: String(source.note || ""),
+    note,
+    stepType,
+    checklist,
+    pomodoro,
+    executionHints,
+    overrunPolicy,
+    rawStep: {
+      ...rawStep,
+      type: stepType,
+      title: String(source.title || rawStep.title || `Step ${index + 1}`),
+      durationSeconds: Math.max(60, toPositiveInt(source.durationMinutes || source.duration_minutes || rawStep.durationSeconds || rawStep.duration_seconds, 5) * 60),
+      ...(moduleId ? { moduleId } : {}),
+      ...(note ? { note } : {}),
+      ...(checklist.length > 0 ? { checklist: [...checklist] } : {}),
+      ...(pomodoro ? { pomodoro } : {}),
+      ...(executionHints ? { executionHints } : {}),
+      ...(overrunPolicy ? { overrunPolicy } : {}),
+    },
   };
 }
 

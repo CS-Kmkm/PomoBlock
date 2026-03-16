@@ -119,6 +119,12 @@ export interface RoutineStudioEntry {
   subtitle: string;
   durationMinutes: number;
   note: string;
+  stepType: string;
+  checklist: string[];
+  pomodoro: JsonObject | null;
+  executionHints: JsonObject | null;
+  overrunPolicy: string;
+  rawStep: JsonObject;
 }
 
 export interface RoutineStudioModuleEditor {
@@ -138,6 +144,7 @@ export interface RoutineStudioState {
   search: string;
   draftName: string;
   templateId: string;
+  applyTemplateId: string;
   triggerTime: string;
   context: string;
   autoStart: boolean;

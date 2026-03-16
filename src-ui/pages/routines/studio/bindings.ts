@@ -15,6 +15,28 @@ type BindRoutineStudioEditorEventsParams = {
   cloneValue: <T>(value: T) => T;
 };
 
+function filterStudioAssets(appRoot: HTMLElement, query: string): void {
+  const needle = query.trim().toLowerCase();
+  const assetCards = Array.from(appRoot.querySelectorAll<HTMLElement>("[data-studio-search-text]"));
+  let visibleCount = 0;
+  assetCards.forEach((card) => {
+    const haystack = String(card.dataset.studioSearchText || "").toLowerCase();
+    const visible = !needle || haystack.includes(needle);
+    card.hidden = !visible;
+    if (visible) {
+      visibleCount += 1;
+    }
+  });
+  appRoot.querySelectorAll<HTMLElement>("[data-studio-asset-group]").forEach((group) => {
+    const hasVisibleCard = Array.from(group.querySelectorAll<HTMLElement>("[data-studio-search-text]")).some((card) => !card.hidden);
+    group.hidden = !hasVisibleCard;
+  });
+  const emptyState = appRoot.querySelector<HTMLElement>("#studio-assets-empty");
+  if (emptyState) {
+    emptyState.hidden = visibleCount > 0;
+  }
+}
+
 export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEventsParams): void {
   const {
     appRoot,
@@ -41,7 +63,7 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
 
   document.getElementById("studio-search-input")?.addEventListener("input", (event: Event) => {
     studio.search = (event.currentTarget as HTMLInputElement).value || "";
-    rerender();
+    filterStudioAssets(appRoot, studio.search);
   });
 
   appRoot.querySelectorAll("[data-studio-insert-kind]").forEach((node) => {
@@ -157,6 +179,10 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
     studio.context = (event.currentTarget as HTMLSelectElement).value || contextDefault;
   });
 
+  document.getElementById("studio-apply-template")?.addEventListener("change", (event: Event) => {
+    studio.applyTemplateId = (event.currentTarget as HTMLSelectElement).value || "";
+  });
+
   document.getElementById("studio-trigger-time")?.addEventListener("change", (event: Event) => {
     studio.triggerTime = (event.currentTarget as HTMLInputElement).value || "09:00";
     rerender();
@@ -171,4 +197,6 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
     studio.selectedEntryId = "";
     rerender();
   });
+
+  filterStudioAssets(appRoot, studio.search);
 }

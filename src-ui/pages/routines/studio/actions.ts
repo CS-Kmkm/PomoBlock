@@ -47,19 +47,46 @@ export function buildStudioRecipePayload(params: BuildRecipePayloadParams): Reco
   studio.templateId = id;
   const steps = studio.canvasEntries.map((entry, index) => {
     const durationSeconds = Math.max(60, Math.round((Number(entry.durationMinutes) || 1) * 60));
-    const step: Record<string, unknown> = {
-      id: `step-${index + 1}`,
-      type: "micro",
-      title: String(entry.title || `Step ${index + 1}`),
-      durationSeconds,
-    };
+    const step: Record<string, unknown> = { ...(entry.rawStep || {}) };
+    step.id = `step-${index + 1}`;
+    step.type = String(entry.stepType || step.type || "micro");
+    step.title = String(entry.title || `Step ${index + 1}`);
+    step.durationSeconds = durationSeconds;
+    delete step.duration_seconds;
     const moduleId = String(entry.moduleId || "").trim();
     if (moduleId) {
       step.moduleId = moduleId;
+    } else {
+      delete step.moduleId;
+      delete step.module_id;
     }
     const note = String(entry.note || "").trim();
     if (note) {
       step.note = note;
+    } else {
+      delete step.note;
+    }
+    if (entry.checklist.length > 0) {
+      step.checklist = [...entry.checklist];
+    } else {
+      delete step.checklist;
+    }
+    if (entry.pomodoro) {
+      step.pomodoro = { ...entry.pomodoro };
+    } else {
+      delete step.pomodoro;
+    }
+    if (entry.executionHints) {
+      step.executionHints = { ...entry.executionHints };
+    } else {
+      delete step.executionHints;
+      delete step.execution_hints;
+    }
+    if (entry.overrunPolicy) {
+      step.overrunPolicy = entry.overrunPolicy;
+    } else {
+      delete step.overrunPolicy;
+      delete step.overrun_policy;
     }
     return step;
   });
@@ -70,6 +97,7 @@ export function buildStudioRecipePayload(params: BuildRecipePayloadParams): Reco
     studioMeta: {
       version: 1,
       kind: "routine_studio",
+      context: studio.context,
     },
     steps,
   };

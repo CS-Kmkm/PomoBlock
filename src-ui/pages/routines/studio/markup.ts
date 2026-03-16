@@ -25,6 +25,8 @@ export function buildRoutineStudioLoadingMarkup(): string {
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
   const { studio, moduleAssets, complexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
+  const selectedApplyTemplate = complexModuleAssets.find((asset) => asset.id === studio.applyTemplateId);
+  const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
   return `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
@@ -44,13 +46,24 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
       ${studio.subPage === "schedule" ? `
         <div class="rs-schedule-page">
           <section class="rs-schedule-props">
-            <h3 class="rs-schedule-title">${escapeHtml(studio.draftName)}</h3>
-            <p class="small">保存済みのルーティンを今日のスケジュールに適用します。</p>
+            <h3 class="rs-schedule-title">${escapeHtml(scheduleTitle)}</h3>
+            <p class="small">保存済みのルーティンを選んで今日のスケジュールに適用します。</p>
+            <label class="rs-field">保存済みルーティン
+              <select id="studio-apply-template">
+                <option value="">選択してください</option>
+                ${complexModuleAssets
+                  .map(
+                    (cm) =>
+                      `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.applyTemplateId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
+                  )
+                  .join("")}
+              </select>
+            </label>
             <label class="rs-field">開始時刻<input id="studio-trigger-time" type="time" value="${escapeHtml(studio.triggerTime)}" /></label>
             ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
           </section>
           <footer class="rs-schedule-actions">
-            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary">今日に適用</button>
+            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary" ${complexModuleAssets.length === 0 ? "disabled" : ""}>今日に適用</button>
           </footer>
         </div>
       ` : `
@@ -74,12 +87,12 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                     : cats
                         .map(
                           (cat) => `
-                  <section class="rs-asset-group">
+                  <section class="rs-asset-group" data-studio-asset-group>
                     <h4 class="rs-asset-group-title">${escapeHtml(cat)}</h4>
                     ${(grouped[cat] || [])
                       .map(
                         (module) => `
-                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}">
+                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}" data-studio-search-text="${escapeHtml(`${module.name} ${module.description || ""} ${module.category || ""}`)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(module.name)}</p>
                           <span class="rs-asset-duration">${module.durationMinutes}m</span>
@@ -102,12 +115,12 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                   complexModuleAssets.length === 0
                     ? ""
                     : `
-                  <section class="rs-asset-group">
+                  <section class="rs-asset-group" data-studio-asset-group>
                     <h4 class="rs-asset-group-title">複合モジュール</h4>
                     ${complexModuleAssets
                       .map(
                         (cm) => `
-                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}">
+                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}" data-studio-search-text="${escapeHtml(`${cm.name} ${cm.stepCount} ${cm.totalMinutes}`)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(cm.name)}<span class="rs-badge">複合</span></p>
                           <span class="rs-asset-duration">${cm.totalMinutes}m</span>
@@ -124,8 +137,9 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                       .join("")}
                   </section>
                 `;
-                if (!modParts && !cmParts) return '<p class="small">モジュールが見つかりません。</p>';
-                return modParts + cmParts;
+                const emptyState = '<p class="small" id="studio-assets-empty" hidden>モジュールが見つかりません。</p>';
+                if (!modParts && !cmParts) return '<p class="small" id="studio-assets-empty">モジュールが見つかりません。</p>';
+                return modParts + cmParts + emptyState;
               })()}
             </div>
           </aside>
@@ -209,7 +223,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
         <div class="rs-modal-overlay" id="entry-editor-overlay">
           <div class="rs-modal rs-modal--wide" role="dialog" aria-modal="true" aria-labelledby="entry-editor-title">
             <header class="rs-modal-head">
-              <h4 class="rs-modal-title" id="entry-editor-title">ステップ詳細設定 ? ${escapeHtml(editEntry.title)}</h4>
+              <h4 class="rs-modal-title" id="entry-editor-title">ステップ詳細設定: ${escapeHtml(editEntry.title)}</h4>
               <button type="button" class="rs-modal-close" id="studio-entry-editor-close" aria-label="閉じる">&#10005;</button>
             </header>
             <div class="rs-entry-grid">
