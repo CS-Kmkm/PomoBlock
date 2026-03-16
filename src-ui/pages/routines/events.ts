@@ -31,6 +31,7 @@ import { bindRoutineStudioEditorEvents } from "./studio/bindings.js";
 import { bindRoutineStudioAsyncEvents } from "./studio/async-bindings.js";
 import {
   applyStudioTemplateToToday,
+  buildStudioModulePayload,
   deleteStudioModule,
   deleteStudioRecipe,
   persistStudioTemplate,
@@ -143,7 +144,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 rawStep,
             }, index);
         });
-    const { moduleAssets, complexModuleAssets, totalMinutes } = buildStudioAssets({
+    const { moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes } = buildStudioAssets({
         studio,
         recipes,
         normalizeModule,
@@ -154,6 +155,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         studio,
         moduleAssets,
         complexModuleAssets,
+        allComplexModuleAssets,
         totalMinutes,
         routineStudioContexts,
         escapeHtml,
@@ -233,14 +235,17 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             const moduleName = readField("studio-module-name").trim();
             const rawId = readField("studio-module-id").trim();
             const moduleId = studio.editingModuleId || rawId || `mod-${routineStudioSlug(moduleName || "module") || "module"}`;
-            const payload = {
-                id: moduleId,
-                name: moduleName || moduleId,
+            const existingModule = studio.editingModuleId ? resolveModule(studio.editingModuleId) : null;
+            const payload = buildStudioModulePayload({
+                editingModuleId: studio.editingModuleId,
+                existingModule,
+                moduleId,
+                moduleName,
                 category: readField("studio-module-category").trim() || "General",
                 description: readField("studio-module-description").trim(),
                 icon: readField("studio-module-icon").trim() || "module",
                 durationMinutes: toPositiveInt(readField("studio-module-duration"), 1),
-            };
+            });
             studio.modules = await saveStudioModule({
                 safeInvoke: (command, invokePayload) => safeInvoke(command, invokePayload),
                 normalizeModule,

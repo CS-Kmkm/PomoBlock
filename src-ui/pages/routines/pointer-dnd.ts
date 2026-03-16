@@ -48,22 +48,40 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     }
   };
 
+  const isOutsideRoutineEditor = (clientX: number, clientY: number): boolean => {
+    const layout = appRoot.querySelector(".routine-studio-layout") as HTMLElement | null;
+    if (!layout) {
+      return false;
+    }
+    const rect = layout.getBoundingClientRect();
+    const margin = 12;
+    return clientX < rect.left - margin || clientX > rect.right + margin || clientY < rect.top - margin || clientY > rect.bottom + margin;
+  };
+
   const commitStudioDrop = (clientX: number, clientY: number) => {
     const dz = document.getElementById("routine-studio-dropzone");
-    if (!dz) {
+    if (!dz || !activeDrag) {
       activeDrag = null;
       return;
     }
     const dzRect = dz.getBoundingClientRect();
     const inside = clientX >= dzRect.left && clientX <= dzRect.right && clientY >= dzRect.top && clientY <= dzRect.bottom;
     const insertIndex = studio.dragInsertIndex >= 0 ? studio.dragInsertIndex : studio.canvasEntries.length;
+    const drag = activeDrag;
+    activeDrag = null;
     clearDropIndicator(dz);
-    if (!inside || !activeDrag) {
-      activeDrag = null;
+    if (!inside && drag.kind === "entry" && isOutsideRoutineEditor(clientX, clientY)) {
+      applyCanvasEntries(studio.canvasEntries.filter((entry) => entry.entryId !== drag.id), true);
+      if (studio.selectedEntryId === drag.id) {
+        studio.selectedEntryId = String(studio.canvasEntries[0]?.entryId || "");
+      }
+      rerender();
       return;
     }
-    const { kind, id } = activeDrag;
-    activeDrag = null;
+    if (!inside) {
+      return;
+    }
+    const { kind, id } = drag;
 
     if (kind === "entry") {
       const sourceIndex = studio.canvasEntries.findIndex((entry) => entry.entryId === id);
@@ -142,17 +160,18 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     cleanups.push(() => el.removeEventListener("pointerdown", onPointerDown));
   });
 
-  appRoot.querySelectorAll(".rs-drag-handle").forEach((handle) => {
-    const handleEl = handle as HTMLElement;
+  appRoot.querySelectorAll("[data-studio-canvas-entry]").forEach((node) => {
+    const card = node as HTMLElement;
     const onPointerDown = (event: PointerEvent) => {
-      const card = handleEl.closest("[data-studio-canvas-entry]") as HTMLElement | null;
-      if (!card) return;
+      if ((event.target as HTMLElement | null)?.closest("button, input, select, textarea, a")) {
+        return;
+      }
       const id = card.dataset.studioCanvasEntry || "";
       if (!id) return;
       startStudioDrag(event, { kind: "entry", id }, card);
     };
-    handleEl.addEventListener("pointerdown", onPointerDown);
-    cleanups.push(() => handleEl.removeEventListener("pointerdown", onPointerDown));
+    card.addEventListener("pointerdown", onPointerDown);
+    cleanups.push(() => card.removeEventListener("pointerdown", onPointerDown));
   });
 
   return () => {

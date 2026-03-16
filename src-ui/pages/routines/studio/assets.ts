@@ -12,6 +12,7 @@ type BuildStudioAssetsParams = {
 export function buildStudioAssets(params: BuildStudioAssetsParams): {
   moduleAssets: RoutineStudioModuleView[];
   complexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
+  allComplexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   totalMinutes: number;
 } {
   const { studio, recipes, normalizeModule, isRoutineStudioRecipe, routineStudioStepDurationMinutes } = params;
@@ -22,7 +23,7 @@ export function buildStudioAssets(params: BuildStudioAssetsParams): {
     return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
   });
 
-  const complexModuleAssets = recipes
+  const allComplexModuleAssets = recipes
     .filter((recipe) => isRoutineStudioRecipe(recipe))
     .map((recipe) => {
       const steps = Array.isArray(recipe?.steps) ? recipe.steps : [];
@@ -33,13 +34,14 @@ export function buildStudioAssets(params: BuildStudioAssetsParams): {
         stepCount: steps.length,
         totalMinutes,
       };
-    })
-    .filter((cm) => {
+    });
+
+  const complexModuleAssets = allComplexModuleAssets.filter((cm) => {
       if (!searchNeedle) return true;
       return cm.name.toLowerCase().includes(searchNeedle);
     });
 
   const totalMinutes = studio.canvasEntries.reduce((sum, entry) => sum + (Number(entry.durationMinutes) || 0), 0);
 
-  return { moduleAssets, complexModuleAssets, totalMinutes };
+  return { moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes };
 }

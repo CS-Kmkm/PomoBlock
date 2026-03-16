@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildStudioRecipePayload } from "../src-ui/dist/pages/routines/studio/actions.js";
+import { buildStudioModulePayload } from "../src-ui/dist/pages/routines/studio/actions.js";
 import { bootstrapStudioState, syncStudioFromRecipe } from "../src-ui/dist/pages/routines/studio/lifecycle.js";
+import { buildStudioAssets } from "../src-ui/dist/pages/routines/studio/assets.js";
 
 test("buildStudioRecipePayload preserves routine-studio step metadata and context", () => {
   const payload = buildStudioRecipePayload({
@@ -155,4 +157,79 @@ test("syncStudioFromRecipe restores the saved apply target and context", () => {
   assert.equal(studio.applyTemplateId, "rcp-planning");
   assert.equal(studio.draftName, "Planning Routine");
   assert.equal(studio.context, "Planning");
+});
+
+test("buildStudioModulePayload preserves existing module behavior fields during edit", () => {
+  const payload = buildStudioModulePayload({
+    editingModuleId: "mod-focus",
+    existingModule: {
+      id: "mod-focus",
+      name: "Focus Sprint",
+      category: "Focus Work",
+      description: "Old desc",
+      icon: "timer",
+      durationMinutes: 25,
+      stepType: "pomodoro",
+      checklist: ["Mute chat"],
+      pomodoro: { focusSeconds: 1500, breakSeconds: 300, cycles: 1 },
+      overrunPolicy: "wait",
+      executionHints: { allowSkip: false, mustCompleteChecklist: true, autoAdvance: true },
+    },
+    moduleId: "mod-focus",
+    moduleName: "Focus Sprint Updated",
+    category: "Focus Work",
+    description: "New desc",
+    icon: "bolt",
+    durationMinutes: 30,
+  });
+
+  assert.deepEqual(payload, {
+    id: "mod-focus",
+    name: "Focus Sprint Updated",
+    category: "Focus Work",
+    description: "New desc",
+    icon: "bolt",
+    durationMinutes: 30,
+    stepType: "pomodoro",
+    checklist: ["Mute chat"],
+    pomodoro: { focusSeconds: 1500, breakSeconds: 300, cycles: 1 },
+    overrunPolicy: "wait",
+    executionHints: { allowSkip: false, mustCompleteChecklist: true, autoAdvance: true },
+  });
+});
+
+test("buildStudioAssets keeps schedule template options independent from library search", () => {
+  const assets = buildStudioAssets({
+    studio: {
+      search: "focus-only",
+      modules: [],
+      canvasEntries: [],
+    },
+    recipes: [
+      {
+        id: "rcp-1",
+        name: "Morning Focus",
+        studioMeta: { version: 1, kind: "routine_studio" },
+        steps: [{ id: "step-1", title: "Focus", durationSeconds: 300 }],
+      },
+      {
+        id: "rcp-2",
+        name: "Admin Reset",
+        studioMeta: { version: 1, kind: "routine_studio" },
+        steps: [{ id: "step-1", title: "Admin", durationSeconds: 600 }],
+      },
+    ],
+    normalizeModule: (module) => module,
+    isRoutineStudioRecipe: () => true,
+    routineStudioStepDurationMinutes: (step) => Math.round((step.durationSeconds || 0) / 60),
+  });
+
+  assert.deepEqual(
+    assets.complexModuleAssets.map((asset) => asset.id),
+    [],
+  );
+  assert.deepEqual(
+    assets.allComplexModuleAssets.map((asset) => asset.id),
+    ["rcp-1", "rcp-2"],
+  );
 });

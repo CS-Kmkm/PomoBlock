@@ -5,6 +5,7 @@ type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;
   moduleAssets: RoutineStudioModuleView[];
   complexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
+  allComplexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   totalMinutes: number;
   routineStudioContexts: string[];
   escapeHtml: (value: unknown) => string;
@@ -24,8 +25,8 @@ export function buildRoutineStudioLoadingMarkup(): string {
 }
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
-  const { studio, moduleAssets, complexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
-  const selectedApplyTemplate = complexModuleAssets.find((asset) => asset.id === studio.applyTemplateId);
+  const { studio, moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
+  const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.applyTemplateId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
   return `
     <section class="routine-studio-root">
@@ -51,7 +52,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
             <label class="rs-field">保存済みルーティン
               <select id="studio-apply-template">
                 <option value="">選択してください</option>
-                ${complexModuleAssets
+                ${allComplexModuleAssets
                   .map(
                     (cm) =>
                       `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.applyTemplateId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
@@ -63,7 +64,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
             ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
           </section>
           <footer class="rs-schedule-actions">
-            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary" ${complexModuleAssets.length === 0 ? "disabled" : ""}>今日に適用</button>
+            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary" ${allComplexModuleAssets.length === 0 ? "disabled" : ""}>今日に適用</button>
           </footer>
         </div>
       ` : `

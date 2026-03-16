@@ -26,6 +26,17 @@ type SaveStudioModuleParams = {
   payload: Record<string, unknown>;
 };
 
+type BuildStudioModulePayloadParams = {
+  editingModuleId: string;
+  existingModule: Module | null;
+  moduleId: string;
+  moduleName: string;
+  category: string;
+  description: string;
+  icon: string;
+  durationMinutes: number;
+};
+
 type ApplyStudioTemplateToTodayParams = {
   safeInvoke: SafeInvoke;
   refreshCoreData: (date?: string) => Promise<void>;
@@ -35,6 +46,21 @@ type ApplyStudioTemplateToTodayParams = {
   templateId: string;
   triggerTime: string;
 };
+
+export function buildStudioModulePayload(params: BuildStudioModulePayloadParams): Record<string, unknown> {
+  const { editingModuleId, existingModule, moduleId, moduleName, category, description, icon, durationMinutes } = params;
+  const resolvedId = editingModuleId || moduleId;
+  const base = existingModule ? { ...existingModule } : {};
+  return {
+    ...base,
+    id: resolvedId,
+    name: moduleName || resolvedId,
+    category: category || "General",
+    description,
+    icon: icon || "module",
+    durationMinutes: Math.max(1, Number(durationMinutes) || 1),
+  };
+}
 
 export function buildStudioRecipePayload(params: BuildRecipePayloadParams): Record<string, unknown> {
   const { studio } = params;

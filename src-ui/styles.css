@@ -1693,7 +1693,7 @@ p {
   min-height: 360px;
   padding: 12px;
   display: grid;
-  gap: 10px;
+  gap: 6px;
   align-content: start;
   position: relative;
 }
@@ -1810,7 +1810,7 @@ p {
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .rs-canvas-index {
@@ -1955,7 +1955,7 @@ p {
 
 .rs-canvas-connector {
   width: 2px;
-  height: 16px;
+  height: 8px;
   margin: 0 auto;
   background: linear-gradient(180deg, rgba(47, 143, 113, 0.45), rgba(47, 143, 113, 0));
 }
