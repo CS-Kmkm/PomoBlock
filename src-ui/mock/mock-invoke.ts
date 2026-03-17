@@ -41,6 +41,36 @@ export function createMockInvoke(deps: MockInvokeDeps) {
         toJsonObject,
     } = deps;
 
+    const ensureMockModuleFolders = () => {
+        ensureMockModulesSeeded();
+        const seen = new Set<string>();
+        const folders: Array<{ id: string; name: string }> = [];
+        (Array.isArray(mockState.moduleFolders) ? mockState.moduleFolders : []).forEach((folder) => {
+            const id = String(folder?.id || folder?.name || "").trim();
+            if (!id || seen.has(id)) {
+                return;
+            }
+            seen.add(id);
+            folders.push({
+                id,
+                name: String(folder?.name || id).trim() || id,
+            });
+        });
+        mockState.modules.forEach((module) => {
+            const category = String(module.category || "").trim();
+            if (!category || seen.has(category)) {
+                return;
+            }
+            seen.add(category);
+            folders.push({
+                id: category,
+                name: category,
+            });
+        });
+        mockState.moduleFolders = folders;
+        return folders;
+    };
+
     const mockInvoke = async (name: string, payload: Record<string, unknown>) => {
         const args = toRecord(payload);
         switch (name) {
@@ -163,6 +193,8 @@ export function createMockInvoke(deps: MockInvokeDeps) {
         case "list_modules":
             ensureMockModulesSeeded();
             return [...mockState.modules];
+        case "list_module_folders":
+            return ensureMockModuleFolders().map((folder) => ({ ...folder }));
         case "create_module": {
             ensureMockModulesSeeded();
             const payloadModule = readNestedPayload(args);
@@ -189,6 +221,12 @@ export function createMockInvoke(deps: MockInvokeDeps) {
                     : { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true },
             };
             mockState.modules.push(created);
+            if (!mockState.moduleFolders.some((folder) => folder.id === created.category)) {
+                mockState.moduleFolders.push({
+                    id: created.category,
+                    name: created.category,
+                });
+            }
             return created;
         }
         case "update_module": {
@@ -258,7 +296,74 @@ export function createMockInvoke(deps: MockInvokeDeps) {
                 ? { ...updated.executionHints }
                 : { allowSkip: true, mustCompleteChecklist: false, autoAdvance: true };
             mockState.modules[index] = updated;
+            if (!mockState.moduleFolders.some((folder) => folder.id === String(updated.category || ""))) {
+                mockState.moduleFolders.push({
+                    id: String(updated.category || ""),
+                    name: String(updated.category || ""),
+                });
+            }
             return updated;
+        }
+        case "move_module": {
+            ensureMockModulesSeeded();
+            const moduleId = readString(args, "module_id").trim();
+            const folderId = readString(args, "folder_id").trim();
+            const beforeModuleId = readString(args, "before_module_id").trim();
+            if (!moduleId) {
+                throw new Error("module_id is required");
+            }
+            if (!folderId) {
+                throw new Error("folder_id is required");
+            }
+            let folders = ensureMockModuleFolders();
+            if (!folders.some((folder) => folder.id === folderId)) {
+                mockState.moduleFolders.push({ id: folderId, name: folderId });
+                folders = ensureMockModuleFolders();
+            }
+            const sourceIndex = mockState.modules.findIndex((module) => module.id === moduleId);
+            if (sourceIndex < 0) {
+                throw new Error("module not found");
+            }
+            const [moved] = mockState.modules.splice(sourceIndex, 1);
+            if (!moved) {
+                throw new Error("module not found");
+            }
+            moved.category = folderId;
+            let insertIndex = -1;
+            if (beforeModuleId) {
+                insertIndex = mockState.modules.findIndex((module) => module.id === beforeModuleId);
+                if (insertIndex < 0) {
+                    throw new Error("before module not found");
+                }
+                if (String(mockState.modules[insertIndex]?.category || "") !== folderId) {
+                    throw new Error("before module is not in target folder");
+                }
+            }
+            else {
+                for (let index = mockState.modules.length - 1; index >= 0; index -= 1) {
+                    if (String(mockState.modules[index]?.category || "") === folderId) {
+                        insertIndex = index + 1;
+                        break;
+                    }
+                }
+                if (insertIndex < 0) {
+                    const targetFolderIndex = folders.findIndex((folder) => folder.id === folderId);
+                    insertIndex = mockState.modules.length;
+                    for (let folderIndex = targetFolderIndex + 1; folderIndex < folders.length; folderIndex += 1) {
+                        const nextFolderId = folders[folderIndex]?.id;
+                        if (!nextFolderId) {
+                            continue;
+                        }
+                        const nextIndex = mockState.modules.findIndex((module) => String(module.category || "") === nextFolderId);
+                        if (nextIndex >= 0) {
+                            insertIndex = nextIndex;
+                            break;
+                        }
+                    }
+                }
+            }
+            mockState.modules.splice(insertIndex, 0, moved);
+            return mockState.modules.map((module) => ({ ...module }));
         }
         case "delete_module": {
             ensureMockModulesSeeded();
@@ -266,6 +371,164 @@ export function createMockInvoke(deps: MockInvokeDeps) {
             const before = mockState.modules.length;
             mockState.modules = mockState.modules.filter((module) => module.id !== moduleId);
             return before !== mockState.modules.length;
+        }
+        case "move_module": {
+            const moduleId = readString(args, "module_id").trim();
+            const folderId = readString(args, "folder_id").trim();
+            const beforeModuleId = readString(args, "before_module_id").trim();
+            if (!moduleId) {
+                throw new Error("module_id is required");
+            }
+            if (!folderId) {
+                throw new Error("folder_id is required");
+            }
+            const folders = ensureMockModuleFolders();
+            if (!folders.some((folder) => folder.id === folderId)) {
+                mockState.moduleFolders = [...folders, { id: folderId, name: folderId }];
+            }
+            const sourceIndex = mockState.modules.findIndex((module) => module.id === moduleId);
+            if (sourceIndex < 0) {
+                throw new Error("module not found");
+            }
+            const [moved] = mockState.modules.splice(sourceIndex, 1);
+            if (!moved) {
+                throw new Error("module not found");
+            }
+            moved.category = folderId;
+            let insertIndex = mockState.modules.length;
+            if (beforeModuleId) {
+                insertIndex = mockState.modules.findIndex((module) => module.id === beforeModuleId);
+                if (insertIndex < 0) {
+                    throw new Error("before module not found");
+                }
+                if (String(mockState.modules[insertIndex]?.category || "") !== folderId) {
+                    throw new Error("before module must belong to target folder");
+                }
+            }
+            else {
+                const targetFolderOrder = mockState.moduleFolders.findIndex((folder) => folder.id === folderId);
+                const lastTargetIndex = mockState.modules.reduce((last, module, index) => String(module.category || "") === folderId ? index : last, -1);
+                if (lastTargetIndex >= 0) {
+                    insertIndex = lastTargetIndex + 1;
+                }
+                else {
+                    const nextFolderIds = mockState.moduleFolders
+                        .slice(Math.max(0, targetFolderOrder + 1))
+                        .map((folder) => folder.id);
+                    const nextIndex = mockState.modules.findIndex((module) => nextFolderIds.includes(String(module.category || "")));
+                    insertIndex = nextIndex >= 0 ? nextIndex : mockState.modules.length;
+                }
+            }
+            mockState.modules.splice(insertIndex, 0, moved);
+            return mockState.modules.map((module) => ({ ...module }));
+        }
+        case "create_module_folder": {
+            const folders = ensureMockModuleFolders();
+            const name = readString(args, "name").trim();
+            if (!name) {
+                throw new Error("folder name is required");
+            }
+            if (folders.some((folder) => folder.id.toLowerCase() === name.toLowerCase())) {
+                throw new Error("folder already exists");
+            }
+            const created = { id: name, name };
+            mockState.moduleFolders.push(created);
+            return created;
+        }
+        case "delete_module_folder": {
+            const folders = ensureMockModuleFolders();
+            const folderId = readString(args, "folder_id").trim();
+            const before = folders.length;
+            mockState.moduleFolders = folders.filter((folder) => folder.id !== folderId);
+            if (mockState.moduleFolders.length === before) {
+                return false;
+            }
+            const hasAffectedModules = mockState.modules.some((module) => String(module.category || "") === folderId);
+            if (hasAffectedModules) {
+                const fallbackFolder = mockState.moduleFolders[0] || { id: "General", name: "General" };
+                if (mockState.moduleFolders.length === 0) {
+                    mockState.moduleFolders = [fallbackFolder];
+                }
+                mockState.modules = mockState.modules.map((module) =>
+                    String(module.category || "") === folderId
+                        ? { ...module, category: fallbackFolder.id }
+                        : module,
+                );
+            }
+            return true;
+        }
+        case "move_module_folder": {
+            const folders = ensureMockModuleFolders();
+            const folderId = readString(args, "folder_id").trim();
+            const direction = readString(args, "direction").trim().toLowerCase();
+            const index = folders.findIndex((folder) => folder.id === folderId);
+            if (index < 0) {
+                throw new Error("folder not found");
+            }
+            const nextIndex = direction === "up" ? Math.max(0, index - 1) : Math.min(folders.length - 1, index + 1);
+            if (nextIndex !== index) {
+                const currentFolder = folders[index];
+                const nextFolder = folders[nextIndex];
+                if (!currentFolder || !nextFolder) {
+                    throw new Error("folder move out of range");
+                }
+                folders[index] = nextFolder;
+                folders[nextIndex] = currentFolder;
+            }
+            mockState.moduleFolders = folders.map((folder) => ({ ...folder }));
+            return mockState.moduleFolders.map((folder) => ({ ...folder }));
+        }
+        case "move_module": {
+            ensureMockModulesSeeded();
+            const moduleId = readString(args, "module_id").trim();
+            const folderId = readString(args, "folder_id").trim();
+            const beforeModuleId = readString(args, "before_module_id").trim();
+            if (!moduleId) {
+                throw new Error("module_id is required");
+            }
+            if (!folderId) {
+                throw new Error("folder_id is required");
+            }
+            const sourceIndex = mockState.modules.findIndex((module) => module.id === moduleId);
+            if (sourceIndex < 0) {
+                throw new Error("module not found");
+            }
+            const [movedModule] = mockState.modules.splice(sourceIndex, 1);
+            if (!movedModule) {
+                throw new Error("module not found");
+            }
+            movedModule.category = folderId;
+            if (!mockState.moduleFolders.some((folder) => folder.id === folderId)) {
+                mockState.moduleFolders.push({ id: folderId, name: folderId });
+            }
+
+            let insertIndex = -1;
+            if (beforeModuleId) {
+                insertIndex = mockState.modules.findIndex((module) => module.id === beforeModuleId);
+                if (insertIndex < 0) {
+                    throw new Error("before module not found");
+                }
+            } else {
+                for (let index = mockState.modules.length - 1; index >= 0; index -= 1) {
+                    if (String(mockState.modules[index]?.category || "") === folderId) {
+                        insertIndex = index + 1;
+                        break;
+                    }
+                }
+                if (insertIndex < 0) {
+                    const folders = ensureMockModuleFolders();
+                    const targetFolderIndex = folders.findIndex((folder) => folder.id === folderId);
+                    insertIndex = mockState.modules.findIndex((module) => {
+                        const moduleFolderIndex = folders.findIndex((folder) => folder.id === String(module.category || ""));
+                        return moduleFolderIndex > targetFolderIndex;
+                    });
+                    if (insertIndex < 0) {
+                        insertIndex = mockState.modules.length;
+                    }
+                }
+            }
+            mockState.modules.splice(insertIndex, 0, movedModule);
+            return mockState.modules.map((module) => ({ ...module }));
         }
         case "apply_studio_template_to_today": {
             ensureMockRecipesSeeded();

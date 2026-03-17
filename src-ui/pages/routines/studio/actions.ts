@@ -1,4 +1,4 @@
-import type { Module, Recipe, RoutineStudioState } from "../../../types.js";
+import type { Module, ModuleFolder, Recipe, RoutineStudioState } from "../../../types.js";
 import { routineStudioSlug } from "../model.js";
 
 type SafeInvoke = (command: string, payload: Record<string, unknown>) => Promise<unknown>;
@@ -16,7 +16,9 @@ type PersistRecipeParams = {
 type RefreshStudioAssetsParams = {
   safeInvoke: SafeInvoke;
   normalizeModule: (module: unknown, index: number) => Module;
+  normalizeModuleFolder: (folder: unknown, index: number) => ModuleFolder;
   fallbackModules: Module[];
+  fallbackModuleFolders: ModuleFolder[];
 };
 
 type SaveStudioModuleParams = {
@@ -149,15 +151,21 @@ export async function persistStudioTemplate(params: PersistRecipeParams): Promis
   return payloadId;
 }
 
-export async function refreshStudioAssets(params: RefreshStudioAssetsParams): Promise<{ recipes: Recipe[]; modules: Module[] }> {
-  const { safeInvoke, normalizeModule, fallbackModules } = params;
-  const [recipesResult, modulesResult] = await Promise.all([
+export async function refreshStudioAssets(
+  params: RefreshStudioAssetsParams,
+): Promise<{ recipes: Recipe[]; modules: Module[]; moduleFolders: ModuleFolder[] }> {
+  const { safeInvoke, normalizeModule, normalizeModuleFolder, fallbackModules, fallbackModuleFolders } = params;
+  const [recipesResult, modulesResult, foldersResult] = await Promise.all([
     safeInvoke("list_recipes", {}),
     safeInvoke("list_modules", {}).catch(() => fallbackModules),
+    safeInvoke("list_module_folders", {}).catch(() => fallbackModuleFolders),
   ]);
   return {
     recipes: Array.isArray(recipesResult) ? (recipesResult as Recipe[]) : [],
     modules: Array.isArray(modulesResult) ? modulesResult.map((module, index) => normalizeModule(module, index)) : [],
+    moduleFolders: Array.isArray(foldersResult)
+      ? foldersResult.map((folder, index) => normalizeModuleFolder(folder, index))
+      : [],
   };
 }
 
@@ -200,6 +208,48 @@ export async function deleteStudioRecipe(params: {
   }
   const recipes = await safeInvoke("list_recipes", {});
   return { deleted: true, recipes: Array.isArray(recipes) ? (recipes as Recipe[]) : [] };
+}
+
+export async function createStudioModuleFolder(params: {
+  safeInvoke: SafeInvoke;
+  name: string;
+}): Promise<ModuleFolder> {
+  const { safeInvoke, name } = params;
+  return (await safeInvoke("create_module_folder", { name })) as ModuleFolder;
+}
+
+export async function deleteStudioModuleFolder(params: {
+  safeInvoke: SafeInvoke;
+  folderId: string;
+}): Promise<boolean> {
+  const { safeInvoke, folderId } = params;
+  return Boolean(await safeInvoke("delete_module_folder", { folder_id: folderId }));
+}
+
+export async function moveStudioModuleFolder(params: {
+  safeInvoke: SafeInvoke;
+  folderId: string;
+  direction: string;
+}): Promise<ModuleFolder[]> {
+  const { safeInvoke, folderId, direction } = params;
+  const folders = await safeInvoke("move_module_folder", { folder_id: folderId, direction });
+  return Array.isArray(folders) ? (folders as ModuleFolder[]) : [];
+}
+
+export async function moveStudioModule(params: {
+  safeInvoke: SafeInvoke;
+  normalizeModule: (module: unknown, index: number) => Module;
+  moduleId: string;
+  folderId: string;
+  beforeModuleId?: string;
+}): Promise<Module[]> {
+  const { safeInvoke, normalizeModule, moduleId, folderId, beforeModuleId } = params;
+  const modules = await safeInvoke("move_module", {
+    module_id: moduleId,
+    folder_id: folderId,
+    before_module_id: beforeModuleId || undefined,
+  });
+  return Array.isArray(modules) ? modules.map((module, index) => normalizeModule(module, index)) : [];
 }
 
 export async function applyStudioTemplateToToday(params: ApplyStudioTemplateToTodayParams): Promise<string> {

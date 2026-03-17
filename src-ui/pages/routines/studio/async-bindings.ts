@@ -7,6 +7,8 @@ type BindRoutineStudioAsyncEventsParams = {
   closeModuleEditor: () => void;
   closeEntryEditor: () => void;
   onRefreshAssets: () => Promise<void>;
+  onCreateFolder: () => Promise<void>;
+  onDeleteFolder: (folderId: string) => Promise<void>;
   onSaveModule: () => Promise<void>;
   onDeleteModule: (moduleId: string) => Promise<void>;
   onSaveTemplate: () => Promise<void>;
@@ -22,6 +24,8 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
     closeModuleEditor,
     closeEntryEditor,
     onRefreshAssets,
+    onCreateFolder,
+    onDeleteFolder,
     onSaveModule,
     onDeleteModule,
     onSaveTemplate,
@@ -35,6 +39,10 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
 
   document.getElementById("studio-new-module")?.addEventListener("click", () => {
     openModuleEditor(null);
+  });
+
+  document.getElementById("studio-new-folder")?.addEventListener("click", () => {
+    void onCreateFolder();
   });
 
   document.getElementById("studio-module-cancel")?.addEventListener("click", closeModuleEditor);
@@ -72,6 +80,14 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
       const moduleId = (node as HTMLElement).dataset.studioModuleDelete || "";
       if (!moduleId) return;
       void onDeleteModule(moduleId);
+    });
+  });
+
+  appRoot.querySelectorAll("[data-studio-folder-delete]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const folderId = (node as HTMLElement).dataset.studioFolderDelete || "";
+      if (!folderId) return;
+      void onDeleteFolder(folderId);
     });
   });
 

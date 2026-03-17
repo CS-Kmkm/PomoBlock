@@ -1,9 +1,9 @@
 import type { RoutineStudioState } from "../../../types.js";
-import type { RoutineStudioModuleView } from "../model.js";
+import type { RoutineStudioFolderView } from "../model.js";
 
 type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;
-  moduleAssets: RoutineStudioModuleView[];
+  folderAssets: RoutineStudioFolderView[];
   complexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   allComplexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   totalMinutes: number;
@@ -25,9 +25,10 @@ export function buildRoutineStudioLoadingMarkup(): string {
 }
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
-  const { studio, moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
+  const { studio, folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
   const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.applyTemplateId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
+  const availableFolders = studio.moduleFolders.length > 0 ? studio.moduleFolders : [{ id: "General", name: "General" }];
   return `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
@@ -70,44 +71,50 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
       ` : `
         <div class="routine-studio-layout">
           <aside class="rs-library">
-            <div class="rs-search-wrap">
-              <input id="studio-search-input" type="search" placeholder="モジュールを検索..." value="${escapeHtml(studio.search)}" />
+            <div class="rs-library-tools">
+              <div class="rs-search-wrap">
+                <input id="studio-search-input" type="search" placeholder="モジュールを検索..." value="${escapeHtml(studio.search)}" />
+              </div>
+              <div class="rs-library-actions">
+                <button type="button" id="studio-new-folder" class="rs-icon-btn" title="フォルダー追加" aria-label="フォルダー追加">+</button>
+              </div>
             </div>
             <div class="rs-assets">
               ${(() => {
-                const grouped = moduleAssets.reduce((acc: Record<string, RoutineStudioModuleView[]>, m) => {
-                  const cat = String(m.category || "General");
-                  if (!acc[cat]) acc[cat] = [];
-                  acc[cat].push(m);
-                  return acc;
-                }, {});
-                const cats = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
                 const modParts =
-                  cats.length === 0
+                  folderAssets.length === 0
                     ? ""
-                    : cats
+                    : folderAssets
                         .map(
-                          (cat) => `
-                  <section class="rs-asset-group" data-studio-asset-group>
-                    <h4 class="rs-asset-group-title">${escapeHtml(cat)}</h4>
-                    ${(grouped[cat] || [])
-                      .map(
-                        (module) => `
+                          (folder) => `
+                  <section class="rs-asset-group rs-folder-group" data-studio-asset-group data-studio-folder-group="true" data-studio-folder-id="${escapeHtml(folder.id)}">
+                    <div class="rs-asset-group-head">
+                      <h4 class="rs-asset-group-title">${escapeHtml(folder.name)}</h4>
+                      <div class="rs-folder-actions">
+                        <button type="button" class="rs-icon-btn is-danger" title="削除" aria-label="フォルダーを削除" data-studio-folder-delete="${escapeHtml(folder.id)}">&#128465;</button>
+                      </div>
+                    </div>
+                    <div class="rs-folder-dropzone" data-studio-folder-dropzone="${escapeHtml(folder.id)}">
+                      ${folder.modules
+                        .map(
+                          (module) => `
                       <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}" data-studio-search-text="${escapeHtml(`${module.name} ${module.description || ""} ${module.category || ""}`)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(module.name)}</p>
                           <span class="rs-asset-duration">${module.durationMinutes}m</span>
                         </div>
                         <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
-                        <div class="rs-asset-actions">
-                          <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">追加</button>
+                        <div class="rs-asset-actions rs-asset-actions-inline">
+                          <button type="button" class="rs-icon-btn" title="追加" aria-label="モジュールを追加" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">+</button>
                           <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
-                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#10005;</button>
+                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#128465;</button>
                         </div>
                       </article>
                     `,
-                      )
-                      .join("")}
+                        )
+                        .join("")}
+                      <p class="small rs-folder-empty" data-studio-folder-empty ${folder.modules.length > 0 ? "hidden" : ""}>このフォルダーにはモジュールがありません。</p>
+                    </div>
                   </section>
                 `,
                         )
@@ -127,10 +134,10 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                           <span class="rs-asset-duration">${cm.totalMinutes}m</span>
                         </div>
                         <p class="rs-asset-subtitle">${cm.stepCount} ステップ</p>
-                        <div class="rs-asset-actions">
-                          <button type="button" class="rs-btn rs-btn-secondary" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">追加</button>
+                        <div class="rs-asset-actions rs-asset-actions-inline">
+                          <button type="button" class="rs-icon-btn" title="追加" aria-label="複合モジュールを追加" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">+</button>
                           <button type="button" class="rs-btn rs-btn-ghost" data-studio-load-template="${escapeHtml(cm.id)}">読込</button>
-                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#10005;</button>
+                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#128465;</button>
                         </div>
                       </article>
                     `,
@@ -256,32 +263,44 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
       }
       ${
         studio.moduleEditor
-          ? `
+          ? (() => {
+              const moduleEditor = studio.moduleEditor;
+              return `
         <div class="rs-modal-overlay" id="module-editor-overlay">
           <div class="rs-modal" role="dialog" aria-modal="true">
             <header class="rs-modal-head">
               <h4 class="rs-modal-title">${studio.editingModuleId ? "モジュールを編集" : "新規モジュール"}</h4>
             </header>
             <div class="rs-inline-fields">
-              <label class="rs-field">ID<input id="studio-module-id" value="${escapeHtml(studio.moduleEditor.id)}" ${studio.editingModuleId ? "disabled" : ""} /></label>
-              <label class="rs-field">名前<input id="studio-module-name" value="${escapeHtml(studio.moduleEditor.name)}" /></label>
+              <label class="rs-field">ID<input id="studio-module-id" value="${escapeHtml(moduleEditor.id)}" ${studio.editingModuleId ? "disabled" : ""} /></label>
+              <label class="rs-field">名前<input id="studio-module-name" value="${escapeHtml(moduleEditor.name)}" /></label>
             </div>
             <div class="rs-inline-fields">
-              <label class="rs-field">カテゴリ<input id="studio-module-category" value="${escapeHtml(studio.moduleEditor.category)}" /></label>
+              <label class="rs-field">フォルダー
+                <select id="studio-module-category">
+                  ${availableFolders
+                    .map(
+                      (folder) =>
+                        `<option value="${escapeHtml(folder.id)}" ${folder.id === moduleEditor.category ? "selected" : ""}>${escapeHtml(folder.name)}</option>`,
+                    )
+                    .join("")}
+                </select>
+              </label>
               <label class="rs-field">分<input id="studio-module-duration" type="number" min="1" value="${Math.max(
                 1,
-                Number(studio.moduleEditor.durationMinutes) || 1,
+                Number(moduleEditor.durationMinutes) || 1,
               )}" /></label>
             </div>
-            <label class="rs-field">説明<input id="studio-module-description" value="${escapeHtml(studio.moduleEditor.description)}" /></label>
-            <label class="rs-field">アイコン<input id="studio-module-icon" value="${escapeHtml(studio.moduleEditor.icon)}" /></label>
+            <label class="rs-field">説明<input id="studio-module-description" value="${escapeHtml(moduleEditor.description)}" /></label>
+            <label class="rs-field">アイコン<input id="studio-module-icon" value="${escapeHtml(moduleEditor.icon)}" /></label>
             <div class="rs-modal-actions">
               <button type="button" id="studio-module-save" class="rs-btn rs-btn-primary">保存</button>
               <button type="button" id="studio-module-cancel" class="rs-btn rs-btn-ghost">キャンセル</button>
             </div>
           </div>
         </div>
-      `
+      `;
+            })()
           : ""
       }
     </section>

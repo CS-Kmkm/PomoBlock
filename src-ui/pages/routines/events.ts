@@ -1,11 +1,21 @@
 import type { Module, PageRenderDeps, RoutineStudioEntry } from "../../types.js";
-import { cloneValue, isRoutineStudioRecipe, routineStudioContexts, routineStudioSeedModules, routineStudioSlug, routineStudioStepDurationMinutes, toPositiveInt } from "./model.js";
+import {
+  cloneValue,
+  isRoutineStudioRecipe,
+  routineStudioContexts,
+  routineStudioSeedFolders,
+  routineStudioSeedModules,
+  routineStudioSlug,
+  routineStudioStepDurationMinutes,
+  toPositiveInt,
+} from "./model.js";
 import { bindRoutineStudioPointerDnd } from "./pointer-dnd.js";
 import {
   applyStudioCanvasEntries,
   createEmptyStudioModuleEditor,
   normalizeStudioEntry,
   normalizeStudioModule,
+  normalizeStudioModuleFolder,
   normalizeStudioModuleEditor,
   pushStudioHistorySnapshot,
   readStudioEntryId,
@@ -32,8 +42,11 @@ import { bindRoutineStudioAsyncEvents } from "./studio/async-bindings.js";
 import {
   applyStudioTemplateToToday,
   buildStudioModulePayload,
+  createStudioModuleFolder,
   deleteStudioModule,
+  deleteStudioModuleFolder,
   deleteStudioRecipe,
+  moveStudioModule,
   persistStudioTemplate,
   refreshStudioAssets,
   saveStudioModule,
@@ -62,13 +75,18 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
     const studio = uiState.routineStudio;
     const normalizeModule = normalizeStudioModule;
+    const normalizeModuleFolder = normalizeStudioModuleFolder;
     const normalizeEntry = normalizeStudioEntry;
     const normalizeModuleEditor = normalizeStudioModuleEditor;
     const readEntryId = readStudioEntryId;
-    const createEmptyModuleEditor = createEmptyStudioModuleEditor;
+    const createEmptyModuleEditor = () => normalizeModuleEditor({
+        ...createEmptyStudioModuleEditor(),
+        category: String(studio.moduleFolders?.[0]?.id || "General"),
+    });
     normalizeStudioState({
         studio,
         normalizeModule,
+        normalizeModuleFolder,
         normalizeEntry,
         normalizeModuleEditor,
         toEntryRecords,
@@ -83,10 +101,13 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 const refreshed = await refreshStudioAssets({
                     safeInvoke: (command, payload) => safeInvoke(command, payload),
                     normalizeModule,
+                    normalizeModuleFolder,
                     fallbackModules: cloneValue(routineStudioSeedModules),
+                    fallbackModuleFolders: cloneValue(routineStudioSeedFolders),
                 });
                 uiState.recipes = refreshed.recipes;
                 studio.modules = refreshed.modules;
+                studio.moduleFolders = refreshed.moduleFolders;
                 studio.assetsLoaded = true;
                 studio.assetsLoading = false;
                 renderRoutines();
@@ -144,7 +165,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 rawStep,
             }, index);
         });
-    const { moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes } = buildStudioAssets({
+    const { folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes } = buildStudioAssets({
         studio,
         recipes,
         normalizeModule,
@@ -153,7 +174,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     });
         renderRoutinesMarkup(appRoot, buildRoutineStudioMarkup({
         studio,
-        moduleAssets,
+        folderAssets,
         complexModuleAssets,
         allComplexModuleAssets,
         totalMinutes,
@@ -223,10 +244,91 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             const refreshed = await refreshStudioAssets({
                 safeInvoke: (command, payload) => safeInvoke(command, payload),
                 normalizeModule,
+                normalizeModuleFolder,
                 fallbackModules: cloneValue(routineStudioSeedModules),
+                fallbackModuleFolders: cloneValue(routineStudioSeedFolders),
             });
             uiState.recipes = refreshed.recipes;
             studio.modules = refreshed.modules;
+            studio.moduleFolders = refreshed.moduleFolders;
+            rerender();
+        });
+    };
+    const onCreateFolder = async () => {
+        const name = window.prompt("新しいフォルダー名を入力してください。", "")?.trim() || "";
+        if (!name) {
+            return;
+        }
+        await runUiAction(async () => {
+            await createStudioModuleFolder({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                name,
+            });
+            const refreshed = await refreshStudioAssets({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                normalizeModule,
+                normalizeModuleFolder,
+                fallbackModules: cloneValue(routineStudioSeedModules),
+                fallbackModuleFolders: cloneValue(routineStudioSeedFolders),
+            });
+            uiState.recipes = refreshed.recipes;
+            studio.modules = refreshed.modules;
+            studio.moduleFolders = refreshed.moduleFolders;
+            if (studio.moduleEditor && !studio.moduleEditor.category) {
+                studio.moduleEditor.category = name;
+            }
+            setStatus(`folder created: ${name}`);
+            rerender();
+        });
+    };
+    const onDeleteFolder = async (folderId: string) => {
+        const targetFolder = studio.moduleFolders.find((folder) => folder.id === folderId);
+        const label = String(targetFolder?.name || folderId);
+        if (!window.confirm(`フォルダー「${label}」を削除します。`)) {
+            return;
+        }
+        await runUiAction(async () => {
+            const deleted = await deleteStudioModuleFolder({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                folderId,
+            });
+            if (!deleted) {
+                setStatus(`folder not found: ${folderId}`);
+                return;
+            }
+            const refreshed = await refreshStudioAssets({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                normalizeModule,
+                normalizeModuleFolder,
+                fallbackModules: cloneValue(routineStudioSeedModules),
+                fallbackModuleFolders: cloneValue(routineStudioSeedFolders),
+            });
+            uiState.recipes = refreshed.recipes;
+            studio.modules = refreshed.modules;
+            studio.moduleFolders = refreshed.moduleFolders;
+            if (studio.moduleEditor && studio.moduleEditor.category === folderId) {
+                studio.moduleEditor.category = String(studio.moduleFolders[0]?.id || "General");
+            }
+            setStatus(`folder deleted: ${label}`);
+            rerender();
+        });
+    };
+    const onMoveModule = async (moduleId: string, folderId: string, beforeModuleId?: string) => {
+        await runUiAction(async () => {
+            const modules = await moveStudioModule({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                normalizeModule,
+                moduleId,
+                folderId,
+                ...(beforeModuleId ? { beforeModuleId } : {}),
+            });
+            if (modules.length > 0) {
+                studio.modules = modules;
+            }
+            if (studio.moduleEditor && (studio.editingModuleId === moduleId || studio.moduleEditor.id === moduleId)) {
+                studio.moduleEditor.category = folderId;
+            }
+            setStatus(`module moved: ${moduleId} -> ${folderId}`);
             rerender();
         });
     };
@@ -241,7 +343,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 existingModule,
                 moduleId,
                 moduleName,
-                category: readField("studio-module-category").trim() || "General",
+                category: readField("studio-module-category").trim() || String(studio.moduleFolders[0]?.id || "General"),
                 description: readField("studio-module-description").trim(),
                 icon: readField("studio-module-icon").trim() || "module",
                 durationMinutes: toPositiveInt(readField("studio-module-duration"), 1),
@@ -297,6 +399,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         resolveDropInsertIndex,
         clearDropIndicator,
         paintDropIndicator,
+        moveModuleAsset: onMoveModule,
     });
     const onSaveTemplate = async () => {
         await runUiAction(async () => {
@@ -354,6 +457,8 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         closeModuleEditor,
         closeEntryEditor,
         onRefreshAssets,
+        onCreateFolder,
+        onDeleteFolder,
         onSaveModule,
         onDeleteModule,
         onSaveTemplate,

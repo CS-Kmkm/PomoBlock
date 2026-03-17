@@ -1,4 +1,6 @@
 import type { RoutineStudioDragKind, RoutineStudioEntry, UiState } from "../../types.js";
+import type { FolderDropTarget } from "./studio/folder-dnd.js";
+import { clearFolderDropIndicators, resolveActiveFolderDrop } from "./studio/folder-dnd.js";
 
 type DragPayload = { kind: RoutineStudioDragKind; id: string };
 
@@ -16,6 +18,7 @@ type BindPointerDndParams = {
   resolveDropInsertIndex: (dropzone: HTMLElement, clientY: number) => number;
   clearDropIndicator: (dropzone: HTMLElement) => void;
   paintDropIndicator: (dropzone: HTMLElement, insertIndex: number) => void;
+  moveModuleAsset: (moduleId: string, targetFolderId: string, beforeModuleId?: string) => Promise<void>;
 };
 
 export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () => void {
@@ -28,6 +31,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     resolveDropInsertIndex,
     clearDropIndicator,
     paintDropIndicator,
+    moveModuleAsset,
   } = params;
 
   let activeDrag: DragPayload | null = null;
@@ -35,6 +39,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
   let dragSource: HTMLElement | null = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let activeFolderDrop: FolderDropTarget | null = null;
   const cleanups: Array<() => void> = [];
 
   const cleanupDragVisuals = () => {
@@ -48,10 +53,26 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     }
   };
 
+  const updateFolderDropTarget = (clientX: number, clientY: number) => {
+    if (!activeDrag || activeDrag.kind !== "module") {
+      clearFolderDropIndicators(appRoot);
+      activeFolderDrop = null;
+      return;
+    }
+    activeFolderDrop = resolveActiveFolderDrop({
+      appRoot,
+      clientX,
+      clientY,
+      draggedModuleId: activeDrag.id,
+    });
+  };
+
   const commitStudioDrop = (clientX: number, clientY: number) => {
     const dz = document.getElementById("routine-studio-dropzone");
+    const folderDrop = activeFolderDrop;
     if (!dz || !activeDrag) {
       activeDrag = null;
+      clearFolderDropIndicators(appRoot);
       return;
     }
     const dzRect = dz.getBoundingClientRect();
@@ -60,6 +81,8 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     const drag = activeDrag;
     activeDrag = null;
     clearDropIndicator(dz);
+    clearFolderDropIndicators(appRoot);
+    activeFolderDrop = null;
     if (!inside && drag.kind === "entry") {
       applyCanvasEntries(studio.canvasEntries.filter((entry) => entry.entryId !== drag.id), true);
       if (studio.selectedEntryId === drag.id) {
@@ -69,6 +92,9 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
       return;
     }
     if (!inside) {
+      if (drag.kind === "module" && folderDrop) {
+        void moveModuleAsset(drag.id, folderDrop.folderId, folderDrop.beforeModuleId || undefined);
+      }
       return;
     }
     const { kind, id } = drag;
@@ -98,9 +124,12 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     if (!dz) return;
     const dzRect = dz.getBoundingClientRect();
     if (event.clientX >= dzRect.left && event.clientX <= dzRect.right && event.clientY >= dzRect.top && event.clientY <= dzRect.bottom) {
+      clearFolderDropIndicators(appRoot);
+      activeFolderDrop = null;
       paintDropIndicator(dz, resolveDropInsertIndex(dz, event.clientY));
     } else {
       clearDropIndicator(dz);
+      updateFolderDropTarget(event.clientX, event.clientY);
     }
   };
 
@@ -167,7 +196,9 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
   return () => {
     detachDocumentDragHandlers();
     cleanupDragVisuals();
+    clearFolderDropIndicators(appRoot);
     activeDrag = null;
+    activeFolderDrop = null;
     cleanups.splice(0).forEach((cleanup) => cleanup());
   };
 }
