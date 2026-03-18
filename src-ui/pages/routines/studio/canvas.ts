@@ -99,20 +99,16 @@ type CreateAddAssetToCanvasParams = {
 
 export function createAddAssetToCanvas(params: CreateAddAssetToCanvasParams) {
   const { studio, recipes, isRoutineStudioRecipe, moduleToEntry, recipeToEntries, applyCanvasEntries, syncFromRecipe } = params;
-  return (kind: Exclude<RoutineStudioDragKind, "entry">, id: string, replace = false, insertIndex: number = studio.canvasEntries.length): boolean => {
+  return (kind: Exclude<RoutineStudioDragKind, "entry">, id: string, insertIndex: number = studio.canvasEntries.length): boolean => {
     if (!id) return false;
     const clampedInsertIndex = Math.max(0, Math.min(Number(insertIndex) || 0, studio.canvasEntries.length));
     if (kind === "module") {
       const module = studio.modules.find((candidate) => candidate.id === id);
       if (!module) return false;
       const next = moduleToEntry(module);
-      if (replace) {
-        applyCanvasEntries([next], true);
-      } else {
-        const nextEntries = [...studio.canvasEntries];
-        nextEntries.splice(clampedInsertIndex, 0, { ...next });
-        applyCanvasEntries(nextEntries, true);
-      }
+      const nextEntries = [...studio.canvasEntries];
+      nextEntries.splice(clampedInsertIndex, 0, { ...next });
+      applyCanvasEntries(nextEntries, true);
       studio.selectedEntryId = next.entryId;
       return true;
     }
@@ -120,13 +116,9 @@ export function createAddAssetToCanvas(params: CreateAddAssetToCanvasParams) {
       const recipe = recipes.find((candidate) => candidate.id === id && isRoutineStudioRecipe(candidate));
       if (!recipe) return false;
       const entries = recipeToEntries(recipe);
-      if (replace) {
-        applyCanvasEntries(entries, true);
-      } else {
-        const nextEntries = [...studio.canvasEntries];
-        nextEntries.splice(clampedInsertIndex, 0, ...entries);
-        applyCanvasEntries(nextEntries, true);
-      }
+      const nextEntries = [...studio.canvasEntries];
+      nextEntries.splice(clampedInsertIndex, 0, ...entries);
+      applyCanvasEntries(nextEntries, true);
       syncFromRecipe(recipe);
       studio.selectedEntryId = entries[0]?.entryId || studio.selectedEntryId;
       return true;

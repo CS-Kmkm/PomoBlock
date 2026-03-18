@@ -247,7 +247,7 @@ export async function moveStudioModule(params: {
   const modules = await safeInvoke("move_module", {
     module_id: moduleId,
     folder_id: folderId,
-    before_module_id: beforeModuleId || undefined,
+    ...(beforeModuleId ? { before_module_id: beforeModuleId } : {}),
   });
   return Array.isArray(modules) ? modules.map((module, index) => normalizeModule(module, index)) : [];
 }

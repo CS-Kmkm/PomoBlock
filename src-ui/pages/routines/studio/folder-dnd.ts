@@ -51,7 +51,12 @@ export function resolveActiveFolderDrop(params: {
 }): FolderDropTarget | null {
   const { appRoot, clientX, clientY, draggedModuleId } = params;
   const pointed = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-  const dropzone = pointed?.closest("[data-studio-folder-dropzone]") as HTMLElement | null;
+  const folderGroup = pointed?.closest("[data-studio-folder-id]") as HTMLElement | null;
+  if (!folderGroup) {
+    clearFolderDropIndicators(appRoot);
+    return null;
+  }
+  const dropzone = folderGroup.querySelector<HTMLElement>("[data-studio-folder-dropzone]");
   if (!dropzone) {
     clearFolderDropIndicators(appRoot);
     return null;

@@ -1,4 +1,4 @@
-import type { Module } from "../../types.js";
+import type { Module, ModuleFolder } from "../../types.js";
 
 export type RoutineStudioModuleView = {
   id: string;
@@ -7,6 +7,12 @@ export type RoutineStudioModuleView = {
   description: string;
   icon: string;
   durationMinutes: number;
+};
+
+export type RoutineStudioFolderView = {
+  id: string;
+  name: string;
+  modules: RoutineStudioModuleView[];
 };
 
 export type RoutineStudioEntryView = {
@@ -144,6 +150,25 @@ export const routineStudioSeedModules: Module[] = [
     },
   },
 ];
+
+export function deriveModuleFolders(modules: Array<Pick<Module, "category">>): ModuleFolder[] {
+  const seen = new Set<string>();
+  const folders: ModuleFolder[] = [];
+  modules.forEach((module) => {
+    const category = String(module?.category || "").trim();
+    if (!category || seen.has(category)) {
+      return;
+    }
+    seen.add(category);
+    folders.push({
+      id: category,
+      name: category,
+    });
+  });
+  return folders;
+}
+
+export const routineStudioSeedFolders: ModuleFolder[] = deriveModuleFolders(routineStudioSeedModules);
 
 export const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
 

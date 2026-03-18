@@ -105,6 +105,12 @@ export type Module = {
   [key: string]: unknown;
 };
 
+export type ModuleFolder = {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+};
+
 export type DayItemKind = string;
 export type DayItemSelection = { kind: DayItemKind; id: string } | null;
 export type DayCalendarViewMode = "grid" | "simple";
@@ -150,6 +156,7 @@ export interface RoutineStudioState {
   autoStart: boolean;
   macroTargetMinutes: number;
   modules: Module[];
+  moduleFolders: ModuleFolder[];
   hiddenTemplateCount: number;
   canvasEntries: RoutineStudioEntry[];
   history: RoutineStudioEntry[][];
@@ -276,6 +283,7 @@ export interface MockState {
   blocks: Block[];
   recipes: Recipe[];
   modules: Module[];
+  moduleFolders: ModuleFolder[];
   syncedEventsByAccount: Record<string, SyncedEvent[]>;
   taskAssignmentsByTask: Record<string, string>;
   taskAssignmentsByBlock: Record<string, string>;

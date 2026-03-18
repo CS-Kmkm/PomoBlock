@@ -172,6 +172,17 @@ const routineStudioSeedModules: Module[] = [
         },
     },
 ];
+const routineStudioSeedFolders = routineStudioSeedModules.reduce<Array<{ id: string; name: string }>>((folders, module) => {
+    const category = String(module.category || "").trim();
+    if (!category || folders.some((folder) => folder.id === category)) {
+        return folders;
+    }
+    folders.push({
+        id: category,
+        name: category,
+    });
+    return folders;
+}, []);
 const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
 let routineStudioSequence = 1;
 type DayItemKind = "block" | "event" | "free";
@@ -241,6 +252,7 @@ const uiState: UiState = {
         autoStart: true,
         macroTargetMinutes: 30,
         modules: [],
+        moduleFolders: [],
         hiddenTemplateCount: 0,
         canvasEntries: [],
         history: [],
@@ -268,6 +280,7 @@ const mockState: MockState = {
     blocks: [],
     recipes: [],
     modules: [],
+    moduleFolders: [],
     syncedEventsByAccount: {},
     taskAssignmentsByTask: {},
     taskAssignmentsByBlock: {},
@@ -386,14 +399,19 @@ function ensureMockRecipesSeeded() {
     ];
 }
 function ensureMockModulesSeeded() {
-    if (mockState.modules.length > 0)
-        return;
-    mockState.modules = routineStudioSeedModules.map((module) => ({
-        ...module,
-        checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
-        pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
-        executionHints: module.executionHints ? { ...module.executionHints } : null,
-    }));
+    if (mockState.modules.length === 0) {
+        mockState.modules = routineStudioSeedModules.map((module) => ({
+            ...module,
+            checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
+            pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
+            executionHints: module.executionHints ? { ...module.executionHints } : null,
+        }));
+    }
+    if (mockState.moduleFolders.length === 0) {
+        mockState.moduleFolders = routineStudioSeedFolders.map((folder) => ({
+            ...folder,
+        }));
+    }
 }
 function isoDate(value: Date) {
     return isoDateValue(value);

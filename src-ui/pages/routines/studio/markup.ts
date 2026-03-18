@@ -136,7 +136,6 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                         <p class="rs-asset-subtitle">${cm.stepCount} ステップ</p>
                         <div class="rs-asset-actions rs-asset-actions-inline">
                           <button type="button" class="rs-icon-btn" title="追加" aria-label="複合モジュールを追加" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">+</button>
-                          <button type="button" class="rs-btn rs-btn-ghost" data-studio-load-template="${escapeHtml(cm.id)}">読込</button>
                           <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#128465;</button>
                         </div>
                       </article>

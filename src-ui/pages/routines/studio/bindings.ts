@@ -4,7 +4,7 @@ type BindRoutineStudioEditorEventsParams = {
   appRoot: HTMLElement;
   studio: RoutineStudioState;
   rerender: () => void;
-  addAssetToCanvas: (kind: Exclude<RoutineStudioDragKind, "entry">, id: string, replace?: boolean, insertIndex?: number) => boolean;
+  addAssetToCanvas: (kind: Exclude<RoutineStudioDragKind, "entry">, id: string, insertIndex?: number) => boolean;
   applyCanvasEntries: (nextEntries: RoutineStudioEntry[], recordHistory?: boolean) => void;
   updateEntry: (entryId: string, updater: (entry: RoutineStudioEntry) => RoutineStudioEntry) => boolean;
   normalizeEntry: (entry: unknown, index: number) => RoutineStudioEntry;
@@ -28,8 +28,13 @@ function filterStudioAssets(appRoot: HTMLElement, query: string): void {
     }
   });
   appRoot.querySelectorAll<HTMLElement>("[data-studio-asset-group]").forEach((group) => {
+    const isFolderGroup = group.dataset.studioFolderGroup === "true";
     const hasVisibleCard = Array.from(group.querySelectorAll<HTMLElement>("[data-studio-search-text]")).some((card) => !card.hidden);
-    group.hidden = !hasVisibleCard;
+    group.hidden = !isFolderGroup && !hasVisibleCard;
+    const folderEmpty = group.querySelector<HTMLElement>("[data-studio-folder-empty]");
+    if (folderEmpty) {
+      folderEmpty.hidden = hasVisibleCard;
+    }
   });
   const emptyState = appRoot.querySelector<HTMLElement>("#studio-assets-empty");
   if (emptyState) {
@@ -71,15 +76,6 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
       const element = node as HTMLElement;
       const kind = element.dataset.studioInsertKind === "template" ? "template" : "module";
       if (addAssetToCanvas(kind, element.dataset.studioInsertId || "")) {
-        rerender();
-      }
-    });
-  });
-
-  appRoot.querySelectorAll("[data-studio-load-template]").forEach((node) => {
-    node.addEventListener("click", () => {
-      const templateId = (node as HTMLElement).dataset.studioLoadTemplate || "";
-      if (addAssetToCanvas("template", templateId, true)) {
         rerender();
       }
     });

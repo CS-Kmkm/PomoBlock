@@ -332,6 +332,9 @@ fn read_modules_document(config_dir: &Path) -> Result<serde_json::Value, InfraEr
             path.display()
         )));
     }
+    if parse_modules_from_document(&parsed).is_empty() {
+        return seed_default_modules_document(&parsed);
+    }
     Ok(parsed)
 }
 
@@ -355,6 +358,18 @@ fn default_modules_document() -> serde_json::Value {
     })
 }
 
+fn seed_default_modules_document(
+    document: &serde_json::Value,
+) -> Result<serde_json::Value, InfraError> {
+    let mut seeded = default_modules_document();
+    let mut folders = raw_document_folders(document);
+    if !folders.is_empty() {
+        append_missing_module_folders(&mut folders, &default_modules_catalog());
+        set_document_folders(&mut seeded, &folders)?;
+    }
+    Ok(seeded)
+}
+
 fn parse_modules_from_document(document: &serde_json::Value) -> Vec<Module> {
     document
         .get("modules")
@@ -365,17 +380,21 @@ fn parse_modules_from_document(document: &serde_json::Value) -> Vec<Module> {
 
 fn collect_document_folders(document: &serde_json::Value) -> Vec<ModuleFolder> {
     let modules = parse_modules_from_document(document);
-    let mut folders = document
-        .get("folders")
-        .and_then(serde_json::Value::as_array)
-        .map(|items| items.iter().filter_map(parse_folder_from_value).collect::<Vec<_>>())
-        .unwrap_or_default();
+    let mut folders = raw_document_folders(document);
     if folders.is_empty() {
         folders = synthesize_folders_from_modules(&modules);
     } else {
         append_missing_module_folders(&mut folders, &modules);
     }
     folders
+}
+
+fn raw_document_folders(document: &serde_json::Value) -> Vec<ModuleFolder> {
+    document
+        .get("folders")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| items.iter().filter_map(parse_folder_from_value).collect::<Vec<_>>())
+        .unwrap_or_default()
 }
 
 fn ensure_document_folders(document: &mut serde_json::Value) -> Result<(), InfraError> {
@@ -992,5 +1011,45 @@ mod tests {
             folders.iter().map(|folder| folder.id.as_str()).collect::<Vec<_>>(),
             vec!["Communication", "Focus Work"]
         );
+    }
+
+    #[test]
+    fn empty_modules_document_is_seeded_for_moves() {
+        let config_dir = TempConfigDir::new("modules", "empty-doc-move");
+        let path = modules_config_path(config_dir.path());
+        fs::write(
+            &path,
+            r#"{
+  "schema": 1,
+  "folders": [],
+  "modules": []
+}
+"#,
+        )
+        .expect("write empty modules json");
+
+        let modules = load_configured_modules(config_dir.path());
+        assert!(modules.iter().any(|module| module.id == "mod-pomodoro-focus"));
+
+        let folders = load_configured_module_folders(config_dir.path());
+        assert!(folders.iter().any(|folder| folder.id == "Focus Work"));
+
+        let moved = move_module(
+            config_dir.path(),
+            "mod-pomodoro-focus",
+            "Communication",
+            None,
+        )
+        .expect("move seeded module from empty doc");
+
+        let moved_module = moved
+            .iter()
+            .find(|module| module.id == "mod-pomodoro-focus")
+            .expect("moved module");
+        assert_eq!(moved_module.category, "Communication");
+
+        let persisted = fs::read_to_string(path).expect("read persisted modules json");
+        assert!(persisted.contains("\"mod-pomodoro-focus\""));
+        assert!(persisted.contains("\"Communication\""));
     }
 }

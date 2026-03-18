@@ -187,6 +187,20 @@ impl Module {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModuleFolder {
+    pub id: String,
+    pub name: String,
+}
+
+impl ModuleFolder {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "module_folder.id")?;
+        validate_non_empty(&self.name, "module_folder.name")?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BlockChecklistItem {
     pub id: String,
     pub label: String,

@@ -1,5 +1,13 @@
-import type { JsonObject, JsonValue, RoutineStudioEntry, RoutineStudioModuleEditor, RoutineStudioState } from "../../types.js";
+import type {
+  JsonObject,
+  JsonValue,
+  ModuleFolder,
+  RoutineStudioEntry,
+  RoutineStudioModuleEditor,
+  RoutineStudioState,
+} from "../../types.js";
 import {
+  deriveModuleFolders,
   nextRoutineStudioEntryId,
   toPositiveInt,
   type RoutineStudioModuleView,
@@ -71,6 +79,15 @@ export function normalizeStudioEntry(entry: unknown, index: number): RoutineStud
   };
 }
 
+export function normalizeStudioModuleFolder(folder: unknown, index: number): ModuleFolder {
+  const source = (folder ?? {}) as Record<string, unknown>;
+  const id = String(source.id || source.name || `Folder ${index + 1}`).trim() || `Folder ${index + 1}`;
+  return {
+    id,
+    name: String(source.name || id).trim() || id,
+  };
+}
+
 export function normalizeStudioModuleEditor(editor: unknown): RoutineStudioModuleEditor {
   const source = (editor ?? {}) as Record<string, unknown>;
   return {
@@ -100,6 +117,29 @@ export function createEmptyStudioModuleEditor(): RoutineStudioModuleEditor {
     icon: "module",
     durationMinutes: 5,
   });
+}
+
+export function ensureStudioModuleFolders(studio: RoutineStudioState): void {
+  const normalizedFolders = Array.isArray(studio.moduleFolders)
+    ? studio.moduleFolders.map(normalizeStudioModuleFolder)
+    : [];
+  const derivedFolders = deriveModuleFolders(Array.isArray(studio.modules) ? studio.modules : []);
+  const seen = new Set<string>();
+  const mergedFolders = [...normalizedFolders, ...derivedFolders].filter((folder) => {
+    const id = String(folder?.id || "").trim();
+    if (!id || seen.has(id)) {
+      return false;
+    }
+    seen.add(id);
+    return true;
+  });
+  studio.moduleFolders = mergedFolders;
+  if (studio.moduleEditor && studio.moduleFolders.length > 0) {
+    const hasFolder = studio.moduleFolders.some((folder) => folder.id === studio.moduleEditor?.category);
+    if (!hasFolder) {
+      studio.moduleEditor.category = studio.moduleFolders[0]?.id || "General";
+    }
+  }
 }
 
 export function pushStudioHistorySnapshot(params: {

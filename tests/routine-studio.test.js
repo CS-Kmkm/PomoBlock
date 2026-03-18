@@ -203,6 +203,7 @@ test("buildStudioAssets keeps schedule template options independent from library
     studio: {
       search: "focus-only",
       modules: [],
+      moduleFolders: [],
       canvasEntries: [],
     },
     recipes: [
@@ -231,5 +232,89 @@ test("buildStudioAssets keeps schedule template options independent from library
   assert.deepEqual(
     assets.allComplexModuleAssets.map((asset) => asset.id),
     ["rcp-1", "rcp-2"],
+  );
+});
+
+test("buildStudioAssets keeps configured folder order and empty folders", () => {
+  const assets = buildStudioAssets({
+    studio: {
+      search: "",
+      modules: [
+        {
+          id: "mod-focus",
+          name: "Focus Sprint",
+          category: "Focus Work",
+          description: "Deep work",
+          durationMinutes: 25,
+        },
+      ],
+      moduleFolders: [
+        { id: "Communication", name: "Communication" },
+        { id: "Planning", name: "Planning" },
+        { id: "Focus Work", name: "Focus Work" },
+      ],
+      canvasEntries: [],
+    },
+    recipes: [],
+    normalizeModule: (module) => module,
+    isRoutineStudioRecipe: () => false,
+    routineStudioStepDurationMinutes: () => 0,
+  });
+
+  assert.deepEqual(
+    assets.folderAssets.map((folder) => [folder.id, folder.modules.length]),
+    [
+      ["Communication", 0],
+      ["Planning", 0],
+      ["Focus Work", 1],
+    ],
+  );
+});
+
+test("buildStudioAssets preserves module order inside each folder", () => {
+  const assets = buildStudioAssets({
+    studio: {
+      search: "",
+      modules: [
+        {
+          id: "mod-b",
+          name: "B",
+          category: "Focus Work",
+          description: "",
+          durationMinutes: 10,
+        },
+        {
+          id: "mod-a",
+          name: "A",
+          category: "Focus Work",
+          description: "",
+          durationMinutes: 5,
+        },
+        {
+          id: "mod-c",
+          name: "C",
+          category: "Planning",
+          description: "",
+          durationMinutes: 15,
+        },
+      ],
+      moduleFolders: [
+        { id: "Focus Work", name: "Focus Work" },
+        { id: "Planning", name: "Planning" },
+      ],
+      canvasEntries: [],
+    },
+    recipes: [],
+    normalizeModule: (module) => module,
+    isRoutineStudioRecipe: () => false,
+    routineStudioStepDurationMinutes: () => 0,
+  });
+
+  assert.deepEqual(
+    assets.folderAssets.map((folder) => [folder.id, folder.modules.map((module) => module.id)]),
+    [
+      ["Focus Work", ["mod-b", "mod-a"]],
+      ["Planning", ["mod-c"]],
+    ],
   );
 });

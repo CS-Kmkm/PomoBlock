@@ -11,7 +11,6 @@ type BindPointerDndParams = {
   addAssetToCanvas: (
     kind: Exclude<RoutineStudioDragKind, "entry">,
     id: string,
-    replace?: boolean,
     insertIndex?: number,
   ) => boolean;
   applyCanvasEntries: (nextEntries: RoutineStudioEntry[], recordHistory?: boolean) => void;
@@ -20,6 +19,18 @@ type BindPointerDndParams = {
   paintDropIndicator: (dropzone: HTMLElement, insertIndex: number) => void;
   moveModuleAsset: (moduleId: string, targetFolderId: string, beforeModuleId?: string) => Promise<void>;
 };
+
+export function resolveCommittedFolderDropTarget<T>(params: {
+  dragKind: RoutineStudioDragKind | "";
+  activeFolderDrop: T | null;
+  resolveLatestFolderDrop: () => T | null;
+}): T | null {
+  const { dragKind, activeFolderDrop, resolveLatestFolderDrop } = params;
+  if (dragKind !== "module") {
+    return activeFolderDrop;
+  }
+  return resolveLatestFolderDrop() ?? activeFolderDrop;
+}
 
 export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () => void {
   const {
@@ -69,7 +80,6 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
 
   const commitStudioDrop = (clientX: number, clientY: number) => {
     const dz = document.getElementById("routine-studio-dropzone");
-    const folderDrop = activeFolderDrop;
     if (!dz || !activeDrag) {
       activeDrag = null;
       clearFolderDropIndicators(appRoot);
@@ -79,6 +89,17 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     const inside = clientX >= dzRect.left && clientX <= dzRect.right && clientY >= dzRect.top && clientY <= dzRect.bottom;
     const insertIndex = studio.dragInsertIndex >= 0 ? studio.dragInsertIndex : studio.canvasEntries.length;
     const drag = activeDrag;
+    const folderDrop = resolveCommittedFolderDropTarget({
+      dragKind: drag.kind,
+      activeFolderDrop,
+      resolveLatestFolderDrop: () =>
+        resolveActiveFolderDrop({
+          appRoot,
+          clientX,
+          clientY,
+          draggedModuleId: drag.id,
+        }),
+    });
     activeDrag = null;
     clearDropIndicator(dz);
     clearFolderDropIndicators(appRoot);
@@ -111,7 +132,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
       applyCanvasEntries(nextEntries, true);
       studio.selectedEntryId = moved.entryId;
     } else {
-      addAssetToCanvas(kind, id, false, insertIndex);
+      addAssetToCanvas(kind, id, insertIndex);
     }
     rerender();
   };

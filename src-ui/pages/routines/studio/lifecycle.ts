@@ -1,8 +1,10 @@
-import type { Module, Recipe, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
+import type { Module, ModuleFolder, Recipe, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
+import { deriveModuleFolders } from "../model.js";
 
 type NormalizeStudioStateParams = {
   studio: RoutineStudioState;
   normalizeModule: (module: unknown, index: number) => Module;
+  normalizeModuleFolder: (folder: unknown, index: number) => ModuleFolder;
   normalizeEntry: (entry: unknown, index: number) => RoutineStudioEntry;
   normalizeModuleEditor: (editor: unknown) => RoutineStudioState["moduleEditor"];
   toEntryRecords: (entries: RoutineStudioEntry[]) => RoutineStudioEntry[];
@@ -21,7 +23,7 @@ type BootstrapStudioStateParams = {
 };
 
 export function normalizeStudioState(params: NormalizeStudioStateParams): void {
-  const { studio, normalizeModule, normalizeEntry, normalizeModuleEditor, toEntryRecords, contextDefault, slugify } = params;
+  const { studio, normalizeModule, normalizeModuleFolder, normalizeEntry, normalizeModuleEditor, toEntryRecords, contextDefault, slugify } = params;
   studio.assetsLoaded = Boolean(studio.assetsLoaded);
   studio.assetsLoading = Boolean(studio.assetsLoading);
   studio.subPage = ["editor", "schedule"].includes(studio.subPage) ? studio.subPage : "editor";
@@ -34,6 +36,7 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   studio.context = typeof studio.context === "string" && studio.context.trim() ? studio.context : contextDefault;
   studio.autoStart = Boolean(studio.autoStart);
   studio.modules = Array.isArray(studio.modules) ? studio.modules : [];
+  studio.moduleFolders = Array.isArray(studio.moduleFolders) ? studio.moduleFolders : [];
   studio.canvasEntries = Array.isArray(studio.canvasEntries) ? studio.canvasEntries : [];
   studio.history = Array.isArray(studio.history) ? studio.history : [];
   studio.historyIndex = Number.isInteger(studio.historyIndex) ? studio.historyIndex : -1;
@@ -44,8 +47,23 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   studio.editingModuleId = typeof studio.editingModuleId === "string" ? studio.editingModuleId : "";
   studio.entryEditorEntryId = typeof studio.entryEditorEntryId === "string" ? studio.entryEditorEntryId : "";
   studio.modules = studio.modules.map(normalizeModule);
+  const normalizedFolders = studio.moduleFolders.map(normalizeModuleFolder);
+  const derivedFolders = deriveModuleFolders(studio.modules);
+  const seenFolderIds = new Set<string>();
+  studio.moduleFolders = [...normalizedFolders, ...derivedFolders].filter((folder) => {
+    const id = String(folder?.id || "").trim();
+    if (!id || seenFolderIds.has(id)) return false;
+    seenFolderIds.add(id);
+    return true;
+  });
   studio.canvasEntries = toEntryRecords(studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index)));
   studio.moduleEditor = studio.moduleEditor ? normalizeModuleEditor(studio.moduleEditor) : null;
+  if (studio.moduleEditor && studio.moduleFolders.length > 0) {
+    const hasFolder = studio.moduleFolders.some((folder) => folder.id === studio.moduleEditor?.category);
+    if (!hasFolder) {
+      studio.moduleEditor.category = studio.moduleFolders[0]?.id || "General";
+    }
+  }
 }
 
 export function syncStudioFromRecipe(studio: RoutineStudioState, recipe: unknown): void {

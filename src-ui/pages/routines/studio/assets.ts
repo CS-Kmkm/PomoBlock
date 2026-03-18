@@ -1,5 +1,5 @@
 import type { Recipe, RoutineStudioState } from "../../../types.js";
-import type { RoutineStudioModuleView } from "../model.js";
+import type { RoutineStudioFolderView, RoutineStudioModuleView } from "../model.js";
 
 type BuildStudioAssetsParams = {
   studio: RoutineStudioState;
@@ -11,6 +11,7 @@ type BuildStudioAssetsParams = {
 
 export function buildStudioAssets(params: BuildStudioAssetsParams): {
   moduleAssets: RoutineStudioModuleView[];
+  folderAssets: RoutineStudioFolderView[];
   complexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   allComplexModuleAssets: Array<{ id: string; name: string; stepCount: number; totalMinutes: number }>;
   totalMinutes: number;
@@ -21,6 +22,29 @@ export function buildStudioAssets(params: BuildStudioAssetsParams): {
   const moduleAssets = studio.modules.map((module, index) => normalizeModule(module, index)).filter((module) => {
     if (!searchNeedle) return true;
     return `${module.name} ${module.description} ${module.category}`.toLowerCase().includes(searchNeedle);
+  });
+  const folderAssets: RoutineStudioFolderView[] = [];
+  const seenFolderIds = new Set<string>();
+  const configuredFolders = Array.isArray(studio.moduleFolders) ? studio.moduleFolders : [];
+  configuredFolders.forEach((folder) => {
+    const id = String(folder?.id || "").trim();
+    if (!id || seenFolderIds.has(id)) return;
+    seenFolderIds.add(id);
+    folderAssets.push({
+      id,
+      name: String(folder?.name || id).trim() || id,
+      modules: moduleAssets.filter((module) => module.category === id),
+    });
+  });
+  moduleAssets.forEach((module) => {
+    const id = String(module.category || "").trim();
+    if (!id || seenFolderIds.has(id)) return;
+    seenFolderIds.add(id);
+    folderAssets.push({
+      id,
+      name: id,
+      modules: moduleAssets.filter((candidate) => candidate.category === id),
+    });
   });
 
   const allComplexModuleAssets = recipes
@@ -43,5 +67,5 @@ export function buildStudioAssets(params: BuildStudioAssetsParams): {
 
   const totalMinutes = studio.canvasEntries.reduce((sum, entry) => sum + (Number(entry.durationMinutes) || 0), 0);
 
-  return { moduleAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes };
+  return { moduleAssets, folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes };
 }
