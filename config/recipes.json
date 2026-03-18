@@ -1,4 +1,41 @@
 {
-  "schema": 1,
-  "recipes": []
+  "recipes": [
+    {
+      "autoDriveMode": "auto",
+      "id": "rcp-routine-studio",
+      "name": "Morning Deep Work",
+      "steps": [
+        {
+          "durationSeconds": 300,
+          "id": "step-1",
+          "moduleId": "mod-deep-work-init",
+          "overrunPolicy": "wait",
+          "title": "Deep Work Init",
+          "type": "micro"
+        },
+        {
+          "durationSeconds": 1500,
+          "id": "step-2",
+          "moduleId": "mod-pomodoro-focus",
+          "overrunPolicy": "wait",
+          "title": "Pomodoro Focus",
+          "type": "micro"
+        },
+        {
+          "durationSeconds": 120,
+          "id": "step-3",
+          "moduleId": "mod-two-min-triage",
+          "overrunPolicy": "wait",
+          "title": "2m Triage",
+          "type": "micro"
+        }
+      ],
+      "studioMeta": {
+        "context": "Work - Deep Focus",
+        "kind": "routine_studio",
+        "version": 1
+      }
+    }
+  ],
+  "schema": 1
 }

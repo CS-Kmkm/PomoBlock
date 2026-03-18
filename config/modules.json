@@ -1,4 +1,84 @@
 {
-  "modules": [],
+  "folders": [
+    {
+      "id": "Focus Work",
+      "name": "Focus Work"
+    },
+    {
+      "id": "Communication",
+      "name": "Communication"
+    },
+    {
+      "id": "test",
+      "name": "test"
+    }
+  ],
+  "modules": [
+    {
+      "category": "Focus Work",
+      "checklist": [
+        "Close distracting tabs",
+        "Set Slack to Away",
+        "Enable Do Not Disturb"
+      ],
+      "description": "Environment prep",
+      "durationMinutes": 5,
+      "executionHints": {
+        "allowSkip": true,
+        "autoAdvance": true,
+        "mustCompleteChecklist": false
+      },
+      "icon": "spark",
+      "id": "mod-deep-work-init",
+      "name": "Deep Work Init",
+      "overrunPolicy": "wait",
+      "stepType": "micro"
+    },
+    {
+      "category": "Focus Work",
+      "checklist": [
+        "Focus on one task only",
+        "No context switching"
+      ],
+      "description": "25m work block",
+      "durationMinutes": 25,
+      "executionHints": {
+        "allowSkip": true,
+        "autoAdvance": true,
+        "mustCompleteChecklist": false
+      },
+      "icon": "timer",
+      "id": "mod-pomodoro-focus",
+      "name": "Pomodoro Focus",
+      "overrunPolicy": "wait",
+      "pomodoro": {
+        "breakSeconds": 300,
+        "cycles": 1,
+        "focusSeconds": 1500,
+        "longBreakEvery": 4,
+        "longBreakSeconds": 900
+      },
+      "stepType": "pomodoro"
+    },
+    {
+      "category": "test",
+      "checklist": [
+        "Reply, archive, or defer",
+        "No deep replies"
+      ],
+      "description": "Quick inbox sort",
+      "durationMinutes": 2,
+      "executionHints": {
+        "allowSkip": true,
+        "autoAdvance": true,
+        "mustCompleteChecklist": false
+      },
+      "icon": "mail",
+      "id": "mod-two-min-triage",
+      "name": "2m Triage",
+      "overrunPolicy": "wait",
+      "stepType": "micro"
+    }
+  ],
   "schema": 1
 }
