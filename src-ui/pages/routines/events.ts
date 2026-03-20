@@ -2,6 +2,8 @@ import type { Module, PageRenderDeps, RoutineScheduleAssetKind, RoutineScheduleE
 import {
   cloneValue,
   isRoutineStudioRecipe,
+  ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
+  routineStudioRecipeCategory,
   routineStudioContexts,
   routineStudioSeedFolders,
   routineStudioSeedModules,
@@ -51,6 +53,7 @@ import {
   deleteStudioRecipe,
   loadRoutineScheduleGroup,
   moveStudioModule,
+  moveStudioTemplate,
   persistStudioTemplate,
   refreshStudioAssets,
   saveRoutineScheduleGroup,
@@ -89,7 +92,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     const readEntryId = readStudioEntryId;
     const createEmptyModuleEditor = () => normalizeModuleEditor({
         ...createEmptyStudioModuleEditor(),
-        category: String(studio.moduleFolders?.[0]?.id || "General"),
+        category: String(studio.moduleFolders?.[0]?.id || ROUTINE_STUDIO_DEFAULT_FOLDER_ID),
     });
     normalizeStudioState({
         studio,
@@ -219,9 +222,65 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         splitterCount: 2,
       },
     ]);
+    if (studio.subPage === "schedule") {
+        bindPaneResizers(appRoot, [
+          {
+            layoutSelector: ".rs-schedule-three-pane",
+            handleSelector: "[data-pane-resize='rs-schedule-left']",
+            paneSelector: ".rs-schedule-left",
+            cssVar: "--rs-schedule-left-width",
+            storageKey: "pane-width:routines:schedule:left",
+            edge: "left",
+            minWidth: 280,
+            maxWidth: 720,
+            mainMinWidth: 300,
+            oppositePaneSelector: ".rs-schedule-side",
+            splitterCount: 2,
+          },
+          {
+            layoutSelector: ".rs-schedule-three-pane",
+            handleSelector: "[data-pane-resize='rs-schedule-right']",
+            paneSelector: ".rs-schedule-side",
+            cssVar: "--rs-schedule-right-width",
+            storageKey: "pane-width:routines:schedule:right",
+            edge: "right",
+            minWidth: 260,
+            maxWidth: 480,
+            mainMinWidth: 300,
+            oppositePaneSelector: ".rs-schedule-left",
+            splitterCount: 2,
+          },
+        ]);
+    }
     const rerender = () => renderRoutines();
     const sortScheduleEntries = (entries: RoutineScheduleEntry[]): RoutineScheduleEntry[] =>
         [...entries].sort((left, right) => String(left.startTime || "").localeCompare(String(right.startTime || "")));
+    const addMinutesToTime = (time: string, durationMinutes: number): string => {
+        const [hhRaw, mmRaw] = String(time || "09:00").split(":");
+        const hh = Number(hhRaw || 0);
+        const mm = Number(mmRaw || 0);
+        const total = hh * 60 + mm + Math.max(1, Number(durationMinutes) || 0);
+        const nextHours = Math.floor(total / 60) % 24;
+        const nextMinutes = total % 60;
+        return `${String(nextHours).padStart(2, "0")}:${String(nextMinutes).padStart(2, "0")}`;
+    };
+    const resequenceScheduleEntries = (entries: RoutineScheduleEntry[], startIndex = 0, anchorTime?: string): RoutineScheduleEntry[] => {
+        if (entries.length === 0) return [];
+        const nextEntries = entries.map((entry, index) => normalizeScheduleEntry(entry, index));
+        const clampedStartIndex = Math.max(0, Math.min(startIndex, nextEntries.length - 1));
+        let nextStart =
+            anchorTime ||
+            (clampedStartIndex > 0
+                ? addMinutesToTime(String(nextEntries[clampedStartIndex - 1]?.startTime || "09:00"), Number(nextEntries[clampedStartIndex - 1]?.durationMinutes) || 1)
+                : String(nextEntries[0]?.startTime || "09:00"));
+        for (let index = clampedStartIndex; index < nextEntries.length; index += 1) {
+            const entry = nextEntries[index];
+            if (!entry) continue;
+            entry.startTime = nextStart;
+            nextStart = addMinutesToTime(entry.startTime, entry.durationMinutes);
+        }
+        return nextEntries;
+    };
     const fallbackScheduleGroupId = `rtngrp-${routineStudioSlug(studio.draftName || "routine-schedule") || "routine-schedule"}`;
     const activeScheduleGroupId = String(studio.scheduleGroupId || studio.templateId || fallbackScheduleGroupId).trim();
     studio.scheduleGroupId = activeScheduleGroupId;
@@ -255,16 +314,18 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         rerender();
     };
     const resolveModule = (moduleId: string): Module | null => resolveStudioModule(studio, moduleId);
-    const addScheduleAsset = (kind: RoutineScheduleAssetKind, id: string): boolean => {
+    const addScheduleAsset = (kind: RoutineScheduleAssetKind, id: string, insertIndex?: number): boolean => {
         const normalizedId = String(id || "").trim();
-        const lastEntry = sortScheduleEntries(studio.scheduleEntries).slice(-1)[0];
+        const orderedEntries = [...studio.scheduleEntries];
+        const targetIndex = Math.max(0, Math.min(typeof insertIndex === "number" ? insertIndex : orderedEntries.length, orderedEntries.length));
         const startTime = (() => {
-            if (!lastEntry) return "09:00";
-            const [hh, mm] = String(lastEntry.startTime || "09:00").split(":").map((value) => Number(value || 0));
-            const total = hh * 60 + mm + Math.max(1, Number(lastEntry.durationMinutes) || 0);
-            const nextHours = Math.floor(total / 60) % 24;
-            const nextMinutes = total % 60;
-            return `${String(nextHours).padStart(2, "0")}:${String(nextMinutes).padStart(2, "0")}`;
+            if (targetIndex > 0) {
+                const previousEntry = orderedEntries[targetIndex - 1];
+                if (previousEntry) {
+                    return addMinutesToTime(String(previousEntry.startTime || "09:00"), Number(previousEntry.durationMinutes) || 1);
+                }
+            }
+            return String(orderedEntries[0]?.startTime || "09:00");
         })();
         if (normalizedId === "__empty__") {
             const entry = normalizeScheduleEntry({
@@ -278,7 +339,9 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 startTime,
                 durationMinutes: 30,
             }, studio.scheduleEntries.length);
-            studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+            const nextEntries = [...orderedEntries];
+            nextEntries.splice(targetIndex, 0, entry);
+            studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
             studio.scheduleSelectedEntryId = entry.id;
             studio.scheduleDirty = true;
             return true;
@@ -297,7 +360,9 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 startTime,
                 durationMinutes: Math.max(1, Number(module.durationMinutes) || 1),
             }, studio.scheduleEntries.length);
-            studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+            const nextEntries = [...orderedEntries];
+            nextEntries.splice(targetIndex, 0, entry);
+            studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
             studio.scheduleSelectedEntryId = entry.id;
             studio.scheduleDirty = true;
             return true;
@@ -316,7 +381,26 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             startTime,
             durationMinutes: Math.max(1, durationMinutes || 1),
         }, studio.scheduleEntries.length);
-        studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+        const nextEntries = [...orderedEntries];
+        nextEntries.splice(targetIndex, 0, entry);
+        studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
+        studio.scheduleSelectedEntryId = entry.id;
+        studio.scheduleDirty = true;
+        return true;
+    };
+    const moveScheduleEntryToIndex = (entryId: string, insertIndex: number): boolean => {
+        const currentIndex = studio.scheduleEntries.findIndex((entry) => entry.id === entryId);
+        if (currentIndex < 0) return false;
+        const clampedIndex = Math.max(0, Math.min(insertIndex, studio.scheduleEntries.length));
+        if (clampedIndex === currentIndex || clampedIndex === currentIndex + 1) return false;
+        const nextEntries = [...studio.scheduleEntries];
+        const [entry] = nextEntries.splice(currentIndex, 1);
+        if (!entry) return false;
+        const targetIndex = clampedIndex > currentIndex ? clampedIndex - 1 : clampedIndex;
+        nextEntries.splice(Math.max(0, Math.min(targetIndex, nextEntries.length)), 0, entry);
+        const resequenceFrom = Math.max(0, Math.min(currentIndex, targetIndex));
+        const anchorTime = resequenceFrom === 0 ? String(studio.scheduleEntries[0]?.startTime || "09:00") : undefined;
+        studio.scheduleEntries = resequenceScheduleEntries(nextEntries, resequenceFrom, anchorTime);
         studio.scheduleSelectedEntryId = entry.id;
         studio.scheduleDirty = true;
         return true;
@@ -413,10 +497,34 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     const onDeleteFolder = async (folderId: string) => {
         const targetFolder = studio.moduleFolders.find((folder) => folder.id === folderId);
         const label = String(targetFolder?.name || folderId);
+        if (folderId === ROUTINE_STUDIO_DEFAULT_FOLDER_ID) {
+            setStatus("default folder cannot be deleted");
+            return;
+        }
         if (!window.confirm(`フォルダー「${label}」を削除します。`)) {
             return;
         }
         await runUiAction(async () => {
+            const moduleIds = studio.modules
+                .filter((module) => String(module.category || "") === folderId)
+                .map((module) => module.id);
+            const templateIds = uiState.recipes
+                .filter((recipe) => isRoutineStudioRecipe(recipe) && routineStudioRecipeCategory(recipe, ROUTINE_STUDIO_DEFAULT_FOLDER_ID) === folderId)
+                .map((recipe) => String(recipe.id || ""))
+                .filter(Boolean);
+            for (const moduleId of moduleIds) {
+                await deleteStudioModule({
+                    safeInvoke: (command, payload) => safeInvoke(command, payload),
+                    moduleId,
+                    normalizeModule,
+                });
+            }
+            for (const recipeId of templateIds) {
+                await deleteStudioRecipe({
+                    safeInvoke: (command, payload) => safeInvoke(command, payload),
+                    recipeId,
+                });
+            }
             const deleted = await deleteStudioModuleFolder({
                 safeInvoke: (command, payload) => safeInvoke(command, payload),
                 folderId,
@@ -436,7 +544,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             studio.modules = refreshed.modules;
             studio.moduleFolders = refreshed.moduleFolders;
             if (studio.moduleEditor && studio.moduleEditor.category === folderId) {
-                studio.moduleEditor.category = String(studio.moduleFolders[0]?.id || "General");
+                studio.moduleEditor.category = String(studio.moduleFolders[0]?.id || ROUTINE_STUDIO_DEFAULT_FOLDER_ID);
             }
             setStatus(`folder deleted: ${label}`);
             rerender();
@@ -461,6 +569,21 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             rerender();
         });
     };
+    const onMoveTemplate = async (templateId: string, folderId: string) => {
+        await runUiAction(async () => {
+            const recipes = await moveStudioTemplate({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                recipes: uiState.recipes,
+                templateId,
+                folderId,
+            });
+            if (recipes.length > 0) {
+                uiState.recipes = recipes;
+            }
+            setStatus(`template moved: ${templateId} -> ${folderId}`);
+            rerender();
+        });
+    };
     const onSaveModule = async () => {
         await runUiAction(async () => {
             const moduleName = readField("studio-module-name").trim();
@@ -472,7 +595,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 existingModule,
                 moduleId,
                 moduleName,
-                category: readField("studio-module-category").trim() || String(studio.moduleFolders[0]?.id || "General"),
+                category: readField("studio-module-category").trim() || String(studio.moduleFolders[0]?.id || ROUTINE_STUDIO_DEFAULT_FOLDER_ID),
                 description: readField("studio-module-description").trim(),
                 icon: readField("studio-module-icon").trim() || "module",
                 durationMinutes: toPositiveInt(readField("studio-module-duration"), 1),
@@ -529,6 +652,9 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         clearDropIndicator,
         paintDropIndicator,
         moveModuleAsset: onMoveModule,
+        moveTemplateAsset: onMoveTemplate,
+        addScheduleAsset,
+        moveScheduleEntryToIndex,
     });
     const onSaveTemplate = async () => {
         await runUiAction(async () => {
