@@ -6,4 +6,5 @@ mod pomodoro_reflection_tests;
 mod pomodoro_support;
 mod runtime_support;
 mod studio_catalog_tests;
+mod routine_schedule_tests;
 mod task_tests;
