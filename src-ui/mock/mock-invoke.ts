@@ -71,6 +71,16 @@ export function createMockInvoke(deps: MockInvokeDeps) {
         return folders;
     };
 
+    const routineIdFromValue = (value: unknown) => {
+        const routine = toJsonObject(value);
+        return String(routine?.id || routine?.routineId || routine?.routine_id || "").trim();
+    };
+
+    const ensureMockRoutines = () => {
+        mockState.routines = Array.isArray(mockState.routines) ? mockState.routines.map((routine) => ({ ...routine })) : [];
+        return mockState.routines;
+    };
+
     const moveMockModule = (args: Record<string, unknown>) => {
         ensureMockModulesSeeded();
         const moduleId = readString(args, "module_id").trim();
@@ -251,6 +261,66 @@ export function createMockInvoke(deps: MockInvokeDeps) {
             const before = mockState.recipes.length;
             mockState.recipes = mockState.recipes.filter((recipe) => recipe.id !== recipeId);
             return before !== mockState.recipes.length;
+        }
+        case "list_routines":
+        case "list_routine_schedules":
+            return ensureMockRoutines().map((routine) => ({ ...routine }));
+        case "save_routine_schedule": {
+            const payloadRoutine = readNestedPayload(args);
+            const routineId = String(payloadRoutine.id || payloadRoutine.routineId || payloadRoutine.routine_id || "").trim();
+            if (!routineId) {
+                throw new Error("routine id is required");
+            }
+            const updated = {
+                ...payloadRoutine,
+                id: routineId,
+            };
+            const routines = ensureMockRoutines();
+            const index = routines.findIndex((routine) => routineIdFromValue(routine) === routineId);
+            if (index >= 0) {
+                routines[index] = updated;
+            } else {
+                routines.push(updated);
+            }
+            mockState.routines = routines;
+            return { ...updated };
+        }
+        case "save_routine_schedule_group": {
+            const payloadGroup = readNestedPayload(args);
+            const groupId = String(payloadGroup.group_id || payloadGroup.groupId || "").trim();
+            const routines = Array.isArray(payloadGroup.routines) ? payloadGroup.routines : [];
+            if (groupId) {
+                mockState.routines = ensureMockRoutines().filter((routine) => String(routine?.scheduleGroupId || routine?.schedule_group_id || "") !== groupId);
+            }
+            const saved: Array<Record<string, unknown>> = [];
+            for (const routineValue of routines) {
+                const payloadRoutine = toJsonObject(routineValue) || {};
+                const routineId = String(payloadRoutine.id || payloadRoutine.routineId || payloadRoutine.routine_id || "").trim();
+                if (!routineId) {
+                    continue;
+                }
+                const updated = {
+                    ...payloadRoutine,
+                    id: routineId,
+                    ...(groupId ? { scheduleGroupId: groupId } : {}),
+                };
+                const routinesState = ensureMockRoutines();
+                const index = routinesState.findIndex((routine) => routineIdFromValue(routine) === routineId);
+                if (index >= 0) {
+                    routinesState[index] = updated;
+                } else {
+                    routinesState.push(updated);
+                }
+                saved.push({ ...updated });
+            }
+            mockState.routines = ensureMockRoutines();
+            return saved;
+        }
+        case "delete_routine_schedule": {
+            const routineId = readString(args, "routine_id").trim();
+            const before = ensureMockRoutines().length;
+            mockState.routines = mockState.routines.filter((routine) => routineIdFromValue(routine) !== routineId);
+            return before !== mockState.routines.length;
         }
         case "list_modules":
             ensureMockModulesSeeded();

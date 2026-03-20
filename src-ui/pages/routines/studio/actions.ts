@@ -1,4 +1,4 @@
-import type { Module, ModuleFolder, Recipe, RoutineStudioState } from "../../../types.js";
+import type { Module, ModuleFolder, Recipe, RoutineScheduleEntry, RoutineScheduleRecurrence, RoutineStudioState } from "../../../types.js";
 import { routineStudioSlug } from "../model.js";
 
 type SafeInvoke = (command: string, payload: Record<string, unknown>) => Promise<unknown>;
@@ -49,6 +49,39 @@ type ApplyStudioTemplateToTodayParams = {
   triggerTime: string;
 };
 
+type SaveRoutineScheduleGroupParams = {
+  safeInvoke: SafeInvoke;
+  studio: RoutineStudioState;
+  recipes: Recipe[];
+  modules: Module[];
+  normalizeScheduleEntry: (entry: unknown, index: number) => RoutineScheduleEntry;
+};
+
+type LoadRoutineScheduleGroupParams = {
+  safeInvoke: SafeInvoke;
+  groupId: string;
+  normalizeScheduleEntry: (entry: unknown, index: number) => RoutineScheduleEntry;
+  fallbackTitle?: string;
+};
+
+type SavedRoutineRecord = {
+  id: string;
+  scheduleGroupId: string;
+  recipeId: string;
+  default: {
+    start: string;
+    durationMinutes: number;
+  };
+  schedule: Record<string, unknown>;
+  title: string;
+  subtitle: string;
+  assetKind: string;
+  assetId: string;
+  moduleId?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
 export function buildStudioModulePayload(params: BuildStudioModulePayloadParams): Record<string, unknown> {
   const { editingModuleId, existingModule, moduleId, moduleName, category, description, icon, durationMinutes } = params;
   const resolvedId = editingModuleId || moduleId;
@@ -81,6 +114,13 @@ export function buildStudioRecipePayload(params: BuildRecipePayloadParams): Reco
     step.title = String(entry.title || `Step ${index + 1}`);
     step.durationSeconds = durationSeconds;
     delete step.duration_seconds;
+    const groupId = String(entry.groupId || "").trim();
+    if (groupId) {
+      step.groupId = groupId;
+    } else {
+      delete step.groupId;
+      delete step.group_id;
+    }
     const moduleId = String(entry.moduleId || "").trim();
     if (moduleId) {
       step.moduleId = moduleId;
@@ -128,6 +168,196 @@ export function buildStudioRecipePayload(params: BuildRecipePayloadParams): Reco
       context: studio.context,
     },
     steps,
+  };
+}
+
+function buildScheduleObject(recurrence: RoutineScheduleRecurrence): Record<string, unknown> {
+  if (recurrence.repeatType === "monthly_date") {
+    return {
+      type: "monthly",
+      dayOfMonth: Math.max(1, Math.min(31, Number(recurrence.dayOfMonth) || 1)),
+    };
+  }
+  if (recurrence.repeatType === "monthly_nth") {
+    return {
+      type: "monthly_nth",
+      nthWeek: Math.max(1, Math.min(5, Number(recurrence.nthWeek) || 1)),
+      weekday: String(recurrence.nthWeekday || "mon").toLowerCase(),
+    };
+  }
+  return {
+    type: "weekly",
+    days: Array.isArray(recurrence.weekdays) ? recurrence.weekdays.map((value) => String(value || "").toLowerCase()).filter(Boolean) : ["mon"],
+  };
+}
+
+function buildModuleCompanionRecipe(params: {
+  entry: RoutineScheduleEntry;
+  module: Module;
+  recipeId: string;
+}): Record<string, unknown> {
+  const { entry, module, recipeId } = params;
+  const durationMinutes = Math.max(1, Number(entry.durationMinutes || module.durationMinutes || 1));
+  const checklist = Array.isArray(module.checklist) ? module.checklist.map(String).filter(Boolean) : [];
+  const pomodoro = module.pomodoro && typeof module.pomodoro === "object" ? { ...module.pomodoro } : null;
+  const executionHints = module.executionHints && typeof module.executionHints === "object" ? { ...module.executionHints } : null;
+  return {
+    id: recipeId,
+    name: String(entry.title || module.name || recipeId),
+    autoDriveMode: "manual",
+    steps: [
+      {
+        id: "step-1",
+        type: String(module.stepType || "micro"),
+        title: String(entry.title || module.name || recipeId),
+        durationSeconds: durationMinutes * 60,
+        moduleId: String(module.id || ""),
+        ...(checklist.length > 0 ? { checklist } : {}),
+        ...(pomodoro ? { pomodoro } : {}),
+        ...(executionHints ? { executionHints } : {}),
+        ...(module.overrunPolicy ? { overrunPolicy: String(module.overrunPolicy) } : {}),
+      },
+    ],
+    studioMeta: {
+      version: 1,
+      kind: "routine_studio_schedule_module",
+      sourceModuleId: String(module.id || ""),
+    },
+  };
+}
+
+function buildSavedRoutineRecord(params: {
+  groupId: string;
+  entry: RoutineScheduleEntry;
+  recurrence: RoutineScheduleRecurrence;
+  recipeId: string;
+}): SavedRoutineRecord {
+  const { groupId, entry, recurrence, recipeId } = params;
+  return {
+    id: `rtn-${routineStudioSlug(`${groupId}-${entry.id}`) || entry.id}`,
+    scheduleGroupId: groupId,
+    recipeId,
+    default: {
+      start: entry.startTime,
+      durationMinutes: Math.max(1, Number(entry.durationMinutes) || 1),
+    },
+    schedule: buildScheduleObject(recurrence),
+    title: entry.title,
+    subtitle: entry.subtitle,
+    assetKind: entry.assetKind,
+    assetId: entry.assetId,
+    ...(entry.moduleId ? { moduleId: entry.moduleId } : {}),
+    ...(recurrence.startDate ? { startDate: recurrence.startDate } : {}),
+    ...(recurrence.endDate ? { endDate: recurrence.endDate } : {}),
+  };
+}
+
+export async function loadRoutineScheduleGroup(params: LoadRoutineScheduleGroupParams): Promise<{
+  entries: RoutineScheduleEntry[];
+  recurrence: RoutineScheduleRecurrence;
+}> {
+  const { safeInvoke, groupId, normalizeScheduleEntry, fallbackTitle = "Scheduled Item" } = params;
+  const routinesResult = await safeInvoke("list_routines", {});
+  const routines = Array.isArray(routinesResult) ? (routinesResult as Array<Record<string, unknown>>) : [];
+  const matched = routines.filter((routine) => String(routine.scheduleGroupId || routine.schedule_group_id || "") === groupId);
+  const routineStart = (routine: Record<string, unknown>) => {
+    const defaults = (routine.default as Record<string, unknown> | undefined) || {};
+    return String(defaults.start || routine.start || "");
+  };
+  matched.sort((left, right) => routineStart(left).localeCompare(routineStart(right)));
+  const first = (matched[0] || {}) as Record<string, unknown>;
+  const recurrenceSource = ((first.schedule as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+  const weekdays = Array.isArray(recurrenceSource.days)
+    ? recurrenceSource.days.map(String)
+    : recurrenceSource.weekday
+      ? [String(recurrenceSource.weekday)]
+      : ["mon", "tue", "wed", "thu", "fri"];
+  const recurrence: RoutineScheduleRecurrence = {
+    repeatType:
+      String(recurrenceSource.type || "weekly").toLowerCase() === "monthly_nth"
+        ? "monthly_nth"
+        : String(recurrenceSource.type || "weekly").toLowerCase() === "monthly"
+          ? "monthly_date"
+          : "weekly",
+    weekdays,
+    dayOfMonth: Math.max(1, Number(recurrenceSource.dayOfMonth || recurrenceSource.day_of_month || 1)),
+    nthWeek: Math.max(1, Number(recurrenceSource.nthWeek || recurrenceSource.nth_week || 1)),
+    nthWeekday: String(recurrenceSource.weekday || "mon").toLowerCase(),
+    startDate: String(first.startDate || first.start_date || ""),
+    endDate: String(first.endDate || first.end_date || ""),
+  };
+  return {
+    entries: matched.map((routine, index) =>
+      normalizeScheduleEntry(
+        {
+          id: String(routine.id || `schedule-entry-${index + 1}`),
+          assetKind: String(routine.assetKind || routine.asset_kind || "template").toLowerCase() === "module" ? "module" : "template",
+          assetId: String(routine.assetId || routine.asset_id || routine.recipeId || routine.recipe_id || ""),
+          recipeId: String(routine.recipeId || routine.recipe_id || ""),
+          moduleId: String(routine.moduleId || routine.module_id || ""),
+          title: String(routine.title || routine.name || fallbackTitle),
+          subtitle: String(routine.subtitle || ""),
+          startTime: String((routine.default as Record<string, unknown> | undefined)?.start || routine.start || "09:00"),
+          durationMinutes: Number((routine.default as Record<string, unknown> | undefined)?.durationMinutes || routine.durationMinutes || 25),
+        },
+        index,
+      ),
+    ),
+    recurrence,
+  };
+}
+
+export async function saveRoutineScheduleGroup(params: SaveRoutineScheduleGroupParams): Promise<{
+  entries: RoutineScheduleEntry[];
+  recurrence: RoutineScheduleRecurrence;
+}> {
+  const { safeInvoke, studio, recipes, modules, normalizeScheduleEntry } = params;
+  const groupId =
+    String(studio.scheduleGroupId || studio.applyTemplateId || studio.templateId || "").trim() ||
+    `rtngrp-${routineStudioSlug(studio.draftName || "routine-schedule") || "routine-schedule"}`;
+  studio.scheduleGroupId = groupId;
+  const recurrence = studio.scheduleRecurrence;
+  const nextEntries = studio.scheduleEntries
+    .map((entry, index) => normalizeScheduleEntry(entry, index))
+    .filter((entry) => String(entry.assetId || entry.recipeId || "").trim().length > 0);
+  const recipeIds = new Set(recipes.map((recipe) => String(recipe.id || "")));
+  const persistedRoutines: SavedRoutineRecord[] = [];
+  for (const [index, entry] of nextEntries.entries()) {
+    let recipeId = String(entry.recipeId || "").trim();
+    if (entry.assetKind === "template") {
+      recipeId = String(entry.assetId || recipeId).trim();
+    } else {
+      const module = modules.find((candidate) => candidate.id === entry.assetId);
+      if (!module) {
+        throw new Error(`module not found: ${entry.assetId}`);
+      }
+      recipeId = recipeId || `rcp-schedule-${routineStudioSlug(`${groupId}-${entry.id || index}`) || index}`;
+      const payload = buildModuleCompanionRecipe({ entry, module, recipeId });
+      if (recipeIds.has(recipeId)) {
+        await safeInvoke("update_recipe", { recipe_id: recipeId, payload });
+      } else {
+        const created = (await safeInvoke("create_recipe", { payload })) as Recipe;
+        recipes.push(created);
+        recipeIds.add(recipeId);
+      }
+      nextEntries[index] = normalizeScheduleEntry({ ...entry, recipeId, moduleId: module.id }, index);
+    }
+    persistedRoutines.push(buildSavedRoutineRecord({
+      groupId,
+      entry: nextEntries[index] || entry,
+      recurrence,
+      recipeId,
+    }));
+  }
+  await safeInvoke("save_routine_schedule_group", {
+    payload: {
+      group_id: groupId,
+      routines: persistedRoutines,
+    },
+  });
+  return {
+    entries: nextEntries,
+    recurrence,
   };
 }
 

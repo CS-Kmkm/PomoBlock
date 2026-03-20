@@ -2,6 +2,8 @@ import type {
   JsonObject,
   JsonValue,
   ModuleFolder,
+  RoutineScheduleEntry,
+  RoutineScheduleRecurrence,
   RoutineStudioEntry,
   RoutineStudioModuleEditor,
   RoutineStudioState,
@@ -38,9 +40,28 @@ function toStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
 }
 
+function normalizeWeekdayList(value: unknown): string[] {
+  const allowed = new Set(["sun", "mon", "tue", "wed", "thu", "fri", "sat"]);
+  const normalized = toStringArray(value)
+    .map((item) => item.toLowerCase())
+    .filter((item) => allowed.has(item));
+  return normalized.length > 0 ? normalized : ["mon"];
+}
+
+function normalizeTimeValue(value: unknown, fallback = "09:00"): string {
+  const text = String(value || "").trim();
+  return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
+}
+
+function normalizeDateValue(value: unknown): string {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
 export function normalizeStudioEntry(entry: unknown, index: number): RoutineStudioEntry {
   const source = (entry ?? {}) as Record<string, unknown>;
   const rawStep = toJsonObject(source.rawStep) ?? {};
+  const groupId = String(source.groupId || source.group_id || rawStep.groupId || rawStep.group_id || "");
   const moduleId = String(source.moduleId || source.module_id || rawStep.moduleId || rawStep.module_id || "");
   const note = String(source.note || rawStep.note || "");
   const stepType = String(source.stepType || source.step_type || source.type || rawStep.type || rawStep.stepType || rawStep.step_type || "micro");
@@ -54,6 +75,7 @@ export function normalizeStudioEntry(entry: unknown, index: number): RoutineStud
     entryId: String(source.entryId || nextRoutineStudioEntryId()),
     sourceKind: String(source.sourceKind || source.source_kind || "module"),
     sourceId: String(source.sourceId || source.source_id || ""),
+    ...(groupId ? { groupId } : {}),
     moduleId,
     title: String(source.title || `Step ${index + 1}`),
     subtitle: String(source.subtitle || ""),
@@ -97,6 +119,41 @@ export function normalizeStudioModuleEditor(editor: unknown): RoutineStudioModul
     description: String(source.description || ""),
     icon: String(source.icon || "module"),
     durationMinutes: toPositiveInt(source.durationMinutes || source.duration_minutes, 5),
+  };
+}
+
+export function normalizeRoutineScheduleEntry(entry: unknown, index: number): RoutineScheduleEntry {
+  const source = (entry ?? {}) as Record<string, unknown>;
+  const assetKind = String(source.assetKind || source.asset_kind || "template").toLowerCase() === "module" ? "module" : "template";
+  const id = String(source.id || `schedule-entry-${index + 1}`).trim() || `schedule-entry-${index + 1}`;
+  return {
+    id,
+    assetKind,
+    assetId: String(source.assetId || source.asset_id || "").trim(),
+    recipeId: String(source.recipeId || source.recipe_id || "").trim(),
+    moduleId: String(source.moduleId || source.module_id || "").trim(),
+    title: String(source.title || `Schedule ${index + 1}`),
+    subtitle: String(source.subtitle || ""),
+    startTime: normalizeTimeValue(source.startTime || source.start_time, "09:00"),
+    durationMinutes: toPositiveInt(source.durationMinutes || source.duration_minutes, 25),
+  };
+}
+
+export function normalizeRoutineScheduleRecurrence(value: unknown): RoutineScheduleRecurrence {
+  const source = (value ?? {}) as Record<string, unknown>;
+  const repeatTypeRaw = String(source.repeatType || source.repeat_type || source.type || "weekly").toLowerCase();
+  const repeatType =
+    repeatTypeRaw === "monthly_date" || repeatTypeRaw === "monthly_nth" || repeatTypeRaw === "weekly"
+      ? repeatTypeRaw
+      : "weekly";
+  return {
+    repeatType,
+    weekdays: normalizeWeekdayList(source.weekdays || source.days || []),
+    dayOfMonth: toPositiveInt(source.dayOfMonth || source.day_of_month || source.day, 1),
+    nthWeek: Math.max(1, Math.min(5, toPositiveInt(source.nthWeek || source.nth_week || source.nth, 1))),
+    nthWeekday: normalizeWeekdayList([source.nthWeekday || source.nth_weekday || source.weekday || "mon"])[0] || "mon",
+    startDate: normalizeDateValue(source.startDate || source.start_date),
+    endDate: normalizeDateValue(source.endDate || source.end_date),
   };
 }
 

@@ -17,6 +17,7 @@ test("buildStudioRecipePayload preserves routine-studio step metadata and contex
           entryId: "entry-1",
           sourceKind: "template",
           sourceId: "rcp-existing",
+          groupId: "studio-group-1",
           moduleId: "mod-pomodoro-focus",
           title: "Focus Sprint",
           subtitle: "Morning Focus",
@@ -61,6 +62,7 @@ test("buildStudioRecipePayload preserves routine-studio step metadata and contex
       type: "pomodoro",
       title: "Focus Sprint",
       durationSeconds: 1500,
+      groupId: "studio-group-1",
       moduleId: "mod-pomodoro-focus",
       note: "No notifications",
       checklist: ["Mute chat", "Full screen"],
@@ -77,6 +79,58 @@ test("buildStudioRecipePayload preserves routine-studio step metadata and contex
       overrunPolicy: "wait",
     },
   ]);
+});
+
+test("buildStudioRecipePayload preserves composite group ids for saved routines", () => {
+  const payload = buildStudioRecipePayload({
+    studio: {
+      draftName: "Composite Routine",
+      templateId: "rcp-composite-routine",
+      context: "Work - Deep Focus",
+      autoStart: false,
+      canvasEntries: [
+        {
+          entryId: "entry-1",
+          sourceKind: "template",
+          sourceId: "rcp-existing",
+          groupId: "studio-group-9",
+          moduleId: "mod-1",
+          title: "Setup",
+          subtitle: "Composite Routine",
+          durationMinutes: 5,
+          note: "",
+          stepType: "micro",
+          checklist: [],
+          pomodoro: null,
+          executionHints: null,
+          overrunPolicy: "wait",
+          rawStep: { type: "micro", title: "Setup", durationSeconds: 300 },
+        },
+        {
+          entryId: "entry-2",
+          sourceKind: "template",
+          sourceId: "rcp-existing",
+          groupId: "studio-group-9",
+          moduleId: "mod-2",
+          title: "Focus",
+          subtitle: "Composite Routine",
+          durationMinutes: 25,
+          note: "",
+          stepType: "pomodoro",
+          checklist: [],
+          pomodoro: null,
+          executionHints: null,
+          overrunPolicy: "wait",
+          rawStep: { type: "pomodoro", title: "Focus", durationSeconds: 1500 },
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    payload.steps.map((step) => step.groupId),
+    ["studio-group-9", "studio-group-9"],
+  );
 });
 
 test("bootstrapStudioState keeps a fresh draft instead of auto-loading the first saved routine", () => {

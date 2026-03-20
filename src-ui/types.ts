@@ -115,11 +115,15 @@ export type DayItemKind = string;
 export type DayItemSelection = { kind: DayItemKind; id: string } | null;
 export type DayCalendarViewMode = "grid" | "simple";
 export type RoutineStudioDragKind = "module" | "template" | "entry";
+export type RoutineSchedule = JsonObject;
+export type RoutineScheduleAssetKind = "module" | "template";
+export type RoutineScheduleRepeatType = "weekly" | "monthly_date" | "monthly_nth";
 
 export interface RoutineStudioEntry {
   entryId: string;
   sourceKind: string;
   sourceId: string;
+  groupId?: string;
   moduleId: string;
   title: string;
   subtitle: string;
@@ -142,6 +146,28 @@ export interface RoutineStudioModuleEditor {
   durationMinutes: number;
 }
 
+export interface RoutineScheduleEntry {
+  id: string;
+  assetKind: RoutineScheduleAssetKind;
+  assetId: string;
+  recipeId: string;
+  moduleId: string;
+  title: string;
+  subtitle: string;
+  startTime: string;
+  durationMinutes: number;
+}
+
+export interface RoutineScheduleRecurrence {
+  repeatType: RoutineScheduleRepeatType;
+  weekdays: string[];
+  dayOfMonth: number;
+  nthWeek: number;
+  nthWeekday: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface RoutineStudioState {
   assetsLoaded: boolean;
   assetsLoading: boolean;
@@ -159,6 +185,12 @@ export interface RoutineStudioState {
   moduleFolders: ModuleFolder[];
   hiddenTemplateCount: number;
   canvasEntries: RoutineStudioEntry[];
+  scheduleEntries: RoutineScheduleEntry[];
+  scheduleSelectedEntryId: string;
+  scheduleRecurrence: RoutineScheduleRecurrence;
+  scheduleGroupId: string;
+  scheduleLoadedGroupId: string;
+  scheduleDirty: boolean;
   history: RoutineStudioEntry[][];
   historyIndex: number;
   dragInsertIndex: number;
@@ -282,6 +314,7 @@ export interface MockState {
   tasks: Task[];
   blocks: Block[];
   recipes: Recipe[];
+  routines: RoutineSchedule[];
   modules: Module[];
   moduleFolders: ModuleFolder[];
   syncedEventsByAccount: Record<string, SyncedEvent[]>;

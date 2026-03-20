@@ -1,10 +1,11 @@
-import type { Module, PageRenderDeps, RoutineStudioEntry } from "../../types.js";
+import type { Module, PageRenderDeps, RoutineScheduleAssetKind, RoutineScheduleEntry, RoutineStudioEntry } from "../../types.js";
 import {
   cloneValue,
   isRoutineStudioRecipe,
   routineStudioContexts,
   routineStudioSeedFolders,
   routineStudioSeedModules,
+  nextRoutineScheduleEntryId,
   routineStudioSlug,
   routineStudioStepDurationMinutes,
   toPositiveInt,
@@ -13,6 +14,8 @@ import { bindRoutineStudioPointerDnd } from "./pointer-dnd.js";
 import {
   applyStudioCanvasEntries,
   createEmptyStudioModuleEditor,
+  normalizeRoutineScheduleEntry,
+  normalizeRoutineScheduleRecurrence,
   normalizeStudioEntry,
   normalizeStudioModule,
   normalizeStudioModuleFolder,
@@ -46,9 +49,11 @@ import {
   deleteStudioModule,
   deleteStudioModuleFolder,
   deleteStudioRecipe,
+  loadRoutineScheduleGroup,
   moveStudioModule,
   persistStudioTemplate,
   refreshStudioAssets,
+  saveRoutineScheduleGroup,
   saveStudioModule,
 } from "./studio/actions.js";
 import { renderRoutinesMarkup } from "./view.js";
@@ -71,12 +76,15 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
   const isoDate = helpers.isoDate;
   const formatHHmm = helpers.formatHHmm;
   const escapeHtml = helpers.escapeHtml;
+  const isUnknownCommandError = helpers.isUnknownCommandError;
   const renderRoutines = () => renderRoutinesEvents(deps);
     const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
     const studio = uiState.routineStudio;
     const normalizeModule = normalizeStudioModule;
     const normalizeModuleFolder = normalizeStudioModuleFolder;
     const normalizeEntry = normalizeStudioEntry;
+    const normalizeScheduleEntry = normalizeRoutineScheduleEntry;
+    const normalizeScheduleRecurrence = normalizeRoutineScheduleRecurrence;
     const normalizeModuleEditor = normalizeStudioModuleEditor;
     const readEntryId = readStudioEntryId;
     const createEmptyModuleEditor = () => normalizeModuleEditor({
@@ -88,6 +96,8 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         normalizeModule,
         normalizeModuleFolder,
         normalizeEntry,
+        normalizeScheduleEntry,
+        normalizeScheduleRecurrence,
         normalizeModuleEditor,
         toEntryRecords,
         contextDefault: routineStudioContexts[0] || "Work - Deep Focus",
@@ -210,6 +220,11 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
       },
     ]);
     const rerender = () => renderRoutines();
+    const sortScheduleEntries = (entries: RoutineScheduleEntry[]): RoutineScheduleEntry[] =>
+        [...entries].sort((left, right) => String(left.startTime || "").localeCompare(String(right.startTime || "")));
+    const fallbackScheduleGroupId = `rtngrp-${routineStudioSlug(studio.draftName || "routine-schedule") || "routine-schedule"}`;
+    const activeScheduleGroupId = String(studio.scheduleGroupId || studio.templateId || fallbackScheduleGroupId).trim();
+    studio.scheduleGroupId = activeScheduleGroupId;
     const persistTemplate = async () => persistStudioTemplate({
         studio,
         recipes: uiState.recipes,
@@ -226,7 +241,8 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         normalizeEntry,
         applyCanvasEntries,
     });
-    const resolveDropInsertIndex = resolveStudioDropInsertIndex;
+    const resolveDropInsertIndex = (dropzone: HTMLElement, clientY: number) =>
+        resolveStudioDropInsertIndex(studio, dropzone, clientY);
     const clearDropIndicator = (dropzone: HTMLElement) => clearStudioDropIndicator(studio, dropzone);
     const paintDropIndicator = (dropzone: HTMLElement, insertIndex: number) =>
         paintStudioDropIndicator(studio, dropzone, insertIndex);
@@ -239,6 +255,119 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         rerender();
     };
     const resolveModule = (moduleId: string): Module | null => resolveStudioModule(studio, moduleId);
+    const addScheduleAsset = (kind: RoutineScheduleAssetKind, id: string): boolean => {
+        const normalizedId = String(id || "").trim();
+        const lastEntry = sortScheduleEntries(studio.scheduleEntries).slice(-1)[0];
+        const startTime = (() => {
+            if (!lastEntry) return "09:00";
+            const [hh, mm] = String(lastEntry.startTime || "09:00").split(":").map((value) => Number(value || 0));
+            const total = hh * 60 + mm + Math.max(1, Number(lastEntry.durationMinutes) || 0);
+            const nextHours = Math.floor(total / 60) % 24;
+            const nextMinutes = total % 60;
+            return `${String(nextHours).padStart(2, "0")}:${String(nextMinutes).padStart(2, "0")}`;
+        })();
+        if (normalizedId === "__empty__") {
+            const entry = normalizeScheduleEntry({
+                id: nextRoutineScheduleEntryId(),
+                assetKind: "module",
+                assetId: "",
+                recipeId: "",
+                moduleId: "",
+                title: "Untitled Slot",
+                subtitle: "空きスロット",
+                startTime,
+                durationMinutes: 30,
+            }, studio.scheduleEntries.length);
+            studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+            studio.scheduleSelectedEntryId = entry.id;
+            studio.scheduleDirty = true;
+            return true;
+        }
+        if (kind === "module") {
+            const module = studio.modules.find((candidate) => candidate.id === normalizedId);
+            if (!module) return false;
+            const entry = normalizeScheduleEntry({
+                id: nextRoutineScheduleEntryId(),
+                assetKind: "module",
+                assetId: module.id,
+                recipeId: "",
+                moduleId: module.id,
+                title: String(module.name || module.id),
+                subtitle: String(module.description || module.category || "モジュール"),
+                startTime,
+                durationMinutes: Math.max(1, Number(module.durationMinutes) || 1),
+            }, studio.scheduleEntries.length);
+            studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+            studio.scheduleSelectedEntryId = entry.id;
+            studio.scheduleDirty = true;
+            return true;
+        }
+        const recipe = recipes.find((candidate) => candidate.id === normalizedId && isRoutineStudioRecipe(candidate));
+        if (!recipe) return false;
+        const durationMinutes = recipeToEntries(recipe).reduce((sum, entry) => sum + Math.max(1, Number(entry.durationMinutes) || 0), 0);
+        const entry = normalizeScheduleEntry({
+            id: nextRoutineScheduleEntryId(),
+            assetKind: "template",
+            assetId: recipe.id,
+            recipeId: recipe.id,
+            moduleId: "",
+            title: String(recipe.name || recipe.id),
+            subtitle: "複合モジュール",
+            startTime,
+            durationMinutes: Math.max(1, durationMinutes || 1),
+        }, studio.scheduleEntries.length);
+        studio.scheduleEntries = sortScheduleEntries([...studio.scheduleEntries, entry]);
+        studio.scheduleSelectedEntryId = entry.id;
+        studio.scheduleDirty = true;
+        return true;
+    };
+    const updateScheduleField = (entryId: string, field: string, value: string): boolean => {
+        const index = studio.scheduleEntries.findIndex((entry) => entry.id === entryId);
+        if (index < 0) return false;
+        const nextEntries = studio.scheduleEntries.map((entry, currentIndex) => normalizeScheduleEntry(entry, currentIndex));
+        const entry = nextEntries[index];
+        if (!entry) return false;
+        if (field === "title") {
+            entry.title = String(value || "").trim() || entry.title;
+        } else if (field === "durationMinutes") {
+            entry.durationMinutes = toPositiveInt(value, entry.durationMinutes || 1);
+        } else if (field === "startTime") {
+            entry.startTime = /^\d{2}:\d{2}$/.test(String(value || "")) ? String(value) : entry.startTime;
+        } else {
+            return false;
+        }
+        studio.scheduleEntries = sortScheduleEntries(nextEntries);
+        studio.scheduleSelectedEntryId = entryId;
+        studio.scheduleDirty = true;
+        return true;
+    };
+    if (studio.subPage === "schedule" && activeScheduleGroupId && activeScheduleGroupId !== studio.scheduleLoadedGroupId && !studio.__scheduleLoading) {
+        studio.__scheduleLoading = true;
+        runUiAction(async () => {
+            try {
+                const loaded = await loadRoutineScheduleGroup({
+                    safeInvoke: (command, payload) => safeInvoke(command, payload),
+                    groupId: activeScheduleGroupId,
+                    normalizeScheduleEntry,
+                    fallbackTitle: studio.draftName,
+                });
+                studio.scheduleEntries = loaded.entries;
+                studio.scheduleRecurrence = normalizeScheduleRecurrence(loaded.recurrence);
+                studio.scheduleLoadedGroupId = activeScheduleGroupId;
+                studio.scheduleSelectedEntryId = String(loaded.entries[0]?.id || "");
+                studio.scheduleDirty = false;
+            } catch (error) {
+                if (!isUnknownCommandError(error)) {
+                    throw error;
+                }
+                studio.scheduleEntries = [];
+                studio.scheduleLoadedGroupId = activeScheduleGroupId;
+            } finally {
+                studio.__scheduleLoading = false;
+                rerender();
+            }
+        });
+    }
     const onRefreshAssets = async () => {
         await runUiAction(async () => {
             const refreshed = await refreshStudioAssets({
@@ -409,8 +538,56 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             rerender();
         });
     };
+    const onSaveSchedule = async () => {
+        await runUiAction(async () => {
+            const saved = await saveRoutineScheduleGroup({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                studio,
+                recipes: uiState.recipes,
+                modules: studio.modules,
+                normalizeScheduleEntry,
+            });
+            studio.scheduleEntries = saved.entries;
+            studio.scheduleRecurrence = normalizeScheduleRecurrence(saved.recurrence);
+            studio.scheduleLoadedGroupId = studio.scheduleGroupId;
+            studio.scheduleDirty = false;
+            setStatus(`schedule saved: ${studio.scheduleGroupId}`);
+            rerender();
+        });
+    };
     const onApplyToday = async () => {
         await runUiAction(async () => {
+            if (studio.subPage === "schedule" && studio.scheduleEntries.length > 0) {
+                const saved = await saveRoutineScheduleGroup({
+                    safeInvoke: (command, payload) => safeInvoke(command, payload),
+                    studio,
+                    recipes: uiState.recipes,
+                    modules: studio.modules,
+                    normalizeScheduleEntry,
+                });
+                studio.scheduleEntries = saved.entries;
+                studio.scheduleLoadedGroupId = studio.scheduleGroupId;
+                studio.scheduleDirty = false;
+                const results: string[] = [];
+                for (const entry of saved.entries) {
+                    const recipeId = String(entry.recipeId || entry.assetId || "").trim();
+                    if (!recipeId) continue;
+                    const result = await applyStudioTemplateToToday({
+                        safeInvoke: (command, payload) => safeInvoke(command, payload),
+                        refreshCoreData,
+                        withAccount,
+                        isoDate,
+                        formatHHmm,
+                        templateId: recipeId,
+                        triggerTime: entry.startTime,
+                    });
+                    results.push(`${entry.startTime} ${entry.title}: ${result}`);
+                }
+                studio.lastApplyResult = results.join(" / ");
+                setStatus(`applied schedule: ${saved.entries.length} items`);
+                rerender();
+                return;
+            }
             const id = String(studio.applyTemplateId || "").trim();
             if (!id) {
                 throw new Error("適用する保存済みルーティンを選択してください。");
@@ -462,6 +639,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         onSaveModule,
         onDeleteModule,
         onSaveTemplate,
+        onSaveSchedule,
         onApplyToday,
         onDeleteRecipe,
     });
@@ -478,6 +656,8 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         toPositiveInt,
         contextDefault: routineStudioContexts[0] || "Work - Deep Focus",
         cloneValue,
+        addScheduleAsset,
+        updateScheduleField,
     });
 }
 

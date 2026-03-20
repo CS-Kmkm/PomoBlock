@@ -6,6 +6,8 @@ type NormalizeStudioStateParams = {
   normalizeModule: (module: unknown, index: number) => Module;
   normalizeModuleFolder: (folder: unknown, index: number) => ModuleFolder;
   normalizeEntry: (entry: unknown, index: number) => RoutineStudioEntry;
+  normalizeScheduleEntry: (entry: unknown, index: number) => RoutineStudioState["scheduleEntries"][number];
+  normalizeScheduleRecurrence: (value: unknown) => RoutineStudioState["scheduleRecurrence"];
   normalizeModuleEditor: (editor: unknown) => RoutineStudioState["moduleEditor"];
   toEntryRecords: (entries: RoutineStudioEntry[]) => RoutineStudioEntry[];
   contextDefault: string;
@@ -23,7 +25,18 @@ type BootstrapStudioStateParams = {
 };
 
 export function normalizeStudioState(params: NormalizeStudioStateParams): void {
-  const { studio, normalizeModule, normalizeModuleFolder, normalizeEntry, normalizeModuleEditor, toEntryRecords, contextDefault, slugify } = params;
+  const {
+    studio,
+    normalizeModule,
+    normalizeModuleFolder,
+    normalizeEntry,
+    normalizeScheduleEntry,
+    normalizeScheduleRecurrence,
+    normalizeModuleEditor,
+    toEntryRecords,
+    contextDefault,
+    slugify,
+  } = params;
   studio.assetsLoaded = Boolean(studio.assetsLoaded);
   studio.assetsLoading = Boolean(studio.assetsLoading);
   studio.subPage = ["editor", "schedule"].includes(studio.subPage) ? studio.subPage : "editor";
@@ -38,6 +51,24 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   studio.modules = Array.isArray(studio.modules) ? studio.modules : [];
   studio.moduleFolders = Array.isArray(studio.moduleFolders) ? studio.moduleFolders : [];
   studio.canvasEntries = Array.isArray(studio.canvasEntries) ? studio.canvasEntries : [];
+  studio.scheduleEntries = Array.isArray(studio.scheduleEntries) ? studio.scheduleEntries : [];
+  studio.scheduleSelectedEntryId = typeof studio.scheduleSelectedEntryId === "string" ? studio.scheduleSelectedEntryId : "";
+  studio.scheduleGroupId =
+    typeof studio.scheduleGroupId === "string" && studio.scheduleGroupId.trim() ? studio.scheduleGroupId : studio.templateId;
+  studio.scheduleLoadedGroupId = typeof studio.scheduleLoadedGroupId === "string" ? studio.scheduleLoadedGroupId : "";
+  studio.scheduleDirty = Boolean(studio.scheduleDirty);
+  studio.scheduleRecurrence =
+    studio.scheduleRecurrence && typeof studio.scheduleRecurrence === "object"
+      ? studio.scheduleRecurrence
+      : {
+          repeatType: "weekly",
+          weekdays: ["mon", "tue", "wed", "thu", "fri"],
+          dayOfMonth: 1,
+          nthWeek: 1,
+          nthWeekday: "mon",
+          startDate: "",
+          endDate: "",
+        };
   studio.history = Array.isArray(studio.history) ? studio.history : [];
   studio.historyIndex = Number.isInteger(studio.historyIndex) ? studio.historyIndex : -1;
   studio.dragInsertIndex = Number.isInteger(studio.dragInsertIndex) ? studio.dragInsertIndex : -1;
@@ -57,6 +88,14 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
     return true;
   });
   studio.canvasEntries = toEntryRecords(studio.canvasEntries.map((entry, index) => normalizeEntry(entry, index)));
+  studio.scheduleEntries = studio.scheduleEntries.map((entry, index) => normalizeScheduleEntry(entry, index));
+  studio.scheduleRecurrence = normalizeScheduleRecurrence(studio.scheduleRecurrence);
+  if (!studio.scheduleSelectedEntryId && studio.scheduleEntries.length > 0) {
+    studio.scheduleSelectedEntryId = String(studio.scheduleEntries[0]?.id || "");
+  }
+  if (studio.scheduleSelectedEntryId && studio.scheduleEntries.every((entry) => entry.id !== studio.scheduleSelectedEntryId)) {
+    studio.scheduleSelectedEntryId = String(studio.scheduleEntries[0]?.id || "");
+  }
   studio.moduleEditor = studio.moduleEditor ? normalizeModuleEditor(studio.moduleEditor) : null;
   if (studio.moduleEditor && studio.moduleFolders.length > 0) {
     const hasFolder = studio.moduleFolders.some((folder) => folder.id === studio.moduleEditor?.category);

@@ -1,5 +1,31 @@
 import type { RoutineStudioState } from "../../../types.js";
 import type { RoutineStudioFolderView } from "../model.js";
+import { canMoveStudioEntryGroup, collectStudioEntryGroups } from "./entry-groups.js";
+
+const weekdayOptions = [
+  { id: "sun", label: "日" },
+  { id: "mon", label: "月" },
+  { id: "tue", label: "火" },
+  { id: "wed", label: "水" },
+  { id: "thu", label: "木" },
+  { id: "fri", label: "金" },
+  { id: "sat", label: "土" },
+];
+
+function scheduleRecurrenceLabel(studio: RoutineStudioState): string {
+  const recurrence = studio.scheduleRecurrence;
+  if (recurrence.repeatType === "monthly_date") {
+    return `毎月 ${Math.max(1, Number(recurrence.dayOfMonth) || 1)} 日`;
+  }
+  if (recurrence.repeatType === "monthly_nth") {
+    const weekday = weekdayOptions.find((option) => option.id === recurrence.nthWeekday)?.label || recurrence.nthWeekday;
+    return `毎月 第${Math.max(1, Number(recurrence.nthWeek) || 1)}${weekday}`;
+  }
+  const labels = weekdayOptions
+    .filter((option) => recurrence.weekdays.includes(option.id))
+    .map((option) => option.label);
+  return labels.length > 0 ? `毎週 ${labels.join("・")}` : "毎週";
+}
 
 type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;
@@ -26,9 +52,14 @@ export function buildRoutineStudioLoadingMarkup(): string {
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
   const { studio, folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
-  const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.applyTemplateId);
+  const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.scheduleGroupId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
+  const currentScheduleValue = studio.scheduleGroupId || studio.templateId || "rtngrp-routine-schedule";
   const availableFolders = studio.moduleFolders.length > 0 ? studio.moduleFolders : [{ id: "General", name: "General" }];
+  const canvasGroups = collectStudioEntryGroups(studio.canvasEntries);
+  const editGroup = studio.entryEditorEntryId
+    ? canvasGroups.find((group) => group.entries.some((entry) => String(entry.entryId || "") === studio.entryEditorEntryId))
+    : null;
   return `
     <section class="routine-studio-root">
       <header class="routine-studio-toolbar">
@@ -47,25 +78,169 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
       </nav>
       ${studio.subPage === "schedule" ? `
         <div class="rs-schedule-page">
-          <section class="rs-schedule-props">
-            <h3 class="rs-schedule-title">${escapeHtml(scheduleTitle)}</h3>
-            <p class="small">保存済みのルーティンを選んで今日のスケジュールに適用します。</p>
-            <label class="rs-field">保存済みルーティン
-              <select id="studio-apply-template">
-                <option value="">選択してください</option>
-                ${allComplexModuleAssets
-                  .map(
-                    (cm) =>
-                      `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.applyTemplateId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
-                  )
-                  .join("")}
-              </select>
-            </label>
-            <label class="rs-field">開始時刻<input id="studio-trigger-time" type="time" value="${escapeHtml(studio.triggerTime)}" /></label>
-            ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
+          <section class="rs-schedule-main">
+            <header class="rs-schedule-head">
+              <div>
+                <h3 class="rs-schedule-title">${escapeHtml(scheduleTitle)}</h3>
+                <p class="small">Now の左ペインのように 1 日の定型予定を並べて、アセットを GUI で挿入します。</p>
+              </div>
+              <div class="rs-schedule-head-meta">
+                <span class="rs-badge">${escapeHtml(scheduleRecurrenceLabel(studio))}</span>
+                <span class="small">${studio.scheduleEntries.length} items</span>
+              </div>
+            </header>
+            <div class="rs-schedule-layout">
+              <section class="rs-schedule-day">
+                <header class="rs-schedule-section-head">
+                  <div>
+                    <h4>1日のスケジュール</h4>
+                    <p class="small">開始時刻順に並びます</p>
+                  </div>
+                  <button type="button" id="studio-schedule-add-gap" class="rs-btn rs-btn-ghost">空スロット追加</button>
+                </header>
+                <div class="rs-schedule-list">
+                  ${
+                    studio.scheduleEntries.length === 0
+                      ? `<div class="rs-schedule-empty"><p>右側のモジュール / 複合モジュールから追加します。</p></div>`
+                      : studio.scheduleEntries
+                          .map(
+                            (entry, index) => `
+                        <article class="rs-schedule-item ${studio.scheduleSelectedEntryId === entry.id ? "is-selected" : ""}" data-studio-schedule-select="${escapeHtml(entry.id)}">
+                          <div class="rs-schedule-item-time">
+                            <input type="time" value="${escapeHtml(entry.startTime)}" data-studio-schedule-field="startTime" data-studio-schedule-id="${escapeHtml(entry.id)}" />
+                            <span>${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
+                          </div>
+                          <div class="rs-schedule-item-body">
+                            <p class="rs-schedule-item-title">${escapeHtml(entry.title)}</p>
+                            <p class="rs-schedule-item-subtitle">${escapeHtml(entry.subtitle || (entry.assetKind === "module" ? "モジュール" : "複合モジュール"))}</p>
+                          </div>
+                          <div class="rs-schedule-item-actions">
+                            <button type="button" class="rs-icon-btn" title="上へ" data-studio-schedule-move="${escapeHtml(entry.id)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
+                            <button type="button" class="rs-icon-btn" title="下へ" data-studio-schedule-move="${escapeHtml(entry.id)}" data-studio-dir="down" ${index === studio.scheduleEntries.length - 1 ? "disabled" : ""}>↓</button>
+                            <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-schedule-remove="${escapeHtml(entry.id)}">×</button>
+                          </div>
+                        </article>
+                      `,
+                          )
+                          .join("")
+                  }
+                </div>
+              </section>
+              <aside class="rs-schedule-side">
+                <section class="rs-schedule-props">
+                  <h4>繰り返し設定</h4>
+                  <label class="rs-field">スケジュールセット
+                    <select id="studio-schedule-group">
+                      <option value="${escapeHtml(currentScheduleValue)}" ${!selectedApplyTemplate ? "selected" : ""}>Current Draft (${escapeHtml(studio.draftName)})</option>
+                      ${allComplexModuleAssets
+                        .map(
+                          (cm) =>
+                            `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
+                        )
+                        .join("")}
+                    </select>
+                  </label>
+                  <div class="rs-repeat-tabs" role="tablist" aria-label="繰り返し種別">
+                    <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "weekly" ? "is-active" : ""}" data-studio-repeat-type="weekly">毎週</button>
+                    <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_date" ? "is-active" : ""}" data-studio-repeat-type="monthly_date">毎月日付</button>
+                    <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_nth" ? "is-active" : ""}" data-studio-repeat-type="monthly_nth">第n曜日</button>
+                  </div>
+                  ${
+                    studio.scheduleRecurrence.repeatType === "weekly"
+                      ? `
+                    <div class="rs-weekday-grid">
+                      ${weekdayOptions
+                        .map(
+                          (option) => `
+                        <label class="rs-choice-chip">
+                          <input type="checkbox" data-studio-repeat-weekday="${option.id}" ${studio.scheduleRecurrence.weekdays.includes(option.id) ? "checked" : ""} />
+                          <span>${option.label}</span>
+                        </label>
+                      `,
+                        )
+                        .join("")}
+                    </div>
+                  `
+                      : studio.scheduleRecurrence.repeatType === "monthly_date"
+                        ? `<label class="rs-field">毎月何日<input id="studio-repeat-day-of-month" type="number" min="1" max="31" value="${Math.max(1, Number(studio.scheduleRecurrence.dayOfMonth) || 1)}" /></label>`
+                        : `
+                    <div class="rs-inline-fields">
+                      <label class="rs-field">第何週
+                        <select id="studio-repeat-nth-week">
+                          ${[1, 2, 3, 4, 5]
+                            .map((value) => `<option value="${value}" ${value === studio.scheduleRecurrence.nthWeek ? "selected" : ""}>第${value}</option>`)
+                            .join("")}
+                        </select>
+                      </label>
+                      <label class="rs-field">曜日
+                        <select id="studio-repeat-nth-weekday">
+                          ${weekdayOptions
+                            .map((option) => `<option value="${option.id}" ${option.id === studio.scheduleRecurrence.nthWeekday ? "selected" : ""}>${option.label}</option>`)
+                            .join("")}
+                        </select>
+                      </label>
+                    </div>
+                  `
+                  }
+                  <div class="rs-inline-fields">
+                    <label class="rs-field">開始日<input id="studio-repeat-start-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.startDate)}" /></label>
+                    <label class="rs-field">終了日<input id="studio-repeat-end-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.endDate)}" /></label>
+                  </div>
+                  ${
+                    studio.scheduleSelectedEntryId
+                      ? (() => {
+                          const selectedEntry = studio.scheduleEntries.find((entry) => entry.id === studio.scheduleSelectedEntryId);
+                          if (!selectedEntry) return "";
+                          return `
+                    <div class="rs-schedule-detail">
+                      <h5>選択中の予定</h5>
+                      <label class="rs-field">タイトル<input value="${escapeHtml(selectedEntry.title)}" data-studio-schedule-field="title" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                      <label class="rs-field">分<input type="number" min="1" value="${Math.max(1, Number(selectedEntry.durationMinutes) || 1)}" data-studio-schedule-field="durationMinutes" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                    </div>
+                  `;
+                        })()
+                      : ""
+                  }
+                  ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
+                </section>
+                <section class="rs-schedule-assets">
+                  <header class="rs-schedule-section-head">
+                    <div>
+                      <h4>GUIで挿入</h4>
+                      <p class="small">モジュールと複合モジュール</p>
+                    </div>
+                  </header>
+                  <div class="rs-schedule-asset-list">
+                    ${folderAssets
+                      .flatMap((folder) =>
+                        folder.modules.map(
+                          (module) => `
+                        <button type="button" class="rs-schedule-asset-card" data-studio-schedule-add-kind="module" data-studio-schedule-add-id="${escapeHtml(module.id)}">
+                          <span>${escapeHtml(module.name)}</span>
+                          <small>${module.durationMinutes}m</small>
+                        </button>
+                      `,
+                        ),
+                      )
+                      .join("")}
+                    ${complexModuleAssets
+                      .map(
+                        (cm) => `
+                      <button type="button" class="rs-schedule-asset-card is-template" data-studio-schedule-add-kind="template" data-studio-schedule-add-id="${escapeHtml(cm.id)}">
+                        <span>${escapeHtml(cm.name)}</span>
+                        <small>${cm.totalMinutes}m / ${cm.stepCount} steps</small>
+                      </button>
+                    `,
+                      )
+                      .join("")}
+                  </div>
+                </section>
+              </aside>
+            </div>
           </section>
           <footer class="rs-schedule-actions">
-            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-primary" ${allComplexModuleAssets.length === 0 ? "disabled" : ""}>今日に適用</button>
+            <button type="button" id="studio-save-schedule" class="rs-btn rs-btn-primary">定期予定を保存</button>
+            <button type="button" id="studio-apply-today" class="rs-btn rs-btn-secondary" ${studio.scheduleEntries.length === 0 ? "disabled" : ""}>今日に適用</button>
           </footer>
         </div>
       ` : `
@@ -98,16 +273,18 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                       ${folder.modules
                         .map(
                           (module) => `
-                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}" data-studio-search-text="${escapeHtml(`${module.name} ${module.description || ""} ${module.category || ""}`)}">
+                      <article class="rs-asset-card rs-asset-card--compact" data-studio-draggable="true" data-studio-asset-kind="module" data-studio-asset-id="${escapeHtml(module.id)}" data-studio-search-text="${escapeHtml(`${module.name} ${module.description || ""} ${module.category || ""}`)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(module.name)}</p>
                           <span class="rs-asset-duration">${module.durationMinutes}m</span>
                         </div>
-                        <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
-                        <div class="rs-asset-actions rs-asset-actions-inline">
-                          <button type="button" class="rs-icon-btn" title="追加" aria-label="モジュールを追加" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">+</button>
-                          <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
-                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#128465;</button>
+                        <div class="rs-asset-foot">
+                          <p class="rs-asset-subtitle">${escapeHtml(module.description || "")}</p>
+                          <div class="rs-asset-actions rs-asset-actions-inline">
+                            <button type="button" class="rs-icon-btn" title="追加" aria-label="モジュールを追加" data-studio-insert-kind="module" data-studio-insert-id="${escapeHtml(module.id)}">+</button>
+                            <button type="button" class="rs-icon-btn" title="編集" data-studio-module-edit="${escapeHtml(module.id)}">&#9998;</button>
+                            <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-module-delete="${escapeHtml(module.id)}">&#128465;</button>
+                          </div>
                         </div>
                       </article>
                     `,
@@ -128,15 +305,17 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                     ${complexModuleAssets
                       .map(
                         (cm) => `
-                      <article class="rs-asset-card" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}" data-studio-search-text="${escapeHtml(`${cm.name} ${cm.stepCount} ${cm.totalMinutes}`)}">
+                      <article class="rs-asset-card rs-asset-card--compact" data-studio-draggable="true" data-studio-asset-kind="template" data-studio-asset-id="${escapeHtml(cm.id)}" data-studio-search-text="${escapeHtml(`${cm.name} ${cm.stepCount} ${cm.totalMinutes}`)}">
                         <div class="rs-asset-head">
                           <p class="rs-asset-title">${escapeHtml(cm.name)}<span class="rs-badge">複合</span></p>
                           <span class="rs-asset-duration">${cm.totalMinutes}m</span>
                         </div>
-                        <p class="rs-asset-subtitle">${cm.stepCount} ステップ</p>
-                        <div class="rs-asset-actions rs-asset-actions-inline">
-                          <button type="button" class="rs-icon-btn" title="追加" aria-label="複合モジュールを追加" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">+</button>
-                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#128465;</button>
+                        <div class="rs-asset-foot">
+                          <p class="rs-asset-subtitle">${cm.stepCount} ステップ</p>
+                          <div class="rs-asset-actions rs-asset-actions-inline">
+                            <button type="button" class="rs-icon-btn" title="追加" aria-label="複合モジュールを追加" data-studio-insert-kind="template" data-studio-insert-id="${escapeHtml(cm.id)}">+</button>
+                            <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-recipe-delete="${escapeHtml(cm.id)}">&#128465;</button>
+                          </div>
                         </div>
                       </article>
                     `,
@@ -167,29 +346,60 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
                 ${
                   studio.canvasEntries.length === 0
                     ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
-                    : studio.canvasEntries
-                        .map(
-                          (entry, index) => `
-                    <article class="rs-canvas-card ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(entry.entryId)}" draggable="true" data-studio-canvas-entry="${escapeHtml(entry.entryId)}">
+                    : canvasGroups
+                        .map((group) => {
+                          const anchor = group.entries[0];
+                          if (!anchor) return "";
+                          const moveUpDisabled = !canMoveStudioEntryGroup(studio.canvasEntries, anchor.entryId, "up");
+                          const moveDownDisabled = !canMoveStudioEntryGroup(studio.canvasEntries, anchor.entryId, "down");
+                          const moveUpLabel = group.isGrouped ? "複合モジュールを上へ" : "上へ";
+                          const moveDownLabel = group.isGrouped ? "複合モジュールを下へ" : "下へ";
+                          const removeLabel = group.isGrouped ? "複合モジュールを削除" : "削除";
+                          const isSelected = group.entries.some((entry) => String(entry.entryId || "") === studio.selectedEntryId);
+                          const title = group.isGrouped ? anchor.subtitle || anchor.title || `Step ${group.start + 1}` : anchor.title || `Step ${group.start + 1}`;
+                          const subtitle = group.isGrouped ? `${group.entries.length} ステップ` : anchor.subtitle || "";
+                          const duration = group.isGrouped ? group.totalMinutes : Math.max(1, Number(anchor.durationMinutes) || 0);
+                          const indexLabel = group.isGrouped ? `${group.start + 1}-${group.end + 1}` : `${group.start + 1}`;
+                          return `
+                    <article class="rs-canvas-card ${group.isGrouped ? "rs-canvas-card--grouped" : ""} ${isSelected ? "is-selected" : ""}" data-studio-entry-id="${escapeHtml(anchor.entryId)}" data-studio-entry-group-id="${escapeHtml(group.groupId || "")}" data-studio-canvas-entry="${escapeHtml(anchor.entryId)}">
                       <header class="rs-canvas-card-head">
                         <span class="rs-drag-handle" aria-hidden="true" title="ドラッグして並び順を変更">&#x2807;</span>
-                        <button type="button" class="rs-canvas-index" data-studio-select-entry="${escapeHtml(entry.entryId)}">${index + 1}</button>
+                        <button type="button" class="rs-canvas-index" data-studio-select-entry="${escapeHtml(anchor.entryId)}">${indexLabel}</button>
                         <div class="rs-canvas-meta">
-                          <p class="rs-canvas-title">${escapeHtml(entry.title || `Step ${index + 1}`)}</p>
-                          <p class="rs-canvas-subtitle">${escapeHtml(entry.subtitle || "")}</p>
+                          <p class="rs-canvas-title">${escapeHtml(title)}${group.isGrouped ? '<span class="rs-badge">複合</span>' : ""}</p>
+                          <p class="rs-canvas-subtitle">${escapeHtml(subtitle)}</p>
                         </div>
-                        <span class="rs-canvas-duration">${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
+                        <span class="rs-canvas-duration">${duration}m</span>
                         <div class="rs-canvas-actions">
-                          <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
-                          <button type="button" class="rs-icon-btn" data-studio-move="${escapeHtml(entry.entryId)}" data-studio-dir="down" ${index === studio.canvasEntries.length - 1 ? "disabled" : ""}>↓</button>
-                          <button type="button" class="rs-icon-btn is-danger" data-studio-remove="${escapeHtml(entry.entryId)}">×</button>
-                          <button type="button" class="rs-icon-btn" title="詳細設定" data-studio-entry-settings="${escapeHtml(entry.entryId)}">&#9881;</button>
+                          <button type="button" class="rs-icon-btn" title="${moveUpLabel}" aria-label="${moveUpLabel}" data-studio-move="${escapeHtml(anchor.entryId)}" data-studio-dir="up" ${moveUpDisabled ? "disabled" : ""}>↑</button>
+                          <button type="button" class="rs-icon-btn" title="${moveDownLabel}" aria-label="${moveDownLabel}" data-studio-move="${escapeHtml(anchor.entryId)}" data-studio-dir="down" ${moveDownDisabled ? "disabled" : ""}>↓</button>
+                          <button type="button" class="rs-icon-btn is-danger" title="${removeLabel}" aria-label="${removeLabel}" data-studio-remove="${escapeHtml(anchor.entryId)}">×</button>
+                          <button type="button" class="rs-icon-btn" title="${group.isGrouped ? "複合モジュールを編集" : "詳細設定"}" data-studio-entry-settings="${escapeHtml(anchor.entryId)}">&#9881;</button>
                         </div>
                       </header>
+                      ${
+                        group.isGrouped
+                          ? `
+                        <div class="rs-canvas-group-steps">
+                          ${group.entries
+                            .map(
+                              (entry, stepIndex) => `
+                            <button type="button" class="rs-canvas-group-step ${studio.selectedEntryId === entry.entryId ? "is-selected" : ""}" data-studio-select-entry="${escapeHtml(entry.entryId)}">
+                              <span class="rs-canvas-group-step-index">${group.start + stepIndex + 1}</span>
+                              <span class="rs-canvas-group-step-title">${escapeHtml(entry.title || `Step ${group.start + stepIndex + 1}`)}</span>
+                              <span class="rs-canvas-group-step-duration">${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
+                            </button>
+                          `,
+                            )
+                            .join("")}
+                        </div>
+                      `
+                          : ""
+                      }
                     </article>
-                  `,
-                        )
-                        .join('<div class="rs-canvas-connector" aria-hidden="true"></div>')
+                  `;
+                        })
+                        .join("")
                 }
               </div>
             </div>
@@ -221,35 +431,52 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
         </div>
       `}
       ${
-        studio.entryEditorEntryId
+        editGroup
           ? (() => {
-              const editEntry = studio.canvasEntries.find((e) => String(e.entryId || "") === studio.entryEditorEntryId);
+              const editEntries = editGroup.entries;
+              const editEntry = editEntries[0];
               if (!editEntry) return "";
-              const eid = escapeHtml(editEntry.entryId);
+              const groupTitle = editGroup.isGrouped ? editEntry.subtitle || editEntry.title : editEntry.title;
               return `
         <div class="rs-modal-overlay" id="entry-editor-overlay">
           <div class="rs-modal rs-modal--wide" role="dialog" aria-modal="true" aria-labelledby="entry-editor-title">
             <header class="rs-modal-head">
-              <h4 class="rs-modal-title" id="entry-editor-title">ステップ詳細設定: ${escapeHtml(editEntry.title)}</h4>
+              <h4 class="rs-modal-title" id="entry-editor-title">${editGroup.isGrouped ? `複合モジュールを編集: ${escapeHtml(groupTitle)}` : `ステップ詳細設定: ${escapeHtml(editEntry.title)}`}</h4>
               <button type="button" class="rs-modal-close" id="studio-entry-editor-close" aria-label="閉じる">&#10005;</button>
             </header>
-            <div class="rs-entry-grid">
-              <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${eid}" value="${escapeHtml(editEntry.title)}" /></label>
-              <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${eid}" type="number" min="1" value="${Math.max(
-                1,
-                Number(editEntry.durationMinutes) || 1,
-              )}" /></label>
-              <label class="rs-field">モジュール
-                <select data-studio-entry-field="moduleId" data-studio-entry-id="${eid}">
-                  <option value="">なし</option>
-                  ${studio.modules
-                    .map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === editEntry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`)
-                    .join("")}
-                </select>
-              </label>
-              <label class="rs-field rs-field-full">ノート
-                <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${eid}">${escapeHtml(editEntry.note || "")}</textarea>
-              </label>
+            <div class="${editGroup.isGrouped ? "rs-entry-stack" : "rs-entry-grid"}">
+              ${editEntries
+                .map((entry, stepIndex) => {
+                  const eid = escapeHtml(entry.entryId);
+                  return `
+              <section class="${editGroup.isGrouped ? "rs-entry-step-card" : "rs-entry-grid"}">
+                ${
+                  editGroup.isGrouped
+                    ? `<header class="rs-entry-step-head"><h5>${stepIndex + 1}. ${escapeHtml(entry.title || `Step ${stepIndex + 1}`)}</h5><span>${Math.max(1, Number(entry.durationMinutes) || 0)}m</span></header>`
+                    : ""
+                }
+                <div class="rs-entry-grid">
+                  <label class="rs-field">タイトル<input data-studio-entry-field="title" data-studio-entry-id="${eid}" value="${escapeHtml(entry.title)}" /></label>
+                  <label class="rs-field">分<input data-studio-entry-field="durationMinutes" data-studio-entry-id="${eid}" type="number" min="1" value="${Math.max(
+                    1,
+                    Number(entry.durationMinutes) || 1,
+                  )}" /></label>
+                  <label class="rs-field">モジュール
+                    <select data-studio-entry-field="moduleId" data-studio-entry-id="${eid}">
+                      <option value="">なし</option>
+                      ${studio.modules
+                        .map((m) => `<option value="${escapeHtml(m.id)}" ${m.id === entry.moduleId ? "selected" : ""}>${escapeHtml(m.name)}</option>`)
+                        .join("")}
+                    </select>
+                  </label>
+                  <label class="rs-field rs-field-full">ノート
+                    <textarea class="rs-textarea" data-studio-entry-field="note" data-studio-entry-id="${eid}">${escapeHtml(entry.note || "")}</textarea>
+                  </label>
+                </div>
+              </section>
+            `;
+                })
+                .join("")}
             </div>
             <div class="rs-modal-actions">
               <button type="button" id="studio-entry-editor-close-btn" class="rs-btn rs-btn-primary">閉じる</button>

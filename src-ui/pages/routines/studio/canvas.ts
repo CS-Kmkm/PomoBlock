@@ -1,4 +1,5 @@
 import type { Module, Recipe, RoutineStudioDragKind, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
+import { nextRoutineStudioEntryGroupId } from "../model.js";
 
 type RecipeMatcher = (recipe: unknown) => boolean;
 
@@ -44,6 +45,7 @@ export function recipeToStudioEntries(
   routineStudioStepDurationMinutes: (step: unknown) => number,
 ): RoutineStudioEntry[] {
   const source = (recipe ?? {}) as Record<string, unknown>;
+  const groupId = nextRoutineStudioEntryGroupId();
   const steps = Array.isArray(source.steps) ? source.steps : [];
   if (steps.length === 0) {
     return [
@@ -51,6 +53,7 @@ export function recipeToStudioEntries(
         {
           sourceKind: "template",
           sourceId: source.id || "",
+          groupId,
           title: source.name || source.id || "ステップ",
           subtitle: "複合モジュール",
           durationMinutes: 5,
@@ -67,6 +70,7 @@ export function recipeToStudioEntries(
         {
           sourceKind: "template",
           sourceId: source.id || "",
+          groupId,
           moduleId: String(stepRecord.moduleId || stepRecord.module_id || ""),
           title: String(stepRecord.title || `Step ${index + 1}`),
           subtitle: source.name || source.id || "複合モジュール",

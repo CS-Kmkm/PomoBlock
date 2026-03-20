@@ -1268,7 +1268,7 @@ p {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   position: relative;
 }
 
@@ -1444,11 +1444,11 @@ p {
 }
 
 .rs-schedule-page {
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 16px;
-  padding: 24px;
-  max-width: 480px;
+  padding: 18px;
 }
 
 .rs-schedule-title {
@@ -1458,25 +1458,219 @@ p {
 }
 
 .rs-schedule-props {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: 12px;
 }
 
 .rs-schedule-actions {
   display: flex;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.rs-schedule-main {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+}
+
+.rs-schedule-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rs-schedule-head-meta {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.rs-schedule-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.9fr);
+  gap: 16px;
+}
+
+.rs-schedule-day,
+.rs-schedule-side {
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.rs-schedule-side {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.rs-schedule-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.rs-schedule-section-head h4,
+.rs-schedule-props h4,
+.rs-schedule-assets h4,
+.rs-schedule-detail h5 {
+  margin: 0;
+}
+
+.rs-schedule-list,
+.rs-schedule-props,
+.rs-schedule-assets {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-strong);
+}
+
+.rs-schedule-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.rs-schedule-item {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(33, 64, 53, 0.12);
+  background: linear-gradient(180deg, rgba(247, 251, 248, 0.96), rgba(240, 246, 242, 0.94));
+}
+
+.rs-schedule-item.is-selected {
+  border-color: rgba(47, 143, 113, 0.48);
+  box-shadow: 0 0 0 1px rgba(47, 143, 113, 0.18);
+}
+
+.rs-schedule-item-time {
+  display: grid;
+  gap: 6px;
+}
+
+.rs-schedule-item-time input {
+  width: 100%;
+}
+
+.rs-schedule-item-time span,
+.rs-schedule-item-subtitle {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.rs-schedule-item-body {
+  min-width: 0;
+}
+
+.rs-schedule-item-title {
+  margin: 0 0 4px;
+  font-weight: 700;
+}
+
+.rs-schedule-item-subtitle {
+  margin: 0;
+}
+
+.rs-schedule-item-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.rs-schedule-empty {
+  min-height: 180px;
+  border: 1px dashed rgba(33, 64, 53, 0.18);
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  text-align: center;
+  padding: 16px;
+}
+
+.rs-schedule-props,
+.rs-schedule-assets {
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.rs-repeat-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rs-weekday-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rs-choice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid rgba(33, 64, 53, 0.16);
+  border-radius: 999px;
+  background: #f2f7f3;
+}
+
+.rs-schedule-detail {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.rs-schedule-asset-list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.rs-schedule-asset-card {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(33, 64, 53, 0.12);
+  background: #f6faf7;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.rs-schedule-asset-card.is-template {
+  background: linear-gradient(180deg, rgba(47, 143, 113, 0.08), rgba(246, 250, 247, 0.96));
+}
+
+.rs-schedule-asset-card small {
+  color: var(--muted);
 }
 
 .routine-studio-layout {
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns:
-    minmax(220px, var(--rs-left-width))
+    clamp(220px, 24vw, var(--rs-left-width))
     var(--pane-splitter-size)
     minmax(0, 1fr)
     var(--pane-splitter-size)
-    minmax(280px, var(--rs-right-width));
+    clamp(280px, 28vw, var(--rs-right-width));
 }
 
 .pane-splitter {
@@ -1600,16 +1794,27 @@ p {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: 12px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .rs-asset-card {
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 10px;
+  padding: 9px;
   background: var(--surface-strong);
   display: grid;
+  gap: 6px;
+}
+
+.rs-asset-card--compact {
+  gap: 4px;
+}
+
+.rs-asset-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -1665,11 +1870,13 @@ p {
 .rs-asset-subtitle {
   font-size: 0.82rem;
   color: var(--muted);
+  margin: 0;
+  line-height: 1.35;
 }
 
 .rs-asset-actions {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
   align-items: center;
 }
@@ -1685,7 +1892,7 @@ p {
 
 .rs-asset-group {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .rs-asset-group-head {
@@ -1715,9 +1922,9 @@ p {
 
 .rs-folder-dropzone {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   min-height: 44px;
-  padding: 6px;
+  padding: 5px;
   border-radius: 12px;
   position: relative;
 }
@@ -1760,17 +1967,17 @@ p {
 .rs-canvas-body {
   min-height: 0;
   overflow: auto;
-  padding: 16px;
+  padding: 12px;
   background: radial-gradient(circle at 20% 16%, rgba(47, 143, 113, 0.14), transparent 44%), #f6faf7;
 }
 
 .rs-dropzone {
-  border: 1px dashed rgba(33, 64, 53, 0.28);
+  border: none;
   border-radius: 14px;
-  min-height: 360px;
-  padding: 12px;
+  min-height: 320px;
+  padding: 10px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
   align-content: start;
   position: relative;
 }
@@ -1785,12 +1992,12 @@ p {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: 10px;
+  bottom: 8px;
   border-top: 2px solid rgba(47, 143, 113, 0.86);
 }
 
 .rs-drop-empty {
-  min-height: 180px;
+  min-height: 150px;
   border: 1px dashed rgba(33, 64, 53, 0.24);
   border-radius: 12px;
   display: grid;
@@ -1808,6 +2015,54 @@ p {
   border-radius: 12px;
   background: var(--surface-strong);
   position: relative;
+}
+
+.rs-canvas-card--grouped {
+  border-color: rgba(47, 143, 113, 0.34);
+  background: linear-gradient(180deg, rgba(47, 143, 113, 0.06), rgba(255, 255, 255, 0.92));
+}
+
+.rs-canvas-group-steps {
+  display: grid;
+  gap: 4px;
+  padding: 0 10px 10px 46px;
+}
+
+.rs-canvas-group-step {
+  width: 100%;
+  border: 1px solid rgba(33, 64, 53, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 10px;
+  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.rs-canvas-group-step.is-selected {
+  border-color: rgba(47, 143, 113, 0.5);
+  background: rgba(47, 143, 113, 0.1);
+}
+
+.rs-canvas-group-step-index {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.rs-canvas-group-step-title {
+  min-width: 0;
+  font-size: 0.88rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-canvas-group-step-duration {
+  font-size: 0.82rem;
+  color: var(--accent);
 }
 
 .rs-canvas-card.is-selected {
@@ -1886,8 +2141,8 @@ p {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 7px 9px;
 }
 
 .rs-canvas-index {
@@ -1913,6 +2168,9 @@ p {
 .rs-canvas-title {
   font-weight: 700;
   word-break: break-word;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .rs-canvas-subtitle {
@@ -1927,7 +2185,32 @@ p {
 
 .rs-canvas-actions {
   display: inline-flex;
-  gap: 6px;
+  gap: 4px;
+}
+
+.rs-entry-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.rs-entry-step-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #f7fbf8;
+}
+
+.rs-entry-step-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rs-entry-step-head h5 {
+  margin: 0;
+  font-size: 0.95rem;
 }
 
 .rs-icon-btn {
@@ -1947,14 +2230,14 @@ p {
 
 .rs-canvas-details {
   border-top: 1px solid var(--line);
-  padding: 0 12px 10px;
+  padding: 0 10px 8px;
 }
 
 .rs-canvas-details summary {
   cursor: pointer;
   color: var(--muted);
   font-size: 0.82rem;
-  padding: 8px 0;
+  padding: 6px 0;
 }
 
 .rs-canvas-checklist {
@@ -2032,7 +2315,7 @@ p {
 
 .rs-canvas-connector {
   width: 2px;
-  height: 8px;
+  height: 6px;
   margin: 0 auto;
   background: linear-gradient(180deg, rgba(47, 143, 113, 0.45), rgba(47, 143, 113, 0));
 }
@@ -3075,6 +3358,22 @@ th {
 
   .rs-entry-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rs-schedule-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .rs-weekday-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rs-schedule-item {
+    grid-template-columns: 1fr;
+  }
+
+  .rs-schedule-item-actions {
+    justify-content: flex-end;
   }
 }
 

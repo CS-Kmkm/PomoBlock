@@ -1,5 +1,6 @@
 import type { RoutineStudioDragKind, RoutineStudioEntry, UiState } from "../../types.js";
 import type { FolderDropTarget } from "./studio/folder-dnd.js";
+import { moveStudioEntryGroupToIndex, removeStudioEntryGroup } from "./studio/entry-groups.js";
 import { clearFolderDropIndicators, resolveActiveFolderDrop } from "./studio/folder-dnd.js";
 
 type DragPayload = { kind: RoutineStudioDragKind; id: string };
@@ -105,9 +106,12 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     clearFolderDropIndicators(appRoot);
     activeFolderDrop = null;
     if (!inside && drag.kind === "entry") {
-      applyCanvasEntries(studio.canvasEntries.filter((entry) => entry.entryId !== drag.id), true);
-      if (studio.selectedEntryId === drag.id) {
-        studio.selectedEntryId = String(studio.canvasEntries[0]?.entryId || "");
+      applyCanvasEntries(removeStudioEntryGroup(studio.canvasEntries, drag.id), true);
+      if (
+        studio.entryEditorEntryId &&
+        studio.canvasEntries.every((entry) => String(entry.entryId || "") !== studio.entryEditorEntryId)
+      ) {
+        studio.entryEditorEntryId = "";
       }
       rerender();
       return;
@@ -121,16 +125,9 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     const { kind, id } = drag;
 
     if (kind === "entry") {
-      const sourceIndex = studio.canvasEntries.findIndex((entry) => entry.entryId === id);
-      if (sourceIndex < 0) return;
-      const target = Math.max(0, Math.min(insertIndex, studio.canvasEntries.length));
-      const nextEntries = [...studio.canvasEntries];
-      const [moved] = nextEntries.splice(sourceIndex, 1);
-      if (!moved) return;
-      const adjusted = target > sourceIndex ? target - 1 : target;
-      nextEntries.splice(Math.max(0, adjusted), 0, moved);
+      const nextEntries = moveStudioEntryGroupToIndex(studio.canvasEntries, id, insertIndex);
       applyCanvasEntries(nextEntries, true);
-      studio.selectedEntryId = moved.entryId;
+      studio.selectedEntryId = id;
     } else {
       addAssetToCanvas(kind, id, insertIndex);
     }
@@ -177,7 +174,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     dragOffsetY = event.clientY - rect.top;
     dragGhost = document.createElement("div");
     dragGhost.className = "rs-drag-ghost";
-    const labelEl = sourceEl.querySelector(".rs-asset-title, .rs-canvas-title");
+    const labelEl = sourceEl.querySelector(".rs-asset-title, .rs-canvas-title, .rs-canvas-group-step-title");
     dragGhost.textContent = (labelEl ? labelEl.textContent : null) ?? payload.id;
     dragGhost.style.left = `${event.clientX - dragOffsetX}px`;
     dragGhost.style.top = `${event.clientY - dragOffsetY}px`;

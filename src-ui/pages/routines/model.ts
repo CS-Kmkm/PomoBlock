@@ -19,6 +19,7 @@ export type RoutineStudioEntryView = {
   entryId: string;
   sourceKind: string;
   sourceId: string;
+  groupId?: string;
   moduleId: string;
   title: string;
   subtitle: string;
@@ -173,10 +174,24 @@ export const routineStudioSeedFolders: ModuleFolder[] = deriveModuleFolders(rout
 export const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
 
 let routineStudioSequence = 1;
+let routineStudioGroupSequence = 1;
+let routineScheduleSequence = 1;
 
 export function nextRoutineStudioEntryId() {
   const id = `studio-entry-${routineStudioSequence}`;
   routineStudioSequence += 1;
+  return id;
+}
+
+export function nextRoutineStudioEntryGroupId() {
+  const id = `studio-group-${routineStudioGroupSequence}`;
+  routineStudioGroupSequence += 1;
+  return id;
+}
+
+export function nextRoutineScheduleEntryId() {
+  const id = `schedule-entry-${routineScheduleSequence}`;
+  routineScheduleSequence += 1;
   return id;
 }
 
