@@ -14,7 +14,7 @@ type BindRoutineStudioEditorEventsParams = {
   toPositiveInt: (value: unknown, fallback: number, min?: number) => number;
   contextDefault: string;
   cloneValue: <T>(value: T) => T;
-  addScheduleAsset: (kind: RoutineScheduleAssetKind, id: string) => boolean;
+  addScheduleAsset: (kind: RoutineScheduleAssetKind, id: string, insertIndex?: number) => boolean;
   updateScheduleField: (entryId: string, field: string, value: string) => boolean;
 };
 
@@ -43,6 +43,17 @@ function filterStudioAssets(appRoot: HTMLElement, query: string): void {
   if (emptyState) {
     emptyState.hidden = visibleCount > 0;
   }
+}
+
+function readScheduleEntryId(node: HTMLElement): string {
+  return (
+    node.dataset.studioScheduleSelect ||
+    node.dataset.studioScheduleEntry ||
+    node.dataset.dayItemId ||
+    node.getAttribute("data-studio-schedule-id") ||
+    node.getAttribute("data-day-item-id") ||
+    ""
+  );
 }
 
 export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEventsParams): void {
@@ -209,9 +220,9 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
     });
   });
 
-  appRoot.querySelectorAll("[data-studio-schedule-select]").forEach((node) => {
+  appRoot.querySelectorAll("[data-studio-schedule-select], [data-studio-schedule-entry], [data-day-item-id]").forEach((node) => {
     node.addEventListener("click", () => {
-      const scheduleId = (node as HTMLElement).dataset.studioScheduleSelect || "";
+      const scheduleId = readScheduleEntryId(node as HTMLElement);
       if (!scheduleId) return;
       studio.scheduleSelectedEntryId = scheduleId;
       rerender();

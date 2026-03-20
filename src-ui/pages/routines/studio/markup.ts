@@ -35,6 +35,7 @@ type BuildRoutineStudioMarkupParams = {
   allComplexModuleAssets: Array<{ id: string; name: string; category: string; stepCount: number; totalMinutes: number }>;
   totalMinutes: number;
   routineStudioContexts: string[];
+  scheduleDayCalendarHtml: string;
   escapeHtml: (value: unknown) => string;
 };
 
@@ -244,9 +245,10 @@ function buildRoutineStudioEditorWorkspace(params: {
 function buildRoutineStudioScheduleCenterMarkup(params: {
   studio: RoutineStudioState;
   scheduleTitle: string;
+  scheduleDayCalendarHtml: string;
   escapeHtml: (value: unknown) => string;
 }): string {
-  const { studio, scheduleTitle, escapeHtml } = params;
+  const { studio, scheduleTitle, scheduleDayCalendarHtml, escapeHtml } = params;
   return `
           <section class="rs-schedule-main">
             <header class="rs-schedule-head">
@@ -267,31 +269,11 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
                 </div>
                 <button type="button" id="studio-schedule-add-gap" class="rs-btn rs-btn-ghost">空スロット追加</button>
               </header>
-              <div id="routine-schedule-dropzone" class="rs-schedule-list">
+              <div id="routine-schedule-dropzone" class="rs-schedule-now-dropzone" data-studio-schedule-dropzone="true">
                 ${
                   studio.scheduleEntries.length === 0
                     ? `<div class="rs-schedule-empty"><p>左側のモジュール / 複合モジュールをここへドラッグします。</p></div>`
-                    : studio.scheduleEntries
-                        .map(
-                          (entry, index) => `
-                      <article class="rs-schedule-item ${studio.scheduleSelectedEntryId === entry.id ? "is-selected" : ""}" data-studio-schedule-select="${escapeHtml(entry.id)}" data-studio-schedule-entry="${escapeHtml(entry.id)}">
-                        <div class="rs-schedule-item-time">
-                          <input type="time" value="${escapeHtml(entry.startTime)}" data-studio-schedule-field="startTime" data-studio-schedule-id="${escapeHtml(entry.id)}" />
-                          <span>${Math.max(1, Number(entry.durationMinutes) || 0)}m</span>
-                        </div>
-                        <div class="rs-schedule-item-body">
-                          <p class="rs-schedule-item-title">${escapeHtml(entry.title)}</p>
-                          <p class="rs-schedule-item-subtitle">${escapeHtml(entry.subtitle || (entry.assetKind === "module" ? "モジュール" : "複合モジュール"))}</p>
-                        </div>
-                        <div class="rs-schedule-item-actions">
-                          <button type="button" class="rs-icon-btn" title="上へ" data-studio-schedule-move="${escapeHtml(entry.id)}" data-studio-dir="up" ${index === 0 ? "disabled" : ""}>↑</button>
-                          <button type="button" class="rs-icon-btn" title="下へ" data-studio-schedule-move="${escapeHtml(entry.id)}" data-studio-dir="down" ${index === studio.scheduleEntries.length - 1 ? "disabled" : ""}>↓</button>
-                          <button type="button" class="rs-icon-btn is-danger" title="削除" data-studio-schedule-remove="${escapeHtml(entry.id)}">×</button>
-                        </div>
-                      </article>
-                    `,
-                        )
-                        .join("")
+                    : scheduleDayCalendarHtml
                 }
               </div>
             </section>
@@ -480,7 +462,7 @@ function buildRoutineStudioScheduleRightMarkup(params: {
 }
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
-  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, escapeHtml } = params;
+  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, scheduleDayCalendarHtml, escapeHtml } = params;
   const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.scheduleGroupId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
   const currentScheduleValue = studio.scheduleGroupId || studio.templateId || "rtngrp-routine-schedule";
@@ -524,6 +506,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
           ${buildRoutineStudioScheduleCenterMarkup({
             studio,
             scheduleTitle,
+            scheduleDayCalendarHtml,
             escapeHtml,
           })}
           <div class="pane-splitter" data-pane-resize="rs-schedule-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>

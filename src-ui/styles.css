@@ -1534,6 +1534,59 @@ p {
   background: var(--surface-strong);
 }
 
+.route-routines .rs-schedule-main {
+  --now-track-height: clamp(420px, calc(100vh - 360px), 680px);
+}
+
+.rs-schedule-now-dropzone {
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-strong);
+  overflow: auto;
+  padding: 10px;
+  position: relative;
+}
+
+.rs-schedule-now-dropzone .now-day-schedule {
+  min-width: 0;
+}
+
+.rs-schedule-now-dropzone .day-lane-track {
+  min-width: 0;
+}
+
+.rs-schedule-now-dropzone .day-entry-event {
+  cursor: grab;
+  touch-action: none;
+}
+
+.rs-schedule-now-dropzone .day-entry-event.is-dragging {
+  cursor: grabbing;
+  filter: brightness(0.99);
+  box-shadow: 0 6px 14px rgba(20, 42, 34, 0.14);
+}
+
+.rs-schedule-now-dropzone .day-entry.is-insert-target {
+  box-shadow: 0 0 0 2px rgba(47, 143, 113, 0.36), 0 8px 18px rgba(20, 42, 34, 0.12);
+}
+
+.rs-schedule-now-dropzone.is-over .day-lane-track {
+  border-color: rgba(47, 143, 113, 0.42);
+}
+
+.rs-schedule-now-dropzone.is-insert-end .day-lane-track::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  height: 2px;
+  background: rgba(47, 143, 113, 0.7);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
 .rs-schedule-list {
   min-height: 0;
   overflow: auto;
@@ -3513,6 +3566,19 @@ th {
   .rs-schedule-list::before,
   .rs-schedule-item::before {
     display: none;
+  }
+
+  .route-routines .rs-schedule-main {
+    --now-track-height: clamp(320px, 48vh, 500px);
+  }
+
+  .rs-schedule-now-dropzone {
+    padding: 8px;
+  }
+
+  .rs-schedule-now-dropzone .now-day-schedule {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 6px;
   }
 }
 

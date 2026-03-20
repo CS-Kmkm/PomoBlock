@@ -178,6 +178,89 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 rawStep,
             }, index);
         });
+    const parseScheduleTimeMinutes = (time: string): number => {
+        const [hhRaw, mmRaw] = String(time || "").split(":");
+        const hh = Number(hhRaw);
+        const mm = Number(mmRaw);
+        if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 9 * 60;
+        return Math.max(0, Math.min(24 * 60 - 1, hh * 60 + mm));
+    };
+    const buildSchedulePlannerModel = () => {
+        const today = new Date();
+        const dayStart = new Date(today);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const sortedEntries = [...studio.scheduleEntries]
+            .sort((left, right) => String(left.startTime || "").localeCompare(String(right.startTime || "")));
+        const combinedItems = sortedEntries.map((entry, index) => {
+            const startMinutes = parseScheduleTimeMinutes(String(entry.startTime || "09:00"));
+            const durationMinutes = Math.max(1, Number(entry.durationMinutes) || 1);
+            const startMs = dayStart.getTime() + startMinutes * 60 * 1000;
+            const endMs = Math.min(dayEnd.getTime(), startMs + durationMinutes * 60 * 1000);
+            const id = String(entry.id || `schedule-entry-${index + 1}`);
+            return {
+                kind: "event",
+                id,
+                key: `event:${id}`,
+                title: String(entry.title || "予定"),
+                subtitle: String(entry.subtitle || ""),
+                startMs,
+                endMs,
+                durationMinutes,
+                payload: entry,
+            };
+        });
+        const firstStartMinutes = combinedItems.length > 0
+            ? Math.floor(((combinedItems[0]?.startMs || dayStart.getTime()) - dayStart.getTime()) / 60000)
+            : 9 * 60;
+        const lastEndMinutes = combinedItems.length > 0
+            ? Math.ceil(((combinedItems[combinedItems.length - 1]?.endMs || dayStart.getTime()) - dayStart.getTime()) / 60000)
+            : 18 * 60;
+        const visibleStartMinutes = Math.max(0, Math.min(23 * 60, Math.floor(firstStartMinutes / 60) * 60 - 60));
+        const visibleEndMinutes = Math.max(
+            visibleStartMinutes + 60,
+            Math.min(24 * 60, Math.ceil(lastEndMinutes / 60) * 60 + 60),
+        );
+        const dayStartMs = dayStart.getTime() + visibleStartMinutes * 60 * 1000;
+        const dayEndMs = dayStart.getTime() + visibleEndMinutes * 60 * 1000;
+        const selectedItem = combinedItems.find((item) => item.id === studio.scheduleSelectedEntryId) || combinedItems[0] || null;
+        const dateKey = isoDate(today);
+        return {
+            days: [
+                {
+                    dayStartMs,
+                    dayEndMs,
+                    blockIntervals: [],
+                    eventIntervals: [],
+                    busyIntervals: [],
+                    freeIntervals: [],
+                    blockItems: [],
+                    eventItems: combinedItems,
+                    freeItems: [],
+                    selectedItem,
+                    selection: selectedItem ? { kind: "event", id: selectedItem.id } : null,
+                    totals: {
+                        blockMinutes: 0,
+                        eventMinutes: combinedItems.reduce((sum, item) => sum + item.durationMinutes, 0),
+                        freeMinutes: 0,
+                    },
+                    dayKey: dateKey,
+                    dayDate: new Date(dayStart),
+                    dayNumber: String(dayStart.getDate()).padStart(2, "0"),
+                    monthDayLabel: `${dayStart.getMonth() + 1}/${dayStart.getDate()}`,
+                    weekdayLabel: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][dayStart.getDay()] || "N/A",
+                    isCurrent: true,
+                    isToday: true,
+                    combinedItems,
+                },
+            ],
+            selectedItem,
+            weekLabel: "",
+            selection: selectedItem ? { kind: "event", id: selectedItem.id } : null,
+        };
+    };
+    const scheduleDayCalendarHtml = helpers.renderSingleDayPlannerCalendar(buildSchedulePlannerModel() as unknown);
     const { folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes } = buildStudioAssets({
         studio,
         recipes,
@@ -192,6 +275,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         allComplexModuleAssets,
         totalMinutes,
         routineStudioContexts,
+        scheduleDayCalendarHtml,
         escapeHtml,
     }));
     bindPaneResizers(appRoot, [
