@@ -1267,6 +1267,7 @@ p {
 .routine-studio-root {
   flex: 1;
   min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   position: relative;
@@ -1505,6 +1506,10 @@ p {
   gap: 12px;
 }
 
+.rs-schedule-day {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .rs-schedule-side {
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -1653,6 +1658,8 @@ p {
   padding: 14px;
   display: grid;
   gap: 12px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .rs-repeat-tabs {
@@ -1687,6 +1694,7 @@ p {
 .rs-schedule-three-pane {
   min-height: 0;
   height: 100%;
+  max-height: 100%;
   display: grid;
   grid-template-columns:
     clamp(320px, 34vw, var(--rs-schedule-left-width, 560px))
@@ -1696,6 +1704,7 @@ p {
     clamp(260px, 24vw, var(--rs-schedule-right-width, 360px));
   gap: 0;
   padding: 0;
+  overflow: hidden;
 }
 
 .rs-schedule-three-pane > .pane-splitter {
@@ -1706,6 +1715,7 @@ p {
 .rs-schedule-three-pane > .rs-schedule-main,
 .rs-schedule-three-pane > .rs-schedule-side {
   min-height: 0;
+  overflow: hidden;
 }
 
 .rs-schedule-left {
@@ -3456,6 +3466,8 @@ th {
     grid-template-rows: auto;
     padding: 14px;
     gap: 14px;
+    max-height: none;
+    overflow: visible;
   }
 
   .rs-schedule-three-pane > .pane-splitter {
