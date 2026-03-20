@@ -1,5 +1,5 @@
 import type { Module, ModuleFolder, Recipe, RoutineScheduleEntry, RoutineScheduleRecurrence, RoutineStudioState } from "../../../types.js";
-import { routineStudioSlug } from "../model.js";
+import { ROUTINE_STUDIO_DEFAULT_FOLDER_ID, routineStudioSlug } from "../model.js";
 
 type SafeInvoke = (command: string, payload: Record<string, unknown>) => Promise<unknown>;
 
@@ -47,6 +47,7 @@ type ApplyStudioTemplateToTodayParams = {
   formatHHmm: (value: string | null | undefined) => string;
   templateId: string;
   triggerTime: string;
+  targetDate?: string;
 };
 
 type SaveRoutineScheduleGroupParams = {
@@ -71,6 +72,7 @@ type SavedRoutineRecord = {
   default: {
     start: string;
     durationMinutes: number;
+    dayOffset?: number;
   };
   schedule: Record<string, unknown>;
   title: string;
@@ -78,6 +80,7 @@ type SavedRoutineRecord = {
   assetKind: string;
   assetId: string;
   moduleId?: string;
+  dayOffset?: number;
   startDate?: string;
   endDate?: string;
 };
@@ -90,7 +93,7 @@ export function buildStudioModulePayload(params: BuildStudioModulePayloadParams)
     ...base,
     id: resolvedId,
     name: moduleName || resolvedId,
-    category: category || "General",
+    category: category || ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
     description,
     icon: icon || "module",
     durationMinutes: Math.max(1, Number(durationMinutes) || 1),
@@ -240,6 +243,7 @@ function buildSavedRoutineRecord(params: {
     default: {
       start: entry.startTime,
       durationMinutes: Math.max(1, Number(entry.durationMinutes) || 1),
+      ...(Number(entry.dayOffset || 0) !== 0 ? { dayOffset: Math.max(-1, Math.min(1, Math.trunc(Number(entry.dayOffset) || 0))) } : {}),
     },
     schedule: buildScheduleObject(recurrence),
     title: entry.title,
@@ -247,6 +251,7 @@ function buildSavedRoutineRecord(params: {
     assetKind: entry.assetKind,
     assetId: entry.assetId,
     ...(entry.moduleId ? { moduleId: entry.moduleId } : {}),
+    ...(Number(entry.dayOffset || 0) !== 0 ? { dayOffset: Math.max(-1, Math.min(1, Math.trunc(Number(entry.dayOffset) || 0))) } : {}),
     ...(recurrence.startDate ? { startDate: recurrence.startDate } : {}),
     ...(recurrence.endDate ? { endDate: recurrence.endDate } : {}),
   };
@@ -260,11 +265,22 @@ export async function loadRoutineScheduleGroup(params: LoadRoutineScheduleGroupP
   const routinesResult = await safeInvoke("list_routines", {});
   const routines = Array.isArray(routinesResult) ? (routinesResult as Array<Record<string, unknown>>) : [];
   const matched = routines.filter((routine) => String(routine.scheduleGroupId || routine.schedule_group_id || "") === groupId);
+  const toStartMinutes = (value: unknown): number => {
+    const text = String(value || "");
+    const [hhRaw, mmRaw] = text.split(":");
+    const hh = Number(hhRaw);
+    const mm = Number(mmRaw);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 9 * 60;
+    return Math.max(0, Math.min(24 * 60 - 1, hh * 60 + mm));
+  };
   const routineStart = (routine: Record<string, unknown>) => {
     const defaults = (routine.default as Record<string, unknown> | undefined) || {};
-    return String(defaults.start || routine.start || "");
+    const start = String(defaults.start || routine.start || "09:00");
+    const dayOffset = Number(defaults.dayOffset ?? defaults.day_offset ?? routine.dayOffset ?? routine.day_offset ?? 0);
+    const normalizedOffset = Number.isFinite(dayOffset) ? Math.max(-1, Math.min(1, Math.trunc(dayOffset))) : 0;
+    return normalizedOffset * 24 * 60 + toStartMinutes(start);
   };
-  matched.sort((left, right) => routineStart(left).localeCompare(routineStart(right)));
+  matched.sort((left, right) => routineStart(left) - routineStart(right));
   const first = (matched[0] || {}) as Record<string, unknown>;
   const recurrenceSource = ((first.schedule as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
   const weekdays = Array.isArray(recurrenceSource.days)
@@ -297,6 +313,13 @@ export async function loadRoutineScheduleGroup(params: LoadRoutineScheduleGroupP
           moduleId: String(routine.moduleId || routine.module_id || ""),
           title: String(routine.title || routine.name || fallbackTitle),
           subtitle: String(routine.subtitle || ""),
+          dayOffset: Number(
+            (routine.default as Record<string, unknown> | undefined)?.dayOffset ??
+            (routine.default as Record<string, unknown> | undefined)?.day_offset ??
+            routine.dayOffset ??
+            routine.day_offset ??
+            0,
+          ),
           startTime: String((routine.default as Record<string, unknown> | undefined)?.start || routine.start || "09:00"),
           durationMinutes: Number((routine.default as Record<string, unknown> | undefined)?.durationMinutes || routine.durationMinutes || 25),
         },
@@ -364,6 +387,22 @@ export async function saveRoutineScheduleGroup(params: SaveRoutineScheduleGroupP
 export async function persistStudioTemplate(params: PersistRecipeParams): Promise<string> {
   const { studio, recipes, safeInvoke } = params;
   const payload = buildStudioRecipePayload({ studio });
+  const existingRecipe = recipes.find((recipe) => String(recipe?.id || "") === String(payload.id || ""));
+  const existingMeta =
+    existingRecipe?.studioMeta && typeof existingRecipe.studioMeta === "object"
+      ? { ...(existingRecipe.studioMeta as Record<string, unknown>) }
+      : {};
+  payload.studioMeta = {
+    ...existingMeta,
+    ...((payload.studioMeta as Record<string, unknown> | undefined) || {}),
+    category:
+      String(
+        ((payload.studioMeta as Record<string, unknown> | undefined)?.category as string | undefined) ||
+          existingMeta.category ||
+          studio.moduleFolders[0]?.id ||
+          ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
+      ).trim() || ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
+  };
   const payloadId = String(payload.id || "");
   const payloadName = String(payload.name || "");
   const exists = recipes.some((recipe) => String(recipe?.id || "") === payloadId);
@@ -482,19 +521,115 @@ export async function moveStudioModule(params: {
   return Array.isArray(modules) ? modules.map((module, index) => normalizeModule(module, index)) : [];
 }
 
+export async function moveStudioTemplate(params: {
+  safeInvoke: SafeInvoke;
+  recipes: Recipe[];
+  templateId: string;
+  folderId: string;
+  beforeTemplateId?: string;
+}): Promise<Recipe[]> {
+  const { safeInvoke, recipes, templateId, folderId, beforeTemplateId } = params;
+  const recipe = recipes.find((candidate) => String(candidate?.id || "") === templateId);
+  if (!recipe) {
+    throw new Error(`template not found: ${templateId}`);
+  }
+  const readSortOrder = (target: Recipe, fallbackIndex: number): number => {
+    const studioMeta = (target.studioMeta as Record<string, unknown> | undefined) || {};
+    const value = Number(studioMeta.order);
+    if (Number.isFinite(value)) return value;
+    return fallbackIndex * 100;
+  };
+  const isRoutineStudioTemplate = (target: Recipe): boolean => {
+    const studioMeta = (target.studioMeta as Record<string, unknown> | undefined) || {};
+    return String(studioMeta.kind || "routine_studio") === "routine_studio";
+  };
+  const recipeIdsByOrder = recipes
+    .filter((target) => isRoutineStudioTemplate(target))
+    .map((target, index) => ({
+      id: String(target.id || ""),
+      category: String((((target.studioMeta as Record<string, unknown> | undefined) || {}).category || ROUTINE_STUDIO_DEFAULT_FOLDER_ID)),
+      order: readSortOrder(target, index),
+      index,
+    }));
+  const movedRecipeId = String(recipe.id || templateId);
+  const sourceCategory = String((((recipe.studioMeta as Record<string, unknown> | undefined) || {}).category || ROUTINE_STUDIO_DEFAULT_FOLDER_ID));
+  const targetCategoryItems = recipeIdsByOrder
+    .filter((target) => target.category === folderId && target.id !== movedRecipeId)
+    .sort((left, right) => left.order - right.order || left.index - right.index);
+  const insertIndex = beforeTemplateId
+    ? Math.max(0, targetCategoryItems.findIndex((target) => target.id === beforeTemplateId))
+    : targetCategoryItems.length;
+  const clampedInsertIndex = insertIndex < 0 ? targetCategoryItems.length : insertIndex;
+  const prevOrder = targetCategoryItems[Math.max(0, clampedInsertIndex - 1)]?.order;
+  const nextOrder = targetCategoryItems[clampedInsertIndex]?.order;
+  const nextSortOrder = (() => {
+    if (Number.isFinite(prevOrder) && Number.isFinite(nextOrder) && Number(nextOrder) - Number(prevOrder) > 1e-6) {
+      return (Number(prevOrder) + Number(nextOrder)) / 2;
+    }
+    if (Number.isFinite(prevOrder) && Number.isFinite(nextOrder)) {
+      return Number(prevOrder) + 1;
+    }
+    if (Number.isFinite(prevOrder)) {
+      return Number(prevOrder) + 1;
+    }
+    if (Number.isFinite(nextOrder)) {
+      return Number(nextOrder) - 1;
+    }
+    return 0;
+  })();
+  const movedMeta = ((recipe.studioMeta as Record<string, unknown> | undefined) || {});
+  const movedPayload = {
+    ...(recipe as Record<string, unknown>),
+    studioMeta: {
+      ...movedMeta,
+      version: Number(movedMeta.version || 1),
+      kind: String(movedMeta.kind || "routine_studio"),
+      context: String(movedMeta.context || "") || undefined,
+      category: folderId,
+      order: nextSortOrder,
+    },
+  };
+  await safeInvoke("update_recipe", { recipe_id: templateId, payload: movedPayload });
+  if (sourceCategory === folderId) {
+    const normalizedOrder = targetCategoryItems.map((target) => target.id);
+    normalizedOrder.splice(Math.max(0, Math.min(clampedInsertIndex, targetCategoryItems.length)), 0, movedRecipeId);
+    for (let index = 0; index < normalizedOrder.length; index += 1) {
+      const targetId = normalizedOrder[index];
+      if (!targetId || targetId === movedRecipeId) continue;
+      const targetRecipe = recipes.find((candidate) => String(candidate?.id || "") === targetId);
+      if (!targetRecipe) continue;
+      const targetMeta = ((targetRecipe.studioMeta as Record<string, unknown> | undefined) || {});
+      const payload = {
+        ...(targetRecipe as Record<string, unknown>),
+        studioMeta: {
+          ...targetMeta,
+          version: Number(targetMeta.version || 1),
+          kind: String(targetMeta.kind || "routine_studio"),
+          context: String(targetMeta.context || "") || undefined,
+          category: folderId,
+          order: index * 100,
+        },
+      };
+      await safeInvoke("update_recipe", { recipe_id: targetId, payload });
+    }
+  }
+  const refreshed = await safeInvoke("list_recipes", {});
+  return Array.isArray(refreshed) ? (refreshed as Recipe[]) : [];
+}
+
 export async function applyStudioTemplateToToday(params: ApplyStudioTemplateToTodayParams): Promise<string> {
-  const { safeInvoke, refreshCoreData, withAccount, isoDate, formatHHmm, templateId, triggerTime } = params;
-  const targetDate = isoDate(new Date());
+  const { safeInvoke, refreshCoreData, withAccount, isoDate, formatHHmm, templateId, triggerTime, targetDate } = params;
+  const effectiveDate = targetDate || isoDate(new Date());
   const result = (await safeInvoke(
     "apply_studio_template_to_today",
     withAccount({
       template_id: templateId,
-      date: targetDate,
+      date: effectiveDate,
       trigger_time: triggerTime || "09:00",
       conflict_policy: "shift",
     }),
   )) as Record<string, unknown>;
-  await refreshCoreData(targetDate);
+  await refreshCoreData(effectiveDate);
   const requested = formatHHmm(String(result?.requested_start_at || ""));
   const applied = formatHHmm(String(result?.applied_start_at || ""));
   return result?.shifted ? `Shifted ${requested} -> ${applied} (${result?.conflict_count || 0} conflicts)` : `Applied at ${applied}`;

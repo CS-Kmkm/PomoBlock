@@ -36,6 +36,8 @@ type BuildRoutineStudioMarkupParams = {
   totalMinutes: number;
   routineStudioContexts: string[];
   scheduleDayCalendarHtml: string;
+  scheduleWindowStartMinutes: number;
+  scheduleWindowDurationMinutes: number;
   escapeHtml: (value: unknown) => string;
 };
 
@@ -246,9 +248,11 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
   studio: RoutineStudioState;
   scheduleTitle: string;
   scheduleDayCalendarHtml: string;
+  scheduleWindowStartMinutes: number;
+  scheduleWindowDurationMinutes: number;
   escapeHtml: (value: unknown) => string;
 }): string {
-  const { studio, scheduleTitle, scheduleDayCalendarHtml, escapeHtml } = params;
+  const { studio, scheduleTitle, scheduleDayCalendarHtml, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, escapeHtml } = params;
   return `
           <section class="rs-schedule-main">
             <header class="rs-schedule-head">
@@ -265,16 +269,12 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
               <header class="rs-schedule-section-head">
                 <div>
                   <h4>1日のスケジュール</h4>
-                  <p class="small">開始時刻順に並びます</p>
+                  <p class="small">中央の帯が当日24hです。ドラッグで空き枠に配置できます</p>
                 </div>
                 <button type="button" id="studio-schedule-add-gap" class="rs-btn rs-btn-ghost">空スロット追加</button>
               </header>
-              <div id="routine-schedule-dropzone" class="rs-schedule-now-dropzone" data-studio-schedule-dropzone="true">
-                ${
-                  studio.scheduleEntries.length === 0
-                    ? `<div class="rs-schedule-empty"><p>左側のモジュール / 複合モジュールをここへドラッグします。</p></div>`
-                    : scheduleDayCalendarHtml
-                }
+              <div id="routine-schedule-dropzone" class="rs-schedule-now-dropzone" data-studio-schedule-dropzone="true" data-schedule-window-start-minutes="${scheduleWindowStartMinutes}" data-schedule-window-duration-minutes="${scheduleWindowDurationMinutes}">
+                ${scheduleDayCalendarHtml}
               </div>
             </section>
           </section>
@@ -445,6 +445,14 @@ function buildRoutineStudioScheduleRightMarkup(params: {
                 <div class="rs-schedule-detail">
                   <h5>選択中の予定</h5>
                   <label class="rs-field">タイトル<input value="${escapeHtml(selectedEntry.title)}" data-studio-schedule-field="title" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                  <label class="rs-field">開始時刻<input type="time" value="${escapeHtml(selectedEntry.startTime)}" data-studio-schedule-field="startTime" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                  <label class="rs-field">日オフセット
+                    <select data-studio-schedule-field="dayOffset" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}">
+                      <option value="-1" ${Number(selectedEntry.dayOffset || 0) === -1 ? "selected" : ""}>-1日 (前日)</option>
+                      <option value="0" ${Number(selectedEntry.dayOffset || 0) === 0 ? "selected" : ""}>0日 (当日)</option>
+                      <option value="1" ${Number(selectedEntry.dayOffset || 0) === 1 ? "selected" : ""}>+1日 (翌日)</option>
+                    </select>
+                  </label>
                   <label class="rs-field">分<input type="number" min="1" value="${Math.max(1, Number(selectedEntry.durationMinutes) || 1)}" data-studio-schedule-field="durationMinutes" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
                 </div>
               `;
@@ -462,7 +470,7 @@ function buildRoutineStudioScheduleRightMarkup(params: {
 }
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
-  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, scheduleDayCalendarHtml, escapeHtml } = params;
+  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, scheduleDayCalendarHtml, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, escapeHtml } = params;
   const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.scheduleGroupId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
   const currentScheduleValue = studio.scheduleGroupId || studio.templateId || "rtngrp-routine-schedule";
@@ -507,6 +515,8 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
             studio,
             scheduleTitle,
             scheduleDayCalendarHtml,
+            scheduleWindowStartMinutes,
+            scheduleWindowDurationMinutes,
             escapeHtml,
           })}
           <div class="pane-splitter" data-pane-resize="rs-schedule-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>

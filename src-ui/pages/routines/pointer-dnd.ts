@@ -21,8 +21,14 @@ type BindPointerDndParams = {
   paintDropIndicator: (dropzone: HTMLElement, insertIndex: number) => void;
   moveModuleAsset: (moduleId: string, targetFolderId: string, beforeModuleId?: string) => Promise<void>;
   moveTemplateAsset: (templateId: string, targetFolderId: string, beforeTemplateId?: string) => Promise<void>;
-  addScheduleAsset?: (kind: RoutineScheduleAssetKind, id: string, insertIndex?: number) => boolean;
+  addScheduleAsset?: (
+    kind: RoutineScheduleAssetKind,
+    id: string,
+    insertIndex?: number,
+    placement?: { startTime: string; dayOffset: number },
+  ) => boolean;
   moveScheduleEntryToIndex?: (entryId: string, insertIndex: number) => boolean;
+  moveScheduleEntryToTime?: (entryId: string, placement: { startTime: string; dayOffset: number }) => boolean;
   resolveScheduleDropInsertIndex?: (dropzone: HTMLElement, clientY: number) => number;
   clearScheduleDropIndicator?: (dropzone: HTMLElement) => void;
   paintScheduleDropIndicator?: (dropzone: HTMLElement, insertIndex: number) => void;
@@ -109,6 +115,28 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
         "[data-studio-schedule-entry], [data-studio-schedule-item], [data-studio-schedule-draggable='true'], .rs-schedule-item, .day-entry[data-day-item-id]",
       ),
     );
+
+  const resolveScheduleDropPlacement = (dropzone: HTMLElement, clientY: number): { startTime: string; dayOffset: number } | null => {
+    const track = dropzone.querySelector<HTMLElement>(".day-lane-track") ?? dropzone;
+    const rect = track.getBoundingClientRect();
+    if (!Number.isFinite(rect.height) || rect.height <= 0) return null;
+    const windowStartRaw = Number(dropzone.dataset.scheduleWindowStartMinutes || "-1440");
+    const windowDurationRaw = Number(dropzone.dataset.scheduleWindowDurationMinutes || "4320");
+    const windowStart = Number.isFinite(windowStartRaw) ? windowStartRaw : -1440;
+    const windowDuration = Number.isFinite(windowDurationRaw) && windowDurationRaw > 0 ? windowDurationRaw : 4320;
+    const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    const absoluteMinutes = windowStart + ratio * windowDuration;
+    const snapped = Math.round(absoluteMinutes / 5) * 5;
+    const clamped = Math.max(windowStart, Math.min(windowStart + windowDuration - 1, snapped));
+    const dayOffset = Math.max(-1, Math.min(1, Math.floor(clamped / (24 * 60))));
+    const minuteInDay = ((clamped % (24 * 60)) + 24 * 60) % (24 * 60);
+    const hh = Math.floor(minuteInDay / 60);
+    const mm = minuteInDay % 60;
+    return {
+      dayOffset,
+      startTime: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+    };
+  };
 
   const moveScheduleEntryToIndex = (entryId: string, insertIndex: number): boolean => {
     const index = studio.scheduleEntries.findIndex((entry) => entry.id === entryId);
@@ -222,6 +250,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
       clientY >= scheduleRect.top &&
       clientY <= scheduleRect.bottom;
     const scheduleInsertIndex = scheduleDropzone ? resolveScheduleDropInsertIndex(scheduleDropzone, clientY) : studio.scheduleEntries.length;
+    const schedulePlacement = scheduleDropzone ? resolveScheduleDropPlacement(scheduleDropzone, clientY) : null;
     const drag = activeDrag;
     const folderDrop = resolveCommittedFolderDropTarget({
       dragKind: drag.kind,
@@ -246,7 +275,10 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     activeFolderDrop = null;
     const isScheduleEntryDrag = drag.kind === "schedule-entry";
     if (isScheduleEntryDrag && insideSchedule) {
-      if ((params.moveScheduleEntryToIndex ?? moveScheduleEntryToIndex)(drag.id, scheduleInsertIndex)) {
+      const moved = schedulePlacement && params.moveScheduleEntryToTime
+        ? params.moveScheduleEntryToTime(drag.id, schedulePlacement)
+        : (params.moveScheduleEntryToIndex ?? moveScheduleEntryToIndex)(drag.id, scheduleInsertIndex);
+      if (moved) {
         rerender();
       }
       return;
@@ -265,7 +297,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
     if (insideSchedule && scheduleDropzone && (drag.kind === "module" || drag.kind === "template")) {
       const addSchedule = params.addScheduleAsset;
       if (addSchedule) {
-        if (addSchedule(drag.kind, drag.id, scheduleInsertIndex)) {
+        if (addSchedule(drag.kind, drag.id, scheduleInsertIndex, schedulePlacement || undefined)) {
           rerender();
         }
       } else {
@@ -417,7 +449,7 @@ export function bindRoutineStudioPointerDnd(params: BindPointerDndParams): () =>
 
   appRoot
     .querySelectorAll<HTMLElement>(
-      "[data-studio-schedule-draggable='true'], [data-studio-schedule-entry], [data-studio-schedule-item], .rs-schedule-item, .day-entry[data-day-item-id]",
+      "[data-studio-schedule-draggable='true'], [data-studio-schedule-entry], [data-studio-schedule-item], .rs-schedule-item, .day-entry[data-day-item-kind='event'][data-day-item-id]",
     )
     .forEach((node) => {
       const item = node as HTMLElement;
