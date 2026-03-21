@@ -14,6 +14,7 @@ type BindRoutineStudioAsyncEventsParams = {
   onSaveTemplate: () => Promise<void>;
   onSaveSchedule: () => Promise<void>;
   onApplyToday: () => Promise<void>;
+  onDeleteScheduleGroup: (groupId: string) => Promise<void>;
   onDeleteRecipe: (recipeId: string) => Promise<void>;
 };
 
@@ -32,6 +33,7 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
     onSaveTemplate,
     onSaveSchedule,
     onApplyToday,
+    onDeleteScheduleGroup,
     onDeleteRecipe,
   } = params;
 
@@ -103,6 +105,14 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
 
   document.getElementById("studio-save-schedule")?.addEventListener("click", () => {
     void onSaveSchedule();
+  });
+
+  appRoot.querySelectorAll("[data-studio-saved-schedule-delete]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const groupId = (node as HTMLElement).dataset.studioSavedScheduleDelete || "";
+      if (!groupId) return;
+      void onDeleteScheduleGroup(groupId);
+    });
   });
 
   appRoot.querySelectorAll("[data-studio-recipe-delete]").forEach((node) => {

@@ -1,4 +1,4 @@
-import type { RoutineStudioState } from "../../../types.js";
+import type { RoutineScheduleGroupSummary, RoutineScheduleRecurrence, RoutineStudioState } from "../../../types.js";
 import type { RoutineStudioFolderView } from "../model.js";
 import { ROUTINE_STUDIO_DEFAULT_FOLDER_ID, routineStudioFolderLabel } from "../model.js";
 import { canMoveStudioEntryGroup, collectStudioEntryGroups } from "./entry-groups.js";
@@ -13,8 +13,7 @@ const weekdayOptions = [
   { id: "sat", label: "土" },
 ];
 
-function scheduleRecurrenceLabel(studio: RoutineStudioState): string {
-  const recurrence = studio.scheduleRecurrence;
+function scheduleRecurrenceLabelForRecurrence(recurrence: RoutineScheduleRecurrence): string {
   if (recurrence.repeatType === "monthly_date") {
     return `毎月 ${Math.max(1, Number(recurrence.dayOfMonth) || 1)} 日`;
   }
@@ -28,6 +27,10 @@ function scheduleRecurrenceLabel(studio: RoutineStudioState): string {
   return labels.length > 0 ? `毎週 ${labels.join("・")}` : "毎週";
 }
 
+function scheduleRecurrenceLabel(studio: RoutineStudioState): string {
+  return scheduleRecurrenceLabelForRecurrence(studio.scheduleRecurrence);
+}
+
 type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;
   folderAssets: RoutineStudioFolderView[];
@@ -36,8 +39,11 @@ type BuildRoutineStudioMarkupParams = {
   totalMinutes: number;
   routineStudioContexts: string[];
   scheduleDayCalendarHtml: string;
+  savedScheduleGroups: RoutineScheduleGroupSummary[];
+  currentDraftScheduleValue: string;
   scheduleWindowStartMinutes: number;
   scheduleWindowDurationMinutes: number;
+  showExtendedScheduleWindow: boolean;
   escapeHtml: (value: unknown) => string;
 };
 
@@ -250,9 +256,10 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
   scheduleDayCalendarHtml: string;
   scheduleWindowStartMinutes: number;
   scheduleWindowDurationMinutes: number;
+  showExtendedScheduleWindow: boolean;
   escapeHtml: (value: unknown) => string;
 }): string {
-  const { studio, scheduleTitle, scheduleDayCalendarHtml, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, escapeHtml } = params;
+  const { studio, scheduleTitle, scheduleDayCalendarHtml, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, showExtendedScheduleWindow, escapeHtml } = params;
   return `
           <section class="rs-schedule-main">
             <header class="rs-schedule-head">
@@ -269,11 +276,22 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
               <header class="rs-schedule-section-head">
                 <div>
                   <h4>1日のスケジュール</h4>
-                  <p class="small">中央の帯が当日24hです。ドラッグで空き枠に配置できます</p>
+                  <p class="small">${showExtendedScheduleWindow ? "日跨ぎ予定があるため前後日も表示しています" : "当日24hを表示しています。日跨ぎ予定のみ前後日に拡張します"}</p>
                 </div>
                 <button type="button" id="studio-schedule-add-gap" class="rs-btn rs-btn-ghost">空スロット追加</button>
               </header>
-              <div id="routine-schedule-dropzone" class="rs-schedule-now-dropzone" data-studio-schedule-dropzone="true" data-schedule-window-start-minutes="${scheduleWindowStartMinutes}" data-schedule-window-duration-minutes="${scheduleWindowDurationMinutes}">
+              <div id="routine-schedule-dropzone" class="rs-schedule-now-dropzone ${showExtendedScheduleWindow ? "is-extended-window" : "is-day-window"}" data-studio-schedule-dropzone="true" data-schedule-window-start-minutes="${scheduleWindowStartMinutes}" data-schedule-window-duration-minutes="${scheduleWindowDurationMinutes}">
+                <div class="rs-schedule-zone-markers ${showExtendedScheduleWindow ? "is-extended-window" : "is-day-window"}" aria-hidden="true">
+                  ${
+                    showExtendedScheduleWindow
+                      ? `
+                  <div class="rs-schedule-zone-marker is-before"><span>-24h</span></div>
+                  <div class="rs-schedule-zone-marker is-today"><span>当日</span></div>
+                  <div class="rs-schedule-zone-marker is-after"><span>+24h</span></div>
+                  `
+                      : `<div class="rs-schedule-zone-marker is-today is-full"><span>当日</span></div>`
+                  }
+                </div>
                 ${scheduleDayCalendarHtml}
               </div>
             </section>
@@ -369,23 +387,32 @@ function buildRoutineStudioScheduleLeftMarkup(params: {
 
 function buildRoutineStudioScheduleRightMarkup(params: {
   studio: RoutineStudioState;
-  currentScheduleValue: string;
+  currentDraftScheduleValue: string;
   selectedApplyTemplate: { id: string; name: string } | undefined;
   allComplexModuleAssets: Array<{ id: string; name: string; category: string; stepCount: number; totalMinutes: number }>;
+  savedScheduleGroups: RoutineScheduleGroupSummary[];
   escapeHtml: (value: unknown) => string;
 }): string {
-  const { studio, currentScheduleValue, selectedApplyTemplate, allComplexModuleAssets, escapeHtml } = params;
+  const { studio, currentDraftScheduleValue, selectedApplyTemplate, allComplexModuleAssets, savedScheduleGroups, escapeHtml } = params;
+  const knownGroupIds = new Set([currentDraftScheduleValue, ...allComplexModuleAssets.map((cm) => cm.id)]);
   return `
           <aside class="rs-schedule-side">
             <section class="rs-schedule-props">
               <h4>繰り返し設定</h4>
               <label class="rs-field">スケジュールセット
                 <select id="studio-schedule-group">
-                  <option value="${escapeHtml(currentScheduleValue)}" ${!selectedApplyTemplate ? "selected" : ""}>Current Draft (${escapeHtml(studio.draftName)})</option>
+                  <option value="${escapeHtml(currentDraftScheduleValue)}" ${studio.scheduleGroupId === currentDraftScheduleValue ? "selected" : ""}>Current Draft (${escapeHtml(studio.draftName)})</option>
                   ${allComplexModuleAssets
                     .map(
                       (cm) =>
                         `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
+                    )
+                    .join("")}
+                  ${savedScheduleGroups
+                    .filter((group) => !knownGroupIds.has(group.groupId))
+                    .map(
+                      (group) =>
+                        `<option value="${escapeHtml(group.groupId)}" ${group.groupId === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(group.name)} (${group.entryCount} items)</option>`,
                     )
                     .join("")}
                 </select>
@@ -459,6 +486,38 @@ function buildRoutineStudioScheduleRightMarkup(params: {
                     })()
                   : ""
               }
+              <section class="rs-saved-schedules">
+                <header class="rs-saved-schedules-head">
+                  <div>
+                    <h5>登録済み定期予定</h5>
+                    <p class="small">開始日・終了日は上の設定を変更して保存します</p>
+                  </div>
+                  <span class="rs-badge">${savedScheduleGroups.length}</span>
+                </header>
+                <div class="rs-saved-schedules-list">
+                  ${
+                    savedScheduleGroups.length === 0
+                      ? `<p class="small rs-saved-schedules-empty">まだ登録された定期予定はありません。</p>`
+                      : savedScheduleGroups
+                          .map(
+                            (group) => `
+                    <article class="rs-saved-schedule-card ${group.groupId === studio.scheduleGroupId ? "is-active" : ""}">
+                      <button type="button" class="rs-saved-schedule-main" data-studio-saved-schedule-select="${escapeHtml(group.groupId)}">
+                        <span class="rs-saved-schedule-name">${escapeHtml(group.name)}</span>
+                        <span class="rs-saved-schedule-meta">${group.entryCount}件 / ${escapeHtml(scheduleRecurrenceLabelForRecurrence(group.recurrence))}</span>
+                        <span class="rs-saved-schedule-period">${escapeHtml(group.recurrence.startDate || "開始日未設定")} - ${escapeHtml(group.recurrence.endDate || "終了日未設定")}</span>
+                      </button>
+                      <div class="rs-saved-schedule-actions">
+                        <button type="button" class="rs-btn rs-btn-ghost" data-studio-saved-schedule-select="${escapeHtml(group.groupId)}">編集</button>
+                        <button type="button" class="rs-btn rs-btn-danger" data-studio-saved-schedule-delete="${escapeHtml(group.groupId)}">削除</button>
+                      </div>
+                    </article>
+                  `,
+                          )
+                          .join("")
+                  }
+                </div>
+              </section>
               ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
             </section>
             <footer class="rs-schedule-actions">
@@ -470,10 +529,9 @@ function buildRoutineStudioScheduleRightMarkup(params: {
 }
 
 export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams): string {
-  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, scheduleDayCalendarHtml, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, escapeHtml } = params;
+  const { studio, folderAssets, allComplexModuleAssets, totalMinutes, routineStudioContexts, scheduleDayCalendarHtml, savedScheduleGroups, currentDraftScheduleValue, scheduleWindowStartMinutes, scheduleWindowDurationMinutes, showExtendedScheduleWindow, escapeHtml } = params;
   const selectedApplyTemplate = allComplexModuleAssets.find((asset) => asset.id === studio.scheduleGroupId);
   const scheduleTitle = selectedApplyTemplate?.name || studio.draftName;
-  const currentScheduleValue = studio.scheduleGroupId || studio.templateId || "rtngrp-routine-schedule";
   const availableFolders = studio.moduleFolders.length > 0 ? studio.moduleFolders : [{ id: ROUTINE_STUDIO_DEFAULT_FOLDER_ID, name: "" }];
   const canvasGroups = collectStudioEntryGroups(studio.canvasEntries);
   const editGroup = studio.entryEditorEntryId
@@ -517,14 +575,16 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
             scheduleDayCalendarHtml,
             scheduleWindowStartMinutes,
             scheduleWindowDurationMinutes,
+            showExtendedScheduleWindow,
             escapeHtml,
           })}
           <div class="pane-splitter" data-pane-resize="rs-schedule-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
           ${buildRoutineStudioScheduleRightMarkup({
             studio,
-            currentScheduleValue,
+            currentDraftScheduleValue,
             selectedApplyTemplate,
             allComplexModuleAssets,
+            savedScheduleGroups,
             escapeHtml,
           })}
         </div>

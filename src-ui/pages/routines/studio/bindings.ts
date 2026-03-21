@@ -220,7 +220,7 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
     });
   });
 
-  appRoot.querySelectorAll("[data-studio-schedule-select], [data-studio-schedule-entry], [data-day-item-id]").forEach((node) => {
+  appRoot.querySelectorAll("[data-studio-schedule-select], [data-studio-schedule-entry], [data-day-item-kind='event'][data-day-item-id]").forEach((node) => {
     node.addEventListener("click", () => {
       const scheduleId = readScheduleEntryId(node as HTMLElement);
       if (!scheduleId) return;
@@ -239,6 +239,15 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
       if (updateScheduleField(scheduleId, field, value)) {
         rerender();
       }
+    });
+  });
+
+  appRoot.querySelectorAll("[data-studio-saved-schedule-select]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const groupId = (node as HTMLElement).dataset.studioSavedScheduleSelect || "";
+      if (!groupId) return;
+      studio.scheduleGroupId = groupId;
+      rerender();
     });
   });
 

@@ -1,4 +1,4 @@
-import type { Module, ModuleFolder, Recipe, RoutineScheduleEntry, RoutineScheduleRecurrence, RoutineStudioState } from "../../../types.js";
+import type { Module, ModuleFolder, Recipe, RoutineScheduleEntry, RoutineScheduleGroupSummary, RoutineScheduleRecurrence, RoutineStudioState } from "../../../types.js";
 import { ROUTINE_STUDIO_DEFAULT_FOLDER_ID, routineStudioSlug } from "../model.js";
 
 type SafeInvoke = (command: string, payload: Record<string, unknown>) => Promise<unknown>;
@@ -84,6 +84,46 @@ type SavedRoutineRecord = {
   startDate?: string;
   endDate?: string;
 };
+
+function toStartMinutes(value: unknown): number {
+  const text = String(value || "");
+  const [hhRaw, mmRaw] = text.split(":");
+  const hh = Number(hhRaw);
+  const mm = Number(mmRaw);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 9 * 60;
+  return Math.max(0, Math.min(24 * 60 - 1, hh * 60 + mm));
+}
+
+function routineStart(routine: Record<string, unknown>): number {
+  const defaults = (routine.default as Record<string, unknown> | undefined) || {};
+  const start = String(defaults.start || routine.start || "09:00");
+  const dayOffset = Number(defaults.dayOffset ?? defaults.day_offset ?? routine.dayOffset ?? routine.day_offset ?? 0);
+  const normalizedOffset = Number.isFinite(dayOffset) ? Math.max(-1, Math.min(1, Math.trunc(dayOffset))) : 0;
+  return normalizedOffset * 24 * 60 + toStartMinutes(start);
+}
+
+function readRoutineRecurrence(routine: Record<string, unknown>): RoutineScheduleRecurrence {
+  const recurrenceSource = ((routine.schedule as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+  const weekdays = Array.isArray(recurrenceSource.days)
+    ? recurrenceSource.days.map(String)
+    : recurrenceSource.weekday
+      ? [String(recurrenceSource.weekday)]
+      : ["mon", "tue", "wed", "thu", "fri"];
+  return {
+    repeatType:
+      String(recurrenceSource.type || "weekly").toLowerCase() === "monthly_nth"
+        ? "monthly_nth"
+        : String(recurrenceSource.type || "weekly").toLowerCase() === "monthly"
+          ? "monthly_date"
+          : "weekly",
+    weekdays,
+    dayOfMonth: Math.max(1, Number(recurrenceSource.dayOfMonth || recurrenceSource.day_of_month || 1)),
+    nthWeek: Math.max(1, Number(recurrenceSource.nthWeek || recurrenceSource.nth_week || 1)),
+    nthWeekday: String(recurrenceSource.weekday || "mon").toLowerCase(),
+    startDate: String(routine.startDate || routine.start_date || ""),
+    endDate: String(routine.endDate || routine.end_date || ""),
+  };
+}
 
 export function buildStudioModulePayload(params: BuildStudioModulePayloadParams): Record<string, unknown> {
   const { editingModuleId, existingModule, moduleId, moduleName, category, description, icon, durationMinutes } = params;
@@ -265,43 +305,9 @@ export async function loadRoutineScheduleGroup(params: LoadRoutineScheduleGroupP
   const routinesResult = await safeInvoke("list_routines", {});
   const routines = Array.isArray(routinesResult) ? (routinesResult as Array<Record<string, unknown>>) : [];
   const matched = routines.filter((routine) => String(routine.scheduleGroupId || routine.schedule_group_id || "") === groupId);
-  const toStartMinutes = (value: unknown): number => {
-    const text = String(value || "");
-    const [hhRaw, mmRaw] = text.split(":");
-    const hh = Number(hhRaw);
-    const mm = Number(mmRaw);
-    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 9 * 60;
-    return Math.max(0, Math.min(24 * 60 - 1, hh * 60 + mm));
-  };
-  const routineStart = (routine: Record<string, unknown>) => {
-    const defaults = (routine.default as Record<string, unknown> | undefined) || {};
-    const start = String(defaults.start || routine.start || "09:00");
-    const dayOffset = Number(defaults.dayOffset ?? defaults.day_offset ?? routine.dayOffset ?? routine.day_offset ?? 0);
-    const normalizedOffset = Number.isFinite(dayOffset) ? Math.max(-1, Math.min(1, Math.trunc(dayOffset))) : 0;
-    return normalizedOffset * 24 * 60 + toStartMinutes(start);
-  };
   matched.sort((left, right) => routineStart(left) - routineStart(right));
   const first = (matched[0] || {}) as Record<string, unknown>;
-  const recurrenceSource = ((first.schedule as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
-  const weekdays = Array.isArray(recurrenceSource.days)
-    ? recurrenceSource.days.map(String)
-    : recurrenceSource.weekday
-      ? [String(recurrenceSource.weekday)]
-      : ["mon", "tue", "wed", "thu", "fri"];
-  const recurrence: RoutineScheduleRecurrence = {
-    repeatType:
-      String(recurrenceSource.type || "weekly").toLowerCase() === "monthly_nth"
-        ? "monthly_nth"
-        : String(recurrenceSource.type || "weekly").toLowerCase() === "monthly"
-          ? "monthly_date"
-          : "weekly",
-    weekdays,
-    dayOfMonth: Math.max(1, Number(recurrenceSource.dayOfMonth || recurrenceSource.day_of_month || 1)),
-    nthWeek: Math.max(1, Number(recurrenceSource.nthWeek || recurrenceSource.nth_week || 1)),
-    nthWeekday: String(recurrenceSource.weekday || "mon").toLowerCase(),
-    startDate: String(first.startDate || first.start_date || ""),
-    endDate: String(first.endDate || first.end_date || ""),
-  };
+  const recurrence = readRoutineRecurrence(first);
   return {
     entries: matched.map((routine, index) =>
       normalizeScheduleEntry(
@@ -382,6 +388,56 @@ export async function saveRoutineScheduleGroup(params: SaveRoutineScheduleGroupP
     entries: nextEntries,
     recurrence,
   };
+}
+
+export async function listRoutineScheduleGroups(params: {
+  safeInvoke: SafeInvoke;
+  recipes: Recipe[];
+}): Promise<RoutineScheduleGroupSummary[]> {
+  const { safeInvoke, recipes } = params;
+  const routinesResult = await safeInvoke("list_routines", {});
+  const routines = Array.isArray(routinesResult) ? (routinesResult as Array<Record<string, unknown>>) : [];
+  const grouped = new Map<string, Array<Record<string, unknown>>>();
+  for (const routine of routines) {
+    const groupId = String(routine.scheduleGroupId || routine.schedule_group_id || "").trim();
+    if (!groupId) continue;
+    const bucket = grouped.get(groupId) || [];
+    bucket.push(routine);
+    grouped.set(groupId, bucket);
+  }
+  const recipeNameById = new Map(recipes.map((recipe) => [String(recipe.id || ""), String(recipe.name || recipe.id || "")] as const));
+  return [...grouped.entries()]
+    .map(([groupId, groupRoutines]) => {
+      const sorted = [...groupRoutines].sort((left, right) => routineStart(left) - routineStart(right));
+      const first = sorted[0] || {};
+      const firstRecipeId = String(first.recipeId || first.recipe_id || "");
+      const firstTitle = String(first.title || first.name || "").trim();
+      return {
+        groupId,
+        name: recipeNameById.get(groupId) || recipeNameById.get(firstRecipeId) || firstTitle || groupId,
+        entryCount: sorted.length,
+        routineIds: sorted.map((routine) => String(routine.id || "")).filter(Boolean),
+        recurrence: readRoutineRecurrence(first),
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name) || left.groupId.localeCompare(right.groupId));
+}
+
+export async function deleteRoutineScheduleGroup(params: {
+  safeInvoke: SafeInvoke;
+  groupId: string;
+}): Promise<number> {
+  const { safeInvoke, groupId } = params;
+  const routinesResult = await safeInvoke("list_routines", {});
+  const routines = Array.isArray(routinesResult) ? (routinesResult as Array<Record<string, unknown>>) : [];
+  const targetIds = routines
+    .filter((routine) => String(routine.scheduleGroupId || routine.schedule_group_id || "") === groupId)
+    .map((routine) => String(routine.id || ""))
+    .filter(Boolean);
+  for (const routineId of targetIds) {
+    await safeInvoke("delete_routine_schedule", { routine_id: routineId });
+  }
+  return targetIds.length;
 }
 
 export async function persistStudioTemplate(params: PersistRecipeParams): Promise<string> {

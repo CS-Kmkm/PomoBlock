@@ -1476,12 +1476,16 @@ p {
 .rs-schedule-props {
   display: grid;
   gap: 12px;
+  padding: 14px;
+  min-height: 0;
+  overflow: auto;
 }
 
 .rs-schedule-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .rs-schedule-main {
@@ -1532,8 +1536,80 @@ p {
 
 .rs-schedule-section-head h4,
 .rs-schedule-props h4,
+.rs-saved-schedules h5,
 .rs-schedule-detail h5 {
   margin: 0;
+}
+
+.rs-saved-schedules {
+  display: grid;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.rs-saved-schedules-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rs-saved-schedules-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rs-saved-schedules-empty {
+  margin: 0;
+}
+
+.rs-saved-schedule-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.rs-saved-schedule-card.is-active {
+  border-color: var(--accent, #2f6fed);
+  background: rgba(47, 111, 237, 0.08);
+}
+
+.rs-saved-schedule-main {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rs-saved-schedule-name {
+  font-weight: 700;
+}
+
+.rs-saved-schedule-meta,
+.rs-saved-schedule-period {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.rs-saved-schedule-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.rs-btn-danger {
+  border-color: color-mix(in srgb, var(--danger) 28%, white);
+  background: color-mix(in srgb, var(--danger) 10%, white);
+  color: var(--danger);
 }
 
 .rs-schedule-list,
@@ -1545,12 +1621,17 @@ p {
 
 .route-routines .rs-schedule-main {
   --rs-schedule-hour-height: 40px;
-  --now-track-height: calc(var(--rs-schedule-hour-height) * 72);
+  --rs-schedule-viewport-height: calc(var(--rs-schedule-hour-height) * 24);
+  --now-track-height: calc(var(--rs-schedule-hour-height) * 24);
 }
 
 .rs-schedule-now-dropzone {
+  --rs-schedule-axis-width: 84px;
+  --rs-schedule-axis-gap: 8px;
   min-height: 0;
-  height: 100%;
+  height: min(100%, var(--rs-schedule-viewport-height));
+  max-height: var(--rs-schedule-viewport-height);
+  align-self: start;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--surface-strong);
@@ -1560,6 +1641,79 @@ p {
   position: relative;
   overscroll-behavior: contain;
   scrollbar-gutter: stable both-edges;
+}
+
+.rs-schedule-now-dropzone.is-extended-window {
+  --now-track-height: calc(var(--rs-schedule-hour-height) * 72);
+}
+
+.rs-schedule-zone-markers {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  left: calc(10px + var(--rs-schedule-axis-width) + var(--rs-schedule-axis-gap));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.rs-schedule-zone-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 2px solid rgba(26, 87, 68, 0.18);
+}
+
+.rs-schedule-zone-marker span {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(21, 85, 68, 0.24);
+  box-shadow: 0 6px 14px rgba(20, 42, 34, 0.08);
+  color: #145544;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.rs-schedule-zone-marker.is-before {
+  top: 0;
+  bottom: 66.6667%;
+}
+
+.rs-schedule-zone-marker.is-today {
+  top: 33.3333%;
+  bottom: 33.3333%;
+  border-top-color: rgba(22, 98, 77, 0.5);
+  border-bottom: 2px solid rgba(22, 98, 77, 0.5);
+}
+
+.rs-schedule-zone-marker.is-today span {
+  background: rgba(229, 244, 236, 0.96);
+  border-color: rgba(22, 98, 77, 0.45);
+}
+
+.rs-schedule-zone-marker.is-after {
+  top: 66.6667%;
+  bottom: 0;
+}
+
+.rs-schedule-zone-markers.is-day-window .rs-schedule-zone-marker.is-full {
+  top: 0;
+  bottom: 0;
+  border-top-color: rgba(22, 98, 77, 0.5);
+  border-bottom: 2px solid rgba(22, 98, 77, 0.5);
+}
+
+.rs-schedule-zone-markers.is-day-window .rs-schedule-zone-marker.is-full span {
+  background: rgba(229, 244, 236, 0.96);
+  border-color: rgba(22, 98, 77, 0.45);
 }
 
 .rs-schedule-now-dropzone .now-day-schedule {
@@ -1573,17 +1727,12 @@ p {
 }
 
 .rs-schedule-now-dropzone .day-lane-track::before {
-  content: "当日24h";
+  content: "";
   position: absolute;
   left: 0;
   right: 0;
   top: 33.3333%;
   height: 33.3333%;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
-  padding: 10px 12px;
-  box-sizing: border-box;
   background:
     linear-gradient(180deg, rgba(234, 247, 241, 0.98), rgba(209, 239, 227, 0.92)),
     linear-gradient(90deg, rgba(23, 98, 77, 0.08), rgba(23, 98, 77, 0.08));
@@ -1592,18 +1741,16 @@ p {
   border-top: 1px solid rgba(23, 98, 77, 0.16);
   border-bottom: 1px solid rgba(23, 98, 77, 0.16);
   border-radius: 14px;
-  color: #145544;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  text-transform: uppercase;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.44),
     0 10px 18px rgba(20, 42, 34, 0.06);
   pointer-events: none;
   z-index: 0;
+}
+
+.rs-schedule-now-dropzone.is-day-window .day-lane-track::before {
+  top: 0;
+  height: 100%;
 }
 
 .rs-schedule-now-dropzone .day-hour-line,
@@ -3640,10 +3787,13 @@ th {
 
   .route-routines .rs-schedule-main {
     --rs-schedule-hour-height: 30px;
-    --now-track-height: calc(var(--rs-schedule-hour-height) * 72);
+    --rs-schedule-viewport-height: calc(var(--rs-schedule-hour-height) * 24);
+    --now-track-height: calc(var(--rs-schedule-hour-height) * 24);
   }
 
   .rs-schedule-now-dropzone {
+    --rs-schedule-axis-width: 68px;
+    --rs-schedule-axis-gap: 6px;
     padding: 8px;
   }
 
@@ -3653,9 +3803,22 @@ th {
   }
 
   .rs-schedule-now-dropzone .day-lane-track::before {
-    padding: 8px 10px;
+    border-radius: 12px;
+  }
+
+  .rs-schedule-zone-markers {
+    top: 8px;
+    right: 8px;
+    bottom: 8px;
+    left: calc(8px + var(--rs-schedule-axis-width) + var(--rs-schedule-axis-gap));
+  }
+
+  .rs-schedule-zone-marker span {
+    top: 8px;
+    right: 8px;
+    min-height: 22px;
+    padding: 0 8px;
     font-size: 0.66rem;
-    letter-spacing: 0.1em;
   }
 }
 

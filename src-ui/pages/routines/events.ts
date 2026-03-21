@@ -1,4 +1,4 @@
-import type { Module, PageRenderDeps, RoutineScheduleAssetKind, RoutineScheduleEntry, RoutineStudioEntry } from "../../types.js";
+import type { Module, PageRenderDeps, RoutineScheduleAssetKind, RoutineScheduleEntry, RoutineScheduleGroupSummary, RoutineStudioEntry } from "../../types.js";
 import {
   cloneValue,
   isRoutineStudioRecipe,
@@ -51,6 +51,8 @@ import {
   deleteStudioModule,
   deleteStudioModuleFolder,
   deleteStudioRecipe,
+  deleteRoutineScheduleGroup,
+  listRoutineScheduleGroups,
   loadRoutineScheduleGroup,
   moveStudioModule,
   moveStudioTemplate,
@@ -185,19 +187,42 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         if (!Number.isFinite(hh) || !Number.isFinite(mm)) return 9 * 60;
         return Math.max(0, Math.min(24 * 60 - 1, hh * 60 + mm));
     };
+    const normalizeDayOffset = (value: unknown): number => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return 0;
+        return Math.max(-1, Math.min(1, Math.trunc(num)));
+    };
+    const toScheduleAbsoluteMinutes = (entry: RoutineScheduleEntry): number =>
+        normalizeDayOffset((entry as { dayOffset?: number }).dayOffset) * 24 * 60 + parseScheduleTimeMinutes(String(entry.startTime || "09:00"));
+    const formatScheduleTime = (absoluteMinutes: number): { dayOffset: number; startTime: string } => {
+        const clamped = Math.max(-24 * 60, Math.min(48 * 60 - 1, Math.round(absoluteMinutes / 5) * 5));
+        const dayOffset = Math.max(-1, Math.min(1, Math.floor(clamped / (24 * 60))));
+        const minuteInDay = ((clamped % (24 * 60)) + 24 * 60) % (24 * 60);
+        const hh = Math.floor(minuteInDay / 60);
+        const mm = minuteInDay % 60;
+        return {
+            dayOffset,
+            startTime: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+        };
+    };
     const buildSchedulePlannerModel = () => {
         const today = new Date();
-        const dayStart = new Date(today);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-        const sortedEntries = [...studio.scheduleEntries]
-            .sort((left, right) => String(left.startTime || "").localeCompare(String(right.startTime || "")));
+        const originDayStart = new Date(today);
+        originDayStart.setHours(0, 0, 0, 0);
+        const hasCrossDayEntries = studio.scheduleEntries.some((entry) => normalizeDayOffset((entry as { dayOffset?: number }).dayOffset) !== 0);
+        const selectedScheduleEntry = studio.scheduleEntries.find((entry) => entry.id === studio.scheduleSelectedEntryId);
+        const selectedDayOffset = normalizeDayOffset((selectedScheduleEntry as { dayOffset?: number } | undefined)?.dayOffset);
+        const showExtendedScheduleWindow = hasCrossDayEntries || selectedDayOffset !== 0;
+        const scheduleWindowStartMinutes = showExtendedScheduleWindow ? -24 * 60 : 0;
+        const scheduleWindowDurationMinutes = showExtendedScheduleWindow ? 72 * 60 : 24 * 60;
+        const dayStartMs = originDayStart.getTime() + scheduleWindowStartMinutes * 60 * 1000;
+        const dayEndMs = dayStartMs + scheduleWindowDurationMinutes * 60 * 1000;
+        const sortedEntries = [...studio.scheduleEntries].sort((left, right) => toScheduleAbsoluteMinutes(left) - toScheduleAbsoluteMinutes(right));
         const combinedItems = sortedEntries.map((entry, index) => {
-            const startMinutes = parseScheduleTimeMinutes(String(entry.startTime || "09:00"));
+            const startMinutes = toScheduleAbsoluteMinutes(entry);
             const durationMinutes = Math.max(1, Number(entry.durationMinutes) || 1);
-            const startMs = dayStart.getTime() + startMinutes * 60 * 1000;
-            const endMs = Math.min(dayEnd.getTime(), startMs + durationMinutes * 60 * 1000);
+            const startMs = originDayStart.getTime() + startMinutes * 60 * 1000;
+            const endMs = Math.min(dayEndMs, startMs + durationMinutes * 60 * 1000);
             const id = String(entry.id || `schedule-entry-${index + 1}`);
             return {
                 kind: "event",
@@ -211,19 +236,50 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 payload: entry,
             };
         });
-        const firstStartMinutes = combinedItems.length > 0
-            ? Math.floor(((combinedItems[0]?.startMs || dayStart.getTime()) - dayStart.getTime()) / 60000)
-            : 9 * 60;
-        const lastEndMinutes = combinedItems.length > 0
-            ? Math.ceil(((combinedItems[combinedItems.length - 1]?.endMs || dayStart.getTime()) - dayStart.getTime()) / 60000)
-            : 18 * 60;
-        const visibleStartMinutes = Math.max(0, Math.min(23 * 60, Math.floor(firstStartMinutes / 60) * 60 - 60));
-        const visibleEndMinutes = Math.max(
-            visibleStartMinutes + 60,
-            Math.min(24 * 60, Math.ceil(lastEndMinutes / 60) * 60 + 60),
-        );
-        const dayStartMs = dayStart.getTime() + visibleStartMinutes * 60 * 1000;
-        const dayEndMs = dayStart.getTime() + visibleEndMinutes * 60 * 1000;
+        const freeItems: Array<{
+            kind: string;
+            id: string;
+            key: string;
+            title: string;
+            subtitle: string;
+            startMs: number;
+            endMs: number;
+            durationMinutes: number;
+            payload: null;
+        }> = [];
+        let cursorMs = dayStartMs;
+        for (let index = 0; index < combinedItems.length; index += 1) {
+            const current = combinedItems[index];
+            if (!current) continue;
+            if (current.startMs > cursorMs) {
+                freeItems.push({
+                    kind: "free",
+                    id: `free-${index}-${cursorMs}`,
+                    key: `free:${index}:${cursorMs}`,
+                    title: "空き枠",
+                    subtitle: "",
+                    startMs: cursorMs,
+                    endMs: current.startMs,
+                    durationMinutes: Math.max(1, Math.round((current.startMs - cursorMs) / 60000)),
+                    payload: null,
+                });
+            }
+            cursorMs = Math.max(cursorMs, current.endMs);
+        }
+        if (cursorMs < dayEndMs) {
+            freeItems.push({
+                kind: "free",
+                id: `free-tail-${cursorMs}`,
+                key: `free:tail:${cursorMs}`,
+                title: "空き枠",
+                subtitle: "",
+                startMs: cursorMs,
+                endMs: dayEndMs,
+                durationMinutes: Math.max(1, Math.round((dayEndMs - cursorMs) / 60000)),
+                payload: null,
+            });
+        }
+        const allItems = [...combinedItems, ...freeItems].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
         const selectedItem = combinedItems.find((item) => item.id === studio.scheduleSelectedEntryId) || combinedItems[0] || null;
         const dateKey = isoDate(today);
         return {
@@ -233,34 +289,45 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                     dayEndMs,
                     blockIntervals: [],
                     eventIntervals: [],
-                    busyIntervals: [],
-                    freeIntervals: [],
+                    busyIntervals: combinedItems.map((item) => ({ startMs: item.startMs, endMs: item.endMs })),
+                    freeIntervals: freeItems.map((item) => ({ startMs: item.startMs, endMs: item.endMs })),
                     blockItems: [],
                     eventItems: combinedItems,
-                    freeItems: [],
+                    freeItems,
                     selectedItem,
                     selection: selectedItem ? { kind: "event", id: selectedItem.id } : null,
                     totals: {
                         blockMinutes: 0,
                         eventMinutes: combinedItems.reduce((sum, item) => sum + item.durationMinutes, 0),
-                        freeMinutes: 0,
+                        freeMinutes: freeItems.reduce((sum, item) => sum + item.durationMinutes, 0),
                     },
                     dayKey: dateKey,
-                    dayDate: new Date(dayStart),
-                    dayNumber: String(dayStart.getDate()).padStart(2, "0"),
-                    monthDayLabel: `${dayStart.getMonth() + 1}/${dayStart.getDate()}`,
-                    weekdayLabel: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][dayStart.getDay()] || "N/A",
+                    dayDate: new Date(originDayStart),
+                    dayNumber: String(originDayStart.getDate()).padStart(2, "0"),
+                    monthDayLabel: `${originDayStart.getMonth() + 1}/${originDayStart.getDate()}`,
+                    weekdayLabel: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][originDayStart.getDay()] || "N/A",
                     isCurrent: true,
                     isToday: true,
-                    combinedItems,
+                    combinedItems: allItems,
                 },
             ],
             selectedItem,
             weekLabel: "",
             selection: selectedItem ? { kind: "event", id: selectedItem.id } : null,
+            scheduleWindowStartMinutes,
+            scheduleWindowDurationMinutes,
+            showExtendedScheduleWindow,
         };
     };
-    const scheduleDayCalendarHtml = helpers.renderSingleDayPlannerCalendar(buildSchedulePlannerModel() as unknown);
+    const schedulePlannerModel = buildSchedulePlannerModel();
+    const savedScheduleGroups = Array.isArray(studio.__savedScheduleGroups)
+        ? (studio.__savedScheduleGroups as RoutineScheduleGroupSummary[])
+        : [];
+    const currentDraftScheduleValue = String(studio.templateId || `rtngrp-${routineStudioSlug(studio.draftName || "routine-schedule") || "routine-schedule"}`);
+    const scheduleWindowStartMinutes = Number((schedulePlannerModel as { scheduleWindowStartMinutes?: number }).scheduleWindowStartMinutes || 0);
+    const scheduleWindowDurationMinutes = Number((schedulePlannerModel as { scheduleWindowDurationMinutes?: number }).scheduleWindowDurationMinutes || 24 * 60);
+    const showExtendedScheduleWindow = Boolean((schedulePlannerModel as { showExtendedScheduleWindow?: boolean }).showExtendedScheduleWindow);
+    const scheduleDayCalendarHtml = helpers.renderSingleDayPlannerCalendar(schedulePlannerModel as unknown);
     const { folderAssets, complexModuleAssets, allComplexModuleAssets, totalMinutes } = buildStudioAssets({
         studio,
         recipes,
@@ -276,8 +343,35 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         totalMinutes,
         routineStudioContexts,
         scheduleDayCalendarHtml,
+        savedScheduleGroups,
+        currentDraftScheduleValue,
+        scheduleWindowStartMinutes,
+        scheduleWindowDurationMinutes,
+        showExtendedScheduleWindow,
         escapeHtml,
     }));
+    const scheduleDropzone = appRoot.querySelector<HTMLElement>("#routine-schedule-dropzone");
+    if (scheduleDropzone) {
+        scheduleDropzone.addEventListener("scroll", () => {
+            studio.__scheduleScrollTop = scheduleDropzone.scrollTop;
+        });
+        window.requestAnimationFrame(() => {
+            const savedScrollTop = Number(studio.__scheduleScrollTop);
+            if (showExtendedScheduleWindow) {
+                if (Number.isFinite(savedScrollTop) && savedScrollTop > 0) {
+                    scheduleDropzone.scrollTop = savedScrollTop;
+                    return;
+                }
+                const track = scheduleDropzone.querySelector<HTMLElement>(".day-lane-track");
+                const targetScrollTop = track ? Math.max(0, track.scrollHeight / 3) : Math.max(0, scheduleDropzone.scrollHeight / 3);
+                scheduleDropzone.scrollTop = targetScrollTop;
+                studio.__scheduleScrollTop = targetScrollTop;
+                return;
+            }
+            scheduleDropzone.scrollTop = 0;
+            studio.__scheduleScrollTop = 0;
+        });
+    }
     bindPaneResizers(appRoot, [
       {
         layoutSelector: ".routine-studio-layout",
@@ -338,36 +432,18 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
     }
     const rerender = () => renderRoutines();
     const sortScheduleEntries = (entries: RoutineScheduleEntry[]): RoutineScheduleEntry[] =>
-        [...entries].sort((left, right) => String(left.startTime || "").localeCompare(String(right.startTime || "")));
-    const addMinutesToTime = (time: string, durationMinutes: number): string => {
-        const [hhRaw, mmRaw] = String(time || "09:00").split(":");
-        const hh = Number(hhRaw || 0);
-        const mm = Number(mmRaw || 0);
-        const total = hh * 60 + mm + Math.max(1, Number(durationMinutes) || 0);
-        const nextHours = Math.floor(total / 60) % 24;
-        const nextMinutes = total % 60;
-        return `${String(nextHours).padStart(2, "0")}:${String(nextMinutes).padStart(2, "0")}`;
-    };
-    const resequenceScheduleEntries = (entries: RoutineScheduleEntry[], startIndex = 0, anchorTime?: string): RoutineScheduleEntry[] => {
-        if (entries.length === 0) return [];
-        const nextEntries = entries.map((entry, index) => normalizeScheduleEntry(entry, index));
-        const clampedStartIndex = Math.max(0, Math.min(startIndex, nextEntries.length - 1));
-        let nextStart =
-            anchorTime ||
-            (clampedStartIndex > 0
-                ? addMinutesToTime(String(nextEntries[clampedStartIndex - 1]?.startTime || "09:00"), Number(nextEntries[clampedStartIndex - 1]?.durationMinutes) || 1)
-                : String(nextEntries[0]?.startTime || "09:00"));
-        for (let index = clampedStartIndex; index < nextEntries.length; index += 1) {
-            const entry = nextEntries[index];
-            if (!entry) continue;
-            entry.startTime = nextStart;
-            nextStart = addMinutesToTime(entry.startTime, entry.durationMinutes);
-        }
-        return nextEntries;
-    };
+        [...entries].sort((left, right) => toScheduleAbsoluteMinutes(left) - toScheduleAbsoluteMinutes(right));
     const fallbackScheduleGroupId = `rtngrp-${routineStudioSlug(studio.draftName || "routine-schedule") || "routine-schedule"}`;
     const activeScheduleGroupId = String(studio.scheduleGroupId || studio.templateId || fallbackScheduleGroupId).trim();
     studio.scheduleGroupId = activeScheduleGroupId;
+    const refreshSavedScheduleGroups = async () => {
+        studio.__savedScheduleGroups = await listRoutineScheduleGroups({
+            safeInvoke: (command, payload) => safeInvoke(command, payload),
+            recipes: uiState.recipes,
+        });
+        studio.__savedScheduleGroupsLoaded = true;
+        studio.__savedScheduleGroupsDirty = false;
+    };
     const persistTemplate = async () => persistStudioTemplate({
         studio,
         recipes: uiState.recipes,
@@ -398,18 +474,21 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         rerender();
     };
     const resolveModule = (moduleId: string): Module | null => resolveStudioModule(studio, moduleId);
-    const addScheduleAsset = (kind: RoutineScheduleAssetKind, id: string, insertIndex?: number): boolean => {
+    const addScheduleAsset = (
+        kind: RoutineScheduleAssetKind,
+        id: string,
+        insertIndex?: number,
+        placement?: { startTime: string; dayOffset: number },
+    ): boolean => {
         const normalizedId = String(id || "").trim();
         const orderedEntries = [...studio.scheduleEntries];
         const targetIndex = Math.max(0, Math.min(typeof insertIndex === "number" ? insertIndex : orderedEntries.length, orderedEntries.length));
-        const startTime = (() => {
-            if (targetIndex > 0) {
-                const previousEntry = orderedEntries[targetIndex - 1];
-                if (previousEntry) {
-                    return addMinutesToTime(String(previousEntry.startTime || "09:00"), Number(previousEntry.durationMinutes) || 1);
-                }
-            }
-            return String(orderedEntries[0]?.startTime || "09:00");
+        const resolvedPlacement = placement || (() => {
+            const previousEntry = orderedEntries[Math.max(0, targetIndex - 1)];
+            if (!previousEntry) return { startTime: "09:00", dayOffset: 0 };
+            const previousAbs = toScheduleAbsoluteMinutes(previousEntry);
+            const nextAbs = previousAbs + Math.max(1, Number(previousEntry.durationMinutes) || 1);
+            return formatScheduleTime(nextAbs);
         })();
         if (normalizedId === "__empty__") {
             const entry = normalizeScheduleEntry({
@@ -420,12 +499,13 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 moduleId: "",
                 title: "Untitled Slot",
                 subtitle: "空きスロット",
-                startTime,
+                startTime: resolvedPlacement.startTime,
+                dayOffset: resolvedPlacement.dayOffset,
                 durationMinutes: 30,
             }, studio.scheduleEntries.length);
             const nextEntries = [...orderedEntries];
             nextEntries.splice(targetIndex, 0, entry);
-            studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
+            studio.scheduleEntries = sortScheduleEntries(nextEntries);
             studio.scheduleSelectedEntryId = entry.id;
             studio.scheduleDirty = true;
             return true;
@@ -441,12 +521,13 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 moduleId: module.id,
                 title: String(module.name || module.id),
                 subtitle: String(module.description || module.category || "モジュール"),
-                startTime,
+                startTime: resolvedPlacement.startTime,
+                dayOffset: resolvedPlacement.dayOffset,
                 durationMinutes: Math.max(1, Number(module.durationMinutes) || 1),
             }, studio.scheduleEntries.length);
             const nextEntries = [...orderedEntries];
             nextEntries.splice(targetIndex, 0, entry);
-            studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
+            studio.scheduleEntries = sortScheduleEntries(nextEntries);
             studio.scheduleSelectedEntryId = entry.id;
             studio.scheduleDirty = true;
             return true;
@@ -462,12 +543,13 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             moduleId: "",
             title: String(recipe.name || recipe.id),
             subtitle: "複合モジュール",
-            startTime,
+            startTime: resolvedPlacement.startTime,
+            dayOffset: resolvedPlacement.dayOffset,
             durationMinutes: Math.max(1, durationMinutes || 1),
         }, studio.scheduleEntries.length);
         const nextEntries = [...orderedEntries];
         nextEntries.splice(targetIndex, 0, entry);
-        studio.scheduleEntries = resequenceScheduleEntries(nextEntries, targetIndex, startTime);
+        studio.scheduleEntries = sortScheduleEntries(nextEntries);
         studio.scheduleSelectedEntryId = entry.id;
         studio.scheduleDirty = true;
         return true;
@@ -482,10 +564,21 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         if (!entry) return false;
         const targetIndex = clampedIndex > currentIndex ? clampedIndex - 1 : clampedIndex;
         nextEntries.splice(Math.max(0, Math.min(targetIndex, nextEntries.length)), 0, entry);
-        const resequenceFrom = Math.max(0, Math.min(currentIndex, targetIndex));
-        const anchorTime = resequenceFrom === 0 ? String(studio.scheduleEntries[0]?.startTime || "09:00") : undefined;
-        studio.scheduleEntries = resequenceScheduleEntries(nextEntries, resequenceFrom, anchorTime);
+        studio.scheduleEntries = nextEntries.map((item, index) => normalizeScheduleEntry(item, index));
         studio.scheduleSelectedEntryId = entry.id;
+        studio.scheduleDirty = true;
+        return true;
+    };
+    const moveScheduleEntryToTime = (entryId: string, placement: { startTime: string; dayOffset: number }): boolean => {
+        const currentIndex = studio.scheduleEntries.findIndex((entry) => entry.id === entryId);
+        if (currentIndex < 0) return false;
+        const nextEntries = studio.scheduleEntries.map((entry, index) => normalizeScheduleEntry(entry, index));
+        const current = nextEntries[currentIndex];
+        if (!current) return false;
+        current.startTime = placement.startTime;
+        current.dayOffset = normalizeDayOffset(placement.dayOffset);
+        studio.scheduleEntries = sortScheduleEntries(nextEntries);
+        studio.scheduleSelectedEntryId = entryId;
         studio.scheduleDirty = true;
         return true;
     };
@@ -501,6 +594,8 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             entry.durationMinutes = toPositiveInt(value, entry.durationMinutes || 1);
         } else if (field === "startTime") {
             entry.startTime = /^\d{2}:\d{2}$/.test(String(value || "")) ? String(value) : entry.startTime;
+        } else if (field === "dayOffset") {
+            entry.dayOffset = normalizeDayOffset(value);
         } else {
             return false;
         }
@@ -509,6 +604,17 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         studio.scheduleDirty = true;
         return true;
     };
+    if (studio.subPage === "schedule" && !studio.__savedScheduleGroupsLoading && (!studio.__savedScheduleGroupsLoaded || studio.__savedScheduleGroupsDirty)) {
+        studio.__savedScheduleGroupsLoading = true;
+        runUiAction(async () => {
+            try {
+                await refreshSavedScheduleGroups();
+            } finally {
+                studio.__savedScheduleGroupsLoading = false;
+                rerender();
+            }
+        });
+    }
     if (studio.subPage === "schedule" && activeScheduleGroupId && activeScheduleGroupId !== studio.scheduleLoadedGroupId && !studio.__scheduleLoading) {
         studio.__scheduleLoading = true;
         runUiAction(async () => {
@@ -653,18 +759,19 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             rerender();
         });
     };
-    const onMoveTemplate = async (templateId: string, folderId: string) => {
+    const onMoveTemplate = async (templateId: string, folderId: string, beforeTemplateId?: string) => {
         await runUiAction(async () => {
             const recipes = await moveStudioTemplate({
                 safeInvoke: (command, payload) => safeInvoke(command, payload),
                 recipes: uiState.recipes,
                 templateId,
                 folderId,
+                ...(beforeTemplateId ? { beforeTemplateId } : {}),
             });
             if (recipes.length > 0) {
                 uiState.recipes = recipes;
             }
-            setStatus(`template moved: ${templateId} -> ${folderId}`);
+            setStatus(`template moved: ${templateId} -> ${folderId}${beforeTemplateId ? ` (before ${beforeTemplateId})` : ""}`);
             rerender();
         });
     };
@@ -739,6 +846,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         moveTemplateAsset: onMoveTemplate,
         addScheduleAsset,
         moveScheduleEntryToIndex,
+        moveScheduleEntryToTime,
     });
     const onSaveTemplate = async () => {
         await runUiAction(async () => {
@@ -761,6 +869,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             studio.scheduleRecurrence = normalizeScheduleRecurrence(saved.recurrence);
             studio.scheduleLoadedGroupId = studio.scheduleGroupId;
             studio.scheduleDirty = false;
+            await refreshSavedScheduleGroups();
             setStatus(`schedule saved: ${studio.scheduleGroupId}`);
             rerender();
         });
@@ -778,10 +887,15 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 studio.scheduleEntries = saved.entries;
                 studio.scheduleLoadedGroupId = studio.scheduleGroupId;
                 studio.scheduleDirty = false;
+                await refreshSavedScheduleGroups();
                 const results: string[] = [];
-                for (const entry of saved.entries) {
+                const sortedSavedEntries = [...saved.entries].sort((left, right) => toScheduleAbsoluteMinutes(left) - toScheduleAbsoluteMinutes(right));
+                for (const entry of sortedSavedEntries) {
                     const recipeId = String(entry.recipeId || entry.assetId || "").trim();
                     if (!recipeId) continue;
+                    const offsetDays = normalizeDayOffset((entry as { dayOffset?: number }).dayOffset);
+                    const targetDateBase = new Date();
+                    targetDateBase.setDate(targetDateBase.getDate() + offsetDays);
                     const result = await applyStudioTemplateToToday({
                         safeInvoke: (command, payload) => safeInvoke(command, payload),
                         refreshCoreData,
@@ -790,8 +904,10 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                         formatHHmm,
                         templateId: recipeId,
                         triggerTime: entry.startTime,
+                        targetDate: isoDate(targetDateBase),
                     });
-                    results.push(`${entry.startTime} ${entry.title}: ${result}`);
+                    const offsetLabel = offsetDays === 0 ? "" : offsetDays > 0 ? ` (+${offsetDays}d)` : ` (${offsetDays}d)`;
+                    results.push(`${entry.startTime}${offsetLabel} ${entry.title}: ${result}`);
                 }
                 studio.lastApplyResult = results.join(" / ");
                 setStatus(`applied schedule: ${saved.entries.length} items`);
@@ -834,6 +950,30 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             rerender();
         });
     };
+    const onDeleteScheduleGroup = async (groupId: string) => {
+        const currentGroups = Array.isArray(studio.__savedScheduleGroups) ? (studio.__savedScheduleGroups as RoutineScheduleGroupSummary[]) : [];
+        const target = currentGroups.find((group) => group.groupId === groupId);
+        const label = String(target?.name || groupId);
+        if (!window.confirm(`定期予定「${label}」を削除します。`)) {
+            return;
+        }
+        await runUiAction(async () => {
+            const deletedCount = await deleteRoutineScheduleGroup({
+                safeInvoke: (command, payload) => safeInvoke(command, payload),
+                groupId,
+            });
+            await refreshSavedScheduleGroups();
+            if (studio.scheduleGroupId === groupId) {
+                studio.scheduleGroupId = fallbackScheduleGroupId;
+                studio.scheduleLoadedGroupId = "";
+                studio.scheduleEntries = [];
+                studio.scheduleSelectedEntryId = "";
+                studio.scheduleDirty = false;
+            }
+            setStatus(deletedCount > 0 ? `schedule deleted: ${label}` : `schedule not found: ${groupId}`);
+            rerender();
+        });
+    };
     bindRoutineStudioAsyncEvents({
         appRoot,
         resolveModule,
@@ -851,6 +991,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         onSaveTemplate,
         onSaveSchedule,
         onApplyToday,
+        onDeleteScheduleGroup,
         onDeleteRecipe,
     });
     bindRoutineStudioEditorEvents({

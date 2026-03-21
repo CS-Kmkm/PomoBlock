@@ -154,6 +154,7 @@ export interface RoutineScheduleEntry {
   moduleId: string;
   title: string;
   subtitle: string;
+  dayOffset: number;
   startTime: string;
   durationMinutes: number;
 }
@@ -166,6 +167,14 @@ export interface RoutineScheduleRecurrence {
   nthWeekday: string;
   startDate: string;
   endDate: string;
+}
+
+export interface RoutineScheduleGroupSummary {
+  groupId: string;
+  name: string;
+  entryCount: number;
+  routineIds: string[];
+  recurrence: RoutineScheduleRecurrence;
 }
 
 export interface RoutineStudioState {
