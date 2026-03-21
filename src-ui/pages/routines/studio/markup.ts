@@ -486,38 +486,6 @@ function buildRoutineStudioScheduleRightMarkup(params: {
                     })()
                   : ""
               }
-              <section class="rs-saved-schedules">
-                <header class="rs-saved-schedules-head">
-                  <div>
-                    <h5>登録済み定期予定</h5>
-                    <p class="small">開始日・終了日は上の設定を変更して保存します</p>
-                  </div>
-                  <span class="rs-badge">${savedScheduleGroups.length}</span>
-                </header>
-                <div class="rs-saved-schedules-list">
-                  ${
-                    savedScheduleGroups.length === 0
-                      ? `<p class="small rs-saved-schedules-empty">まだ登録された定期予定はありません。</p>`
-                      : savedScheduleGroups
-                          .map(
-                            (group) => `
-                    <article class="rs-saved-schedule-card ${group.groupId === studio.scheduleGroupId ? "is-active" : ""}">
-                      <button type="button" class="rs-saved-schedule-main" data-studio-saved-schedule-select="${escapeHtml(group.groupId)}">
-                        <span class="rs-saved-schedule-name">${escapeHtml(group.name)}</span>
-                        <span class="rs-saved-schedule-meta">${group.entryCount}件 / ${escapeHtml(scheduleRecurrenceLabelForRecurrence(group.recurrence))}</span>
-                        <span class="rs-saved-schedule-period">${escapeHtml(group.recurrence.startDate || "開始日未設定")} - ${escapeHtml(group.recurrence.endDate || "終了日未設定")}</span>
-                      </button>
-                      <div class="rs-saved-schedule-actions">
-                        <button type="button" class="rs-btn rs-btn-ghost" data-studio-saved-schedule-select="${escapeHtml(group.groupId)}">編集</button>
-                        <button type="button" class="rs-btn rs-btn-danger" data-studio-saved-schedule-delete="${escapeHtml(group.groupId)}">削除</button>
-                      </div>
-                    </article>
-                  `,
-                          )
-                          .join("")
-                  }
-                </div>
-              </section>
               ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
             </section>
             <footer class="rs-schedule-actions">
@@ -525,6 +493,48 @@ function buildRoutineStudioScheduleRightMarkup(params: {
               <button type="button" id="studio-apply-today" class="rs-btn rs-btn-secondary" ${studio.scheduleEntries.length === 0 ? "disabled" : ""}>今日に適用</button>
             </footer>
           </aside>
+  `;
+}
+
+function buildRoutineStudioSavedSchedulesPage(params: {
+  studio: RoutineStudioState;
+  savedScheduleGroups: RoutineScheduleGroupSummary[];
+  escapeHtml: (value: unknown) => string;
+}): string {
+  const { studio, savedScheduleGroups, escapeHtml } = params;
+  return `
+        <section class="rs-saved-page">
+          <header class="rs-saved-page-head">
+            <div>
+              <h3>登録済み定期予定</h3>
+              <p class="small">保存済みの定期予定を一覧し、編集対象の選択や削除を行います。開始日・終了日は編集画面で変更して保存してください。</p>
+            </div>
+            <span class="rs-badge">${savedScheduleGroups.length}</span>
+          </header>
+          <div class="rs-saved-schedules-list rs-saved-schedules-list--page">
+            ${
+              savedScheduleGroups.length === 0
+                ? `<section class="rs-empty-state"><p>まだ登録された定期予定はありません。</p><p class="small">定型予定化ページでスケジュールを保存すると、ここに表示されます。</p></section>`
+                : savedScheduleGroups
+                    .map(
+                      (group) => `
+              <article class="rs-saved-schedule-card ${group.groupId === studio.scheduleGroupId ? "is-active" : ""}">
+                <div class="rs-saved-schedule-main">
+                  <span class="rs-saved-schedule-name">${escapeHtml(group.name)}</span>
+                  <span class="rs-saved-schedule-meta">${group.entryCount}件 / ${escapeHtml(scheduleRecurrenceLabelForRecurrence(group.recurrence))}</span>
+                  <span class="rs-saved-schedule-period">${escapeHtml(group.recurrence.startDate || "開始日未設定")} - ${escapeHtml(group.recurrence.endDate || "終了日未設定")}</span>
+                </div>
+                <div class="rs-saved-schedule-actions">
+                  <button type="button" class="rs-btn rs-btn-ghost" data-studio-saved-schedule-select="${escapeHtml(group.groupId)}">編集</button>
+                  <button type="button" class="rs-btn rs-btn-danger" data-studio-saved-schedule-delete="${escapeHtml(group.groupId)}">削除</button>
+                </div>
+              </article>
+            `,
+                    )
+                    .join("")
+            }
+          </div>
+        </section>
   `;
 }
 
@@ -552,6 +562,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
       <nav class="rs-subnav">
         <button type="button" class="rs-subnav-tab ${studio.subPage === "editor" ? "is-active" : ""}" data-studio-subpage="editor">ルーティン編集</button>
         <button type="button" class="rs-subnav-tab ${studio.subPage === "schedule" ? "is-active" : ""}" data-studio-subpage="schedule">定型予定化</button>
+        <button type="button" class="rs-subnav-tab ${studio.subPage === "saved-schedules" ? "is-active" : ""}" data-studio-subpage="saved-schedules">登録済み定期予定</button>
       </nav>
       ${studio.subPage === "schedule" ? `
         <div class="rs-schedule-page rs-schedule-three-pane">
@@ -588,6 +599,12 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
             escapeHtml,
           })}
         </div>
+      ` : studio.subPage === "saved-schedules" ? `
+        ${buildRoutineStudioSavedSchedulesPage({
+          studio,
+          savedScheduleGroups,
+          escapeHtml,
+        })}
       ` : `
         ${buildRoutineStudioEditorWorkspace({
           studio,

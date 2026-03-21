@@ -77,7 +77,7 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
   appRoot.querySelectorAll("[data-studio-subpage]").forEach((node) => {
     node.addEventListener("click", () => {
       const page = (node as HTMLElement).dataset.studioSubpage || "";
-      studio.subPage = page === "schedule" ? "schedule" : "editor";
+      studio.subPage = page === "schedule" || page === "saved-schedules" ? page : "editor";
       rerender();
     });
   });
@@ -247,6 +247,7 @@ export function bindRoutineStudioEditorEvents(params: BindRoutineStudioEditorEve
       const groupId = (node as HTMLElement).dataset.studioSavedScheduleSelect || "";
       if (!groupId) return;
       studio.scheduleGroupId = groupId;
+      studio.subPage = "schedule";
       rerender();
     });
   });

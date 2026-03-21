@@ -1555,9 +1555,38 @@ p {
   align-items: flex-start;
 }
 
+.rs-saved-page {
+  min-height: 0;
+  height: min(100%, calc(100dvh - var(--rs-schedule-shell-offset, 190px)));
+  max-height: calc(100dvh - var(--rs-schedule-shell-offset, 190px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.rs-saved-page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.rs-saved-page-head h3 {
+  margin: 0 0 4px;
+}
+
 .rs-saved-schedules-list {
   display: grid;
   gap: 10px;
+}
+
+.rs-saved-schedules-list--page {
+  min-height: 0;
+  overflow: auto;
+  align-content: start;
+  padding-right: 4px;
 }
 
 .rs-saved-schedules-empty {
@@ -1604,6 +1633,21 @@ p {
   display: flex;
   gap: 8px;
   align-items: flex-start;
+}
+
+.rs-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+
+.rs-empty-state p {
+  margin: 0;
 }
 
 .rs-btn-danger {
@@ -4009,6 +4053,12 @@ th {
   .rs-schedule-page {
     height: min(100%, calc(100dvh - var(--rs-schedule-shell-offset-mobile, 150px)));
     max-height: calc(100dvh - var(--rs-schedule-shell-offset-mobile, 150px));
+  }
+
+  .rs-saved-page {
+    height: min(100%, calc(100dvh - var(--rs-schedule-shell-offset-mobile, 150px)));
+    max-height: calc(100dvh - var(--rs-schedule-shell-offset-mobile, 150px));
+    padding: 12px;
   }
 
   .rs-schedule-main {
