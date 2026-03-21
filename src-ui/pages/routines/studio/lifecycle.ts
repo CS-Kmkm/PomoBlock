@@ -1,5 +1,5 @@
 import type { Module, ModuleFolder, Recipe, RoutineStudioEntry, RoutineStudioState } from "../../../types.js";
-import { deriveModuleFolders } from "../model.js";
+import { deriveModuleFolders, ROUTINE_STUDIO_DEFAULT_FOLDER_ID } from "../model.js";
 
 type NormalizeStudioStateParams = {
   studio: RoutineStudioState;
@@ -39,7 +39,7 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   } = params;
   studio.assetsLoaded = Boolean(studio.assetsLoaded);
   studio.assetsLoading = Boolean(studio.assetsLoading);
-  studio.subPage = ["editor", "schedule"].includes(studio.subPage) ? studio.subPage : "editor";
+  studio.subPage = ["editor", "schedule", "saved-schedules"].includes(studio.subPage) ? studio.subPage : "editor";
   studio.search = typeof studio.search === "string" ? studio.search : "";
   studio.draftName = typeof studio.draftName === "string" && studio.draftName.trim() ? studio.draftName : "Routine Draft";
   studio.templateId =
@@ -100,7 +100,7 @@ export function normalizeStudioState(params: NormalizeStudioStateParams): void {
   if (studio.moduleEditor && studio.moduleFolders.length > 0) {
     const hasFolder = studio.moduleFolders.some((folder) => folder.id === studio.moduleEditor?.category);
     if (!hasFolder) {
-      studio.moduleEditor.category = studio.moduleFolders[0]?.id || "General";
+      studio.moduleEditor.category = studio.moduleFolders[0]?.id || ROUTINE_STUDIO_DEFAULT_FOLDER_ID;
     }
   }
 }

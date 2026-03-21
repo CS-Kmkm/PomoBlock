@@ -604,7 +604,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         studio.scheduleDirty = true;
         return true;
     };
-    if (studio.subPage === "schedule" && !studio.__savedScheduleGroupsLoading && (!studio.__savedScheduleGroupsLoaded || studio.__savedScheduleGroupsDirty)) {
+    if ((studio.subPage === "schedule" || studio.subPage === "saved-schedules") && !studio.__savedScheduleGroupsLoading && (!studio.__savedScheduleGroupsLoaded || studio.__savedScheduleGroupsDirty)) {
         studio.__savedScheduleGroupsLoading = true;
         runUiAction(async () => {
             try {
