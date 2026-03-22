@@ -251,7 +251,7 @@ export function renderSimpleTimelineRow(
     <div class="day-simple-row">
       <span class="day-simple-row-label">${label}</span>
       <div class="day-simple-track">
-        ${segments || '<span class="day-simple-empty">なし</span>'}
+        ${segments || '<span class="day-simple-empty" aria-hidden="true"></span>'}
       </div>
     </div>
   `;
@@ -275,7 +275,7 @@ export function renderDayLane(
       </header>
       <div class="day-lane-track">
         ${renderDayHourGuides()}
-        ${entries || '<span class="day-lane-empty">なし</span>'}
+        ${entries || '<span class="day-lane-empty" aria-hidden="true"></span>'}
       </div>
     </section>
   `;
@@ -316,7 +316,7 @@ export function renderSimpleDailyCalendar(
           compactSummary
             ? `
         <div class="day-simple-track day-simple-track-compact">
-          ${renderSimpleMergedTimelineSegments(combinedItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps) || '<span class="day-simple-empty">なし</span>'}
+          ${renderSimpleMergedTimelineSegments(combinedItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps) || '<span class="day-simple-empty" aria-hidden="true"></span>'}
         </div>
         `
             : `
@@ -399,7 +399,7 @@ function renderPlannerDayLane(
         `
             : ""
         }
-        ${entries || '<span class="day-lane-empty">なし</span>'}
+        ${entries || '<span class="day-lane-empty" aria-hidden="true"></span>'}
       </div>
     </section>
   `;
@@ -498,7 +498,7 @@ export function renderDailyDetail(
               type="text"
               value="${deps.escapeHtml(titleValue)}"
               data-block-title-input="${deps.escapeHtml(block.id || "")}"
-              placeholder="タイトルなし"
+              placeholder="タイトルを入力"
             />
           </label>
           <button type="button" class="btn-secondary" data-block-title-save="${deps.escapeHtml(block.id || "")}">タイトル保存</button>
