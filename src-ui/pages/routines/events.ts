@@ -921,7 +921,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                     results.push(`${entry.startTime}${offsetLabel} ${entry.title}: ${result}`);
                 }
                 studio.lastApplyResult = results.join(" / ");
-                setStatus(`applied schedule: ${saved.entries.length} items`);
+                setStatus(`スケジュールを適用しました: ${saved.entries.length} 件`);
                 rerender();
                 return;
             }

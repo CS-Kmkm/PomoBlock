@@ -269,7 +269,7 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
               </div>
               <div class="rs-schedule-head-meta">
                 <span class="rs-badge">${escapeHtml(scheduleRecurrenceLabel(studio))}</span>
-                <span class="small">${studio.scheduleEntries.length} items</span>
+                <span class="small">${studio.scheduleEntries.length} 件</span>
               </div>
             </header>
             <section class="rs-schedule-day">
@@ -401,18 +401,18 @@ function buildRoutineStudioScheduleRightMarkup(params: {
               <h4>繰り返し設定</h4>
               <label class="rs-field">スケジュールセット
                 <select id="studio-schedule-group">
-                  <option value="${escapeHtml(currentDraftScheduleValue)}" ${studio.scheduleGroupId === currentDraftScheduleValue ? "selected" : ""}>Current Draft (${escapeHtml(studio.draftName)})</option>
+                  <option value="${escapeHtml(currentDraftScheduleValue)}" ${studio.scheduleGroupId === currentDraftScheduleValue ? "selected" : ""}>現在の下書き (${escapeHtml(studio.draftName)})</option>
                   ${allComplexModuleAssets
                     .map(
                       (cm) =>
-                        `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} steps)</option>`,
+                        `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} ステップ)</option>`,
                     )
                     .join("")}
                   ${savedScheduleGroups
                     .filter((group) => !knownGroupIds.has(group.groupId))
                     .map(
                       (group) =>
-                        `<option value="${escapeHtml(group.groupId)}" ${group.groupId === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(group.name)} (${group.entryCount} items)</option>`,
+                        `<option value="${escapeHtml(group.groupId)}" ${group.groupId === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(group.name)} (${group.entryCount} 件)</option>`,
                     )
                     .join("")}
                 </select>
