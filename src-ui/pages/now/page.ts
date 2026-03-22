@@ -55,7 +55,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
       : (autoStartTask?.title as string | undefined) ||
         (autoStartBlock
           ? helpers.blockTitle(autoStartBlock as { id?: string } | null | undefined) || String(autoStartBlock.id || "")
-          : "Ready"));
+          : "準備完了"));
   const objectiveBlockId = String(runningBlock?.id || autoStartBlock?.id || "-");
   const totalCycles = Number(state.total_cycles || 0);
   const currentCycle = Number(state.current_cycle || 1);
@@ -136,7 +136,15 @@ export function renderNowPage(deps: PageRenderDeps): void {
         <div class="now-task-list">
           ${
             openTasks.length === 0
-              ? '<p class="small now-empty">未完了タスクはありません。</p>'
+              ? `
+                <section class="now-empty-card">
+                  <p class="small now-empty">未完了タスクはありません。</p>
+                  <div class="now-empty-actions">
+                    <a href="#/today" class="btn-secondary">Todayで確認</a>
+                    <a href="#/routines" class="btn-secondary">ルーティンから追加</a>
+                  </div>
+                </section>
+              `
               : openTasks
                   .map((task, index) => {
                     const upDisabled = index === 0;

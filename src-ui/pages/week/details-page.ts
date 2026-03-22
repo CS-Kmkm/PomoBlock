@@ -18,6 +18,15 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   const backHref = isTodayRoute ? "#/now" : "#/week";
   const backLabel = isTodayRoute ? "実行中へ" : "週ビューへ戻る";
   const selectedBlocks = uiState.blocks.filter((block) => block.date === selectedDate);
+  const totalBlockMinutes = selectedBlocks.reduce((sum, block) => {
+    const start = new Date(block.start_at).getTime();
+    const end = new Date(block.end_at).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return sum;
+    return sum + Math.round((end - start) / 60000);
+  }, 0);
+  const operationHint = isTodayRoute
+    ? "まず同期、次に再生成、最後に再読込で状態を整えると安定します。"
+    : "日付を切り替えて確認し、必要な日だけ同期・再生成してください。";
   const rerender = () => renderWeekDetailsPage(deps, options);
 
   appRoot.innerHTML = `
@@ -28,6 +37,21 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
       </div>
       <a href="${backHref}" class="week-manage-btn">${backLabel}</a>
     </section>
+    <section class="panel week-ux-summary">
+      <div class="week-ux-summary-main">
+        <h3>${isTodayRoute ? "今日の運用サマリー" : "日別運用サマリー"}</h3>
+        <p class="small">${operationHint}</p>
+      </div>
+      <div class="week-ux-summary-metrics">
+        <span class="pill">ブロック ${selectedBlocks.length}件</span>
+        <span class="pill">合計 ${totalBlockMinutes}分</span>
+        <span class="pill">アカウント ${helpers.escapeHtml(helpers.normalizeAccountId(uiState.accountId))}</span>
+      </div>
+      <div class="week-ux-summary-actions">
+        <a href="#/now" class="btn-secondary">実行画面を開く</a>
+        <a href="#/routines" class="btn-secondary">ルーティンを編集</a>
+      </div>
+    </section>
     <section class="panel week-controls-panel">
       <div class="week-controls-grid">
         <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" ${isTodayRoute ? "disabled" : ""} /></label>
@@ -36,8 +60,11 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
       <div class="week-controls-actions">
         <button id="dashboard-sync" class="btn-primary">同期</button>
         <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
-        <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
         <button id="dashboard-refresh" class="btn-secondary">再読込</button>
+      </div>
+      <div class="week-controls-danger">
+        <button id="dashboard-reset-blocks" class="btn-warn">ブロックリセット</button>
+        <p class="small">注意: 対象日のブロックを削除します。</p>
       </div>
     </section>
     ${helpers.renderDailyCalendar(selectedDate, {
@@ -114,6 +141,9 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   });
 
   document.getElementById("dashboard-reset-blocks")?.addEventListener("click", async () => {
+    if (!window.confirm(`本当に ${selectedDate} のブロックをリセットしますか？`)) {
+      return;
+    }
     await services.runUiAction(async () => {
       uiState.accountId = getSelectedAccount();
       const date = getSelectedDate();
