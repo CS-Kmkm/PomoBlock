@@ -63,6 +63,7 @@ import {
 } from "./studio/actions.js";
 import { renderRoutinesMarkup } from "./view.js";
 import { bindPaneResizers } from "../../pane-resizer.js";
+import { resolveWeekBufferDateKeys } from "../../time.js";
 
 
 export function renderRoutinesEvents(deps: PageRenderDeps): void {
@@ -76,6 +77,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
   };
   const safeInvoke = services.safeInvoke.bind(services);
   const runUiAction = services.runUiAction.bind(services);
+  const invokeCommandWithProgress = services.invokeCommandWithProgress.bind(services);
   const refreshCoreData = deps.refreshCoreData;
   const withAccount = helpers.withAccount;
   const isoDate = helpers.isoDate;
@@ -443,6 +445,14 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
         });
         studio.__savedScheduleGroupsLoaded = true;
         studio.__savedScheduleGroupsDirty = false;
+    };
+    const regenerateVisibleRoutineBlocks = async () => {
+        const anchorDate = String(uiState.dashboardDate || isoDate(new Date())).trim() || isoDate(new Date());
+        const weekDateKeys = resolveWeekBufferDateKeys(anchorDate);
+        for (const dateKey of weekDateKeys) {
+            await invokeCommandWithProgress("generate_blocks", withAccount({ date: dateKey }));
+        }
+        await refreshCoreData(anchorDate);
     };
     const persistTemplate = async () => persistStudioTemplate({
         studio,
@@ -870,6 +880,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
             studio.scheduleLoadedGroupId = studio.scheduleGroupId;
             studio.scheduleDirty = false;
             await refreshSavedScheduleGroups();
+            await regenerateVisibleRoutineBlocks();
             setStatus(`schedule saved: ${studio.scheduleGroupId}`);
             rerender();
         });
