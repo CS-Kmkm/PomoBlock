@@ -62,7 +62,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
   const currentStep = totalCycles > 0 ? Math.max(1, Math.min(currentCycle || 1, totalCycles)) : 1;
   const totalSteps =
     totalCycles > 0 ? totalCycles : Math.max(1, Number((autoStartBlock?.planned_pomodoros as number | undefined) || 1));
-  const controls = helpers.resolveTimerControlModel(state) as Record<string, unknown>;
+  const controls = helpers.resolveTimerControlModel(state);
   const notesPanel = helpers.renderNowNotesPanel();
   const mobileSchedule = helpers.renderDailyCalendar(todayDate, {
     panelClass: "now-mobile-schedule",
