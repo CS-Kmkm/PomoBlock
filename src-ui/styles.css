@@ -936,6 +936,67 @@ p {
   padding: 14px;
 }
 
+.today-planner-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: 12px;
+  align-items: start;
+}
+
+.today-planner-main {
+  display: grid;
+  gap: 12px;
+}
+
+.today-planner-side {
+  display: grid;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+}
+
+.today-task-panel,
+.today-block-task-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.today-task-create {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7fbf8;
+}
+
+.today-task-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.today-task-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
+  display: grid;
+  gap: 8px;
+}
+
+.today-task-title-field input {
+  width: 100%;
+}
+
+.today-task-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px auto;
+  gap: 8px;
+  align-items: center;
+}
+
 .now-layout {
   flex: 1;
   min-height: 0;
@@ -3834,6 +3895,14 @@ th {
 
   .week-controls-grid {
     grid-template-columns: 1fr;
+  }
+
+  .today-planner-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .today-planner-side {
+    position: static;
   }
 
   .grid.two,
