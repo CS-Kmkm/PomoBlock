@@ -287,7 +287,7 @@ export function buildPlannerStripModel(
   const days = safeDateKeys.map((dayKey) => {
     const dayDate = parseLocalDate(dayKey);
     const dailyModel = options.buildDaily(dayKey, { syncSelection: false });
-    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort(
+    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems].sort(
       (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
     );
     return {

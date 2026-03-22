@@ -281,7 +281,7 @@ export function renderRoutinesEvents(deps: PageRenderDeps): void {
                 payload: null,
             });
         }
-        const allItems = [...combinedItems, ...freeItems].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+        const allItems = [...combinedItems].sort((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
         const selectedItem = combinedItems.find((item) => item.id === studio.scheduleSelectedEntryId) || combinedItems[0] || null;
         const dateKey = isoDate(today);
         return {

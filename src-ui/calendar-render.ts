@@ -301,10 +301,10 @@ export function renderSimpleDailyCalendar(
   const includeDetail = options?.includeDetail !== false;
   const includeTimeline = options?.includeTimeline !== false;
   const compactSummary = options?.compactSummary === true;
-  const allItems = [...model.blockItems, ...model.eventItems, ...model.freeItems].sort(
+  const allItems = [...model.blockItems, ...model.eventItems].sort(
     (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
   ) as Array<RenderItem & { kind: string }>;
-  const combinedItems = compactSummary ? allItems.filter((item) => item.kind !== "free") : allItems;
+  const combinedItems = allItems;
   return `
     <div class="day-view-simple">
       ${
@@ -332,7 +332,6 @@ export function renderSimpleDailyCalendar(
         </div>
         ${renderSimpleTimelineRow("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         ${renderSimpleTimelineRow("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-        ${renderSimpleTimelineRow("", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         `
         }
       </div>
@@ -361,13 +360,11 @@ export function renderGridDailyCalendar(
           <span class="day-board-head-time">時刻</span>
           <span>ブロック</span>
           <span>予定</span>
-          <span></span>
         </div>
         <div class="day-board-body">
           ${renderDayTimeAxis(model.dayStartMs, model.dayEndMs, deps.toClockText)}
           ${renderDayLane("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
           ${renderDayLane("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-          ${renderDayLane("", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         </div>
       </div>
       `

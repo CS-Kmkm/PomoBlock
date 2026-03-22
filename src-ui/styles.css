@@ -3227,7 +3227,7 @@ th {
 .day-board-head,
 .day-board-body {
   display: grid;
-  grid-template-columns: 84px repeat(3, minmax(190px, 1fr));
+  grid-template-columns: 84px repeat(2, minmax(190px, 1fr));
   gap: 8px;
   min-width: 760px;
 }
