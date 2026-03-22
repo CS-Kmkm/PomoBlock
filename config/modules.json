@@ -1,6 +1,10 @@
 {
   "folders": [
     {
+      "id": "(default)",
+      "name": "(default)"
+    },
+    {
       "id": "Focus Work",
       "name": "Focus Work"
     },
@@ -15,7 +19,7 @@
   ],
   "modules": [
     {
-      "category": "Focus Work",
+      "category": "(default)",
       "checklist": [
         "Close distracting tabs",
         "Set Slack to Away",
@@ -35,7 +39,7 @@
       "stepType": "micro"
     },
     {
-      "category": "Focus Work",
+      "category": "(default)",
       "checklist": [
         "Focus on one task only",
         "No context switching"
@@ -61,7 +65,7 @@
       "stepType": "pomodoro"
     },
     {
-      "category": "test",
+      "category": "Communication",
       "checklist": [
         "Reply, archive, or defer",
         "No deep replies"

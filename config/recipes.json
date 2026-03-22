@@ -3,7 +3,7 @@
     {
       "autoDriveMode": "auto",
       "id": "rcp-routine-studio",
-      "name": "Morning Deep Work",
+      "name": "test2",
       "steps": [
         {
           "durationSeconds": 300,
@@ -14,48 +14,50 @@
           "type": "micro"
         },
         {
-          "durationSeconds": 1500,
+          "durationSeconds": 120,
           "id": "step-2",
-          "moduleId": "mod-pomodoro-focus",
+          "moduleId": "mod-two-min-triage",
           "overrunPolicy": "wait",
-          "title": "Pomodoro Focus",
-          "type": "micro"
-        },
-        {
-          "durationSeconds": 300,
-          "id": "step-3",
-          "moduleId": "mod-deep-work-init",
-          "overrunPolicy": "wait",
-          "title": "Deep Work Init",
+          "title": "2m Triage",
           "type": "micro"
         },
         {
           "durationSeconds": 1500,
-          "id": "step-4",
+          "id": "step-3",
           "moduleId": "mod-pomodoro-focus",
           "overrunPolicy": "wait",
           "title": "Pomodoro Focus",
-          "type": "micro"
-        },
-        {
-          "durationSeconds": 120,
-          "id": "step-5",
-          "moduleId": "mod-two-min-triage",
-          "overrunPolicy": "wait",
-          "title": "2m Triage",
-          "type": "micro"
-        },
-        {
-          "durationSeconds": 120,
-          "id": "step-6",
-          "moduleId": "mod-two-min-triage",
-          "overrunPolicy": "wait",
-          "title": "2m Triage",
           "type": "micro"
         }
       ],
       "studioMeta": {
-        "context": "Work - Deep Focus",
+        "category": "(default)",
+        "context": null,
+        "kind": "routine_studio",
+        "version": 1
+      }
+    },
+    {
+      "autoDriveMode": "manual",
+      "id": "rcp-default",
+      "name": "Default Focus",
+      "steps": [
+        {
+          "durationSeconds": 1500,
+          "id": "step-1",
+          "overrunPolicy": "wait",
+          "pomodoro": {
+            "breakSeconds": 300,
+            "cycles": 1,
+            "focusSeconds": 1500
+          },
+          "title": "Focus",
+          "type": "pomodoro"
+        }
+      ],
+      "studioMeta": {
+        "category": "(default)",
+        "context": null,
         "kind": "routine_studio",
         "version": 1
       }
