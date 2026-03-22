@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 const POMODORO_FOCUS_SECONDS: u32 = 25 * 60;
 const POMODORO_BREAK_SECONDS: u32 = 5 * 60;
 const MODULES_FILE_NAME: &str = "modules.json";
-const GENERAL_FOLDER_ID: &str = "General";
-const GENERAL_FOLDER_NAME: &str = "General";
+const GENERAL_FOLDER_ID: &str = "(default)";
+const GENERAL_FOLDER_NAME: &str = "";
 
 pub fn load_configured_modules(config_dir: &Path) -> Vec<Module> {
     let mut modules = read_modules_document(config_dir)
@@ -156,6 +156,11 @@ pub fn delete_module_folder(config_dir: &Path, folder_id: &str) -> Result<bool, 
     let mut document = read_modules_document(config_dir)?;
     ensure_document_folders(&mut document)?;
     let mut folders = collect_document_folders(&document);
+    if folder_id == GENERAL_FOLDER_ID {
+        return Err(InfraError::InvalidConfig(
+            "default folder cannot be deleted".to_string(),
+        ));
+    }
     let before = folders.len();
     folders.retain(|folder| folder.id != folder_id);
     if folders.len() == before {
@@ -163,25 +168,7 @@ pub fn delete_module_folder(config_dir: &Path, folder_id: &str) -> Result<bool, 
     }
 
     let modules = modules_array_mut(&mut document)?;
-    let affected_count = modules
-        .iter()
-        .filter(|entry| module_category_from_value(entry) == Some(folder_id))
-        .count();
-    if affected_count > 0 {
-        let fallback_id = folders
-            .first()
-            .map(|folder| folder.id.clone())
-            .unwrap_or_else(|| {
-                let fallback = default_general_folder();
-                folders.push(fallback.clone());
-                fallback.id
-            });
-        for entry in modules.iter_mut() {
-            if module_category_from_value(entry) == Some(folder_id) {
-                set_module_category(entry, &fallback_id)?;
-            }
-        }
-    }
+    modules.retain(|entry| module_category_from_value(entry) != Some(folder_id));
 
     set_document_folders(&mut document, &folders)?;
     write_modules_document(config_dir, &document)?;
@@ -439,6 +426,9 @@ fn ensure_folder_for_category(
 }
 
 fn append_missing_module_folders(folders: &mut Vec<ModuleFolder>, modules: &[Module]) {
+    if folders.iter().all(|existing| existing.id != GENERAL_FOLDER_ID) {
+        folders.insert(0, default_general_folder());
+    }
     for folder in synthesize_folders_from_modules(modules) {
         if folders.iter().all(|existing| existing.id != folder.id) {
             folders.push(folder);
@@ -447,7 +437,7 @@ fn append_missing_module_folders(folders: &mut Vec<ModuleFolder>, modules: &[Mod
 }
 
 fn synthesize_folders_from_modules(modules: &[Module]) -> Vec<ModuleFolder> {
-    let mut folders = Vec::new();
+    let mut folders = vec![default_general_folder()];
     for module in modules {
         let category = module.category.trim();
         if category.is_empty() || folders.iter().any(|folder: &ModuleFolder| folder.id == category) {
@@ -576,7 +566,7 @@ fn parse_module_from_value(raw: &serde_json::Value) -> Option<Module> {
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("General")
+        .unwrap_or(GENERAL_FOLDER_ID)
         .to_string();
     let description = value_by_keys(object, &["description"])
         .and_then(serde_json::Value::as_str)
@@ -929,7 +919,7 @@ mod tests {
     }
 
     #[test]
-    fn module_folder_crud_preserves_order_and_reassigns_deleted_modules() {
+    fn module_folder_crud_preserves_order_and_deletes_folder_contents() {
         let config_dir = TempConfigDir::new("modules", "folders");
         let created = create_module_folder(config_dir.path(), "Admin").expect("create folder");
         assert_eq!(created.id, "Admin");
@@ -937,7 +927,7 @@ mod tests {
         let moved = move_module_folder(config_dir.path(), "Admin", "up").expect("move folder");
         assert_eq!(
             moved.iter().position(|folder| folder.id == "Admin"),
-            Some(1)
+            Some(2)
         );
 
         let updated = update_module(
@@ -969,11 +959,15 @@ mod tests {
         assert!(folders.iter().all(|folder| folder.id != "Admin"));
 
         let modules = load_configured_modules(config_dir.path());
-        let triage = modules
-            .iter()
-            .find(|module| module.id == "mod-two-min-triage")
-            .expect("triage module");
-        assert_ne!(triage.category, "Admin");
+        assert!(modules.iter().all(|module| module.category != "Admin"));
+        assert!(modules.iter().all(|module| module.id != "mod-two-min-triage"));
+    }
+
+    #[test]
+    fn default_folder_cannot_be_deleted() {
+        let config_dir = TempConfigDir::new("modules", "default-folder-protect");
+        let deleted = delete_module_folder(config_dir.path(), GENERAL_FOLDER_ID);
+        assert!(deleted.is_err());
     }
 
     #[test]
@@ -1009,7 +1003,7 @@ mod tests {
 
         assert_eq!(
             folders.iter().map(|folder| folder.id.as_str()).collect::<Vec<_>>(),
-            vec!["Communication", "Focus Work"]
+            vec![GENERAL_FOLDER_ID, "Communication", "Focus Work"]
         );
     }
 

@@ -1,4 +1,4 @@
-import type { Module, ModuleFolder } from "../../types.js";
+import type { Module, ModuleFolder, Recipe } from "../../types.js";
 
 export type RoutineStudioModuleView = {
   id: string;
@@ -13,7 +13,25 @@ export type RoutineStudioFolderView = {
   id: string;
   name: string;
   modules: RoutineStudioModuleView[];
+  templates: Array<{
+    id: string;
+    name: string;
+    category: string;
+    stepCount: number;
+    totalMinutes: number;
+  }>;
 };
+
+export const ROUTINE_STUDIO_DEFAULT_FOLDER_ID = "(default)";
+
+export function routineStudioFolderLabel(folder: Pick<ModuleFolder, "id" | "name"> | { id: string; name?: string }) {
+  const id = String(folder?.id || "").trim();
+  const name = String(folder?.name || "").trim();
+  if (id === ROUTINE_STUDIO_DEFAULT_FOLDER_ID) {
+    return "";
+  }
+  return name || id;
+}
 
 export type RoutineStudioEntryView = {
   entryId: string;
@@ -153,8 +171,8 @@ export const routineStudioSeedModules: Module[] = [
 ];
 
 export function deriveModuleFolders(modules: Array<Pick<Module, "category">>): ModuleFolder[] {
-  const seen = new Set<string>();
-  const folders: ModuleFolder[] = [];
+  const seen = new Set<string>([ROUTINE_STUDIO_DEFAULT_FOLDER_ID]);
+  const folders: ModuleFolder[] = [{ id: ROUTINE_STUDIO_DEFAULT_FOLDER_ID, name: "" }];
   modules.forEach((module) => {
     const category = String(module?.category || "").trim();
     if (!category || seen.has(category)) {
@@ -214,6 +232,13 @@ export function isRoutineStudioRecipe(recipe: unknown) {
   const source = (recipe ?? {}) as Record<string, unknown>;
   const meta = (source.studioMeta || source.studio_meta || null) as Record<string, unknown> | null;
   return meta?.kind === "routine_studio";
+}
+
+export function routineStudioRecipeCategory(recipe: unknown, fallback = ROUTINE_STUDIO_DEFAULT_FOLDER_ID) {
+  const source = (recipe ?? {}) as Record<string, unknown>;
+  const meta = (source.studioMeta || source.studio_meta || null) as Record<string, unknown> | null;
+  const category = typeof meta?.category === "string" ? meta.category.trim() : "";
+  return category || fallback;
 }
 
 export function cloneValue<T>(value: T): T {

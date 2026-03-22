@@ -58,6 +58,8 @@ pub struct RecipeStudioMeta {
     pub kind: String,
     #[serde(default)]
     pub context: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -126,6 +128,9 @@ impl Recipe {
             validate_non_empty(&meta.kind, "recipe.studio_meta.kind")?;
             if let Some(context) = &meta.context {
                 validate_non_empty(context, "recipe.studio_meta.context")?;
+            }
+            if let Some(category) = &meta.category {
+                validate_non_empty(category, "recipe.studio_meta.category")?;
             }
         }
         for step in &self.steps {

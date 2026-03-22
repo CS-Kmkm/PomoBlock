@@ -1,4 +1,4 @@
-﻿import type { Block, JsonObject, MockState, Module, Recipe } from "../types.js";
+import type { Block, JsonObject, MockState, Module, Recipe } from "../types.js";
 
 type MockInvokeDeps = {
     mockState: MockState;
@@ -340,7 +340,7 @@ export function createMockInvoke(deps: MockInvokeDeps) {
             const created = {
                 id,
                 name: String(payloadModule.name || id),
-                category: String(payloadModule.category || "General"),
+                category: String(payloadModule.category || "(default)"),
                 description: payloadModule.description ? String(payloadModule.description) : "",
                 icon: payloadModule.icon ? String(payloadModule.icon) : "module",
                 stepType: String(payloadModule.stepType || payloadModule.step_type || "micro"),
@@ -458,23 +458,15 @@ export function createMockInvoke(deps: MockInvokeDeps) {
         case "delete_module_folder": {
             const folders = ensureMockModuleFolders();
             const folderId = readString(args, "folder_id").trim();
+            if (folderId === "(default)") {
+                throw new Error("default folder cannot be deleted");
+            }
             const before = folders.length;
             mockState.moduleFolders = folders.filter((folder) => folder.id !== folderId);
             if (mockState.moduleFolders.length === before) {
                 return false;
             }
-            const hasAffectedModules = mockState.modules.some((module) => String(module.category || "") === folderId);
-            if (hasAffectedModules) {
-                const fallbackFolder = mockState.moduleFolders[0] || { id: "General", name: "General" };
-                if (mockState.moduleFolders.length === 0) {
-                    mockState.moduleFolders = [fallbackFolder];
-                }
-                mockState.modules = mockState.modules.map((module) =>
-                    String(module.category || "") === folderId
-                        ? { ...module, category: fallbackFolder.id }
-                        : module,
-                );
-            }
+            mockState.modules = mockState.modules.filter((module) => String(module.category || "") !== folderId);
             return true;
         }
         case "move_module_folder": {
@@ -903,3 +895,4 @@ export function createMockInvoke(deps: MockInvokeDeps) {
 
     return mockInvoke;
 }
+

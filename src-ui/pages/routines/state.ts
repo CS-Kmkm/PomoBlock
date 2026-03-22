@@ -11,6 +11,7 @@ import type {
 import {
   deriveModuleFolders,
   nextRoutineStudioEntryId,
+  ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
   toPositiveInt,
   type RoutineStudioModuleView,
 } from "./model.js";
@@ -22,7 +23,7 @@ export function normalizeStudioModule(module: unknown, index: number): RoutineSt
   return {
     id,
     name: String(source.name || id),
-    category: String(source.category || "General"),
+    category: String(source.category || ROUTINE_STUDIO_DEFAULT_FOLDER_ID),
     description: String(source.description || ""),
     icon: String(source.icon || "module"),
     durationMinutes,
@@ -106,7 +107,7 @@ export function normalizeStudioModuleFolder(folder: unknown, index: number): Mod
   const id = String(source.id || source.name || `Folder ${index + 1}`).trim() || `Folder ${index + 1}`;
   return {
     id,
-    name: String(source.name || id).trim() || id,
+    name: id === ROUTINE_STUDIO_DEFAULT_FOLDER_ID ? "" : String(source.name || id).trim() || id,
   };
 }
 
@@ -115,7 +116,7 @@ export function normalizeStudioModuleEditor(editor: unknown): RoutineStudioModul
   return {
     id: String(source.id || ""),
     name: String(source.name || ""),
-    category: String(source.category || "General"),
+    category: String(source.category || ROUTINE_STUDIO_DEFAULT_FOLDER_ID),
     description: String(source.description || ""),
     icon: String(source.icon || "module"),
     durationMinutes: toPositiveInt(source.durationMinutes || source.duration_minutes, 5),
@@ -126,6 +127,8 @@ export function normalizeRoutineScheduleEntry(entry: unknown, index: number): Ro
   const source = (entry ?? {}) as Record<string, unknown>;
   const assetKind = String(source.assetKind || source.asset_kind || "template").toLowerCase() === "module" ? "module" : "template";
   const id = String(source.id || `schedule-entry-${index + 1}`).trim() || `schedule-entry-${index + 1}`;
+  const dayOffsetRaw = Number(source.dayOffset ?? source.day_offset ?? 0);
+  const dayOffset = Number.isFinite(dayOffsetRaw) ? Math.max(-1, Math.min(1, Math.trunc(dayOffsetRaw))) : 0;
   return {
     id,
     assetKind,
@@ -134,6 +137,7 @@ export function normalizeRoutineScheduleEntry(entry: unknown, index: number): Ro
     moduleId: String(source.moduleId || source.module_id || "").trim(),
     title: String(source.title || `Schedule ${index + 1}`),
     subtitle: String(source.subtitle || ""),
+    dayOffset,
     startTime: normalizeTimeValue(source.startTime || source.start_time, "09:00"),
     durationMinutes: toPositiveInt(source.durationMinutes || source.duration_minutes, 25),
   };
@@ -169,7 +173,7 @@ export function createEmptyStudioModuleEditor(): RoutineStudioModuleEditor {
   return normalizeStudioModuleEditor({
     id: "",
     name: "",
-    category: "General",
+    category: ROUTINE_STUDIO_DEFAULT_FOLDER_ID,
     description: "",
     icon: "module",
     durationMinutes: 5,
@@ -194,7 +198,7 @@ export function ensureStudioModuleFolders(studio: RoutineStudioState): void {
   if (studio.moduleEditor && studio.moduleFolders.length > 0) {
     const hasFolder = studio.moduleFolders.some((folder) => folder.id === studio.moduleEditor?.category);
     if (!hasFolder) {
-      studio.moduleEditor.category = studio.moduleFolders[0]?.id || "General";
+      studio.moduleEditor.category = studio.moduleFolders[0]?.id || ROUTINE_STUDIO_DEFAULT_FOLDER_ID;
     }
   }
 }

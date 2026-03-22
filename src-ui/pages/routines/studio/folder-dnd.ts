@@ -2,6 +2,7 @@ export type FolderDropTarget = {
   dropzone: HTMLElement;
   folderId: string;
   beforeModuleId: string;
+  beforeTemplateId: string;
 };
 
 export function clearFolderDropIndicators(appRoot: HTMLElement): void {
@@ -16,21 +17,25 @@ export function clearFolderDropIndicators(appRoot: HTMLElement): void {
 function resolveFolderInsertTarget(
   dropzone: HTMLElement,
   clientY: number,
-  draggedModuleId: string,
-): { beforeModuleId: string; insertTarget: HTMLElement | null } {
-  const cards = Array.from(dropzone.querySelectorAll<HTMLElement>("[data-studio-asset-kind='module'][data-studio-asset-id]")).filter(
-    (card) => !card.hidden && (card.dataset.studioAssetId || "") !== draggedModuleId,
+  draggedAssetId: string,
+  draggedAssetKind: "module" | "template",
+): { beforeModuleId: string; beforeTemplateId: string; insertTarget: HTMLElement | null } {
+  const cards = Array.from(
+    dropzone.querySelectorAll<HTMLElement>(`[data-studio-asset-kind='${draggedAssetKind}'][data-studio-asset-id]`),
+  ).filter(
+    (card) => !card.hidden && (card.dataset.studioAssetId || "") !== draggedAssetId,
   );
   for (const card of cards) {
     const rect = card.getBoundingClientRect();
     if (clientY <= rect.top + rect.height / 2) {
       return {
-        beforeModuleId: card.dataset.studioAssetId || "",
+        beforeModuleId: draggedAssetKind === "module" ? card.dataset.studioAssetId || "" : "",
+        beforeTemplateId: draggedAssetKind === "template" ? card.dataset.studioAssetId || "" : "",
         insertTarget: card,
       };
     }
   }
-  return { beforeModuleId: "", insertTarget: null };
+  return { beforeModuleId: "", beforeTemplateId: "", insertTarget: null };
 }
 
 function paintFolderDropIndicator(appRoot: HTMLElement, dropzone: HTMLElement, insertTarget: HTMLElement | null): void {
@@ -47,9 +52,10 @@ export function resolveActiveFolderDrop(params: {
   appRoot: HTMLElement;
   clientX: number;
   clientY: number;
-  draggedModuleId: string;
+  draggedAssetId: string;
+  draggedAssetKind: "module" | "template";
 }): FolderDropTarget | null {
-  const { appRoot, clientX, clientY, draggedModuleId } = params;
+  const { appRoot, clientX, clientY, draggedAssetId, draggedAssetKind } = params;
   const pointed = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
   const folderGroup = pointed?.closest("[data-studio-folder-id]") as HTMLElement | null;
   if (!folderGroup) {
@@ -66,11 +72,17 @@ export function resolveActiveFolderDrop(params: {
     clearFolderDropIndicators(appRoot);
     return null;
   }
-  const { beforeModuleId, insertTarget } = resolveFolderInsertTarget(dropzone, clientY, draggedModuleId);
+  const { beforeModuleId, beforeTemplateId, insertTarget } = resolveFolderInsertTarget(
+    dropzone,
+    clientY,
+    draggedAssetId,
+    draggedAssetKind,
+  );
   paintFolderDropIndicator(appRoot, dropzone, insertTarget);
   return {
     dropzone,
     folderId,
     beforeModuleId,
+    beforeTemplateId,
   };
 }
