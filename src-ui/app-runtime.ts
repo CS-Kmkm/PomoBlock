@@ -858,6 +858,12 @@ function updateDayCalendarZoom(nextZoom: number) {
     uiState.dayCalendarZoom = clampDayCalendarZoom(nextZoom);
     syncDayCalendarZoomUi();
 }
+function isScheduleZoomTarget(target: EventTarget | null) {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return Boolean(target.closest(".day-calendar, .week-board, .now-day-schedule, .rs-schedule-now-dropzone"));
+}
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
     const [root, detail] = hash.split("/");
@@ -1396,6 +1402,14 @@ export function startApp(): void {
         updateDayCalendarZoom(1);
         setStatus("スケジュール表示倍率を100%に戻しました");
     });
+    window.addEventListener("wheel", (event: WheelEvent) => {
+        if (!event.ctrlKey || !isScheduleZoomTarget(event.target)) {
+            return;
+        }
+        event.preventDefault();
+        const direction = event.deltaY < 0 ? 1 : -1;
+        updateDayCalendarZoom(uiState.dayCalendarZoom + direction * DAY_CALENDAR_ZOOM_STEP);
+    }, { passive: false });
     window.addEventListener("hashchange", () => {
         render();
     });
