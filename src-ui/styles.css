@@ -1096,6 +1096,8 @@ p {
 
 .now-schedule-wrap {
   min-height: 0;
+  height: min(100%, calc(var(--now-track-height) + 12px));
+  max-height: calc(var(--now-track-height) + 12px);
   overflow: auto;
   padding-right: 2px;
 }
@@ -3234,7 +3236,8 @@ th {
 }
 
 .route-week .week-board {
-  height: 100%;
+  height: min(100%, calc(var(--week-track-height) + 170px));
+  max-height: calc(var(--week-track-height) + 170px);
 }
 
 .week-board-time-rail {
