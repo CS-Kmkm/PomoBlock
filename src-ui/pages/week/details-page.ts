@@ -11,6 +11,18 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   const fallbackDate = helpers.isoDate(new Date());
   const isTodayRoute = options.mode === "today";
   const selectedDate = isTodayRoute ? fallbackDate : uiState.dashboardDate || fallbackDate;
+  const triggerTimeSeed = String(uiState.routineStudio.triggerTime || "").trim();
+  const todayQuickTriggerTime = /^\d{2}:\d{2}$/.test(triggerTimeSeed) ? triggerTimeSeed : new Date().toTimeString().slice(0, 5);
+  const todayQuickTemplateCandidates = (() => {
+    const recipes = Array.isArray(uiState.recipes) ? uiState.recipes : [];
+    return recipes.filter(
+      (recipe) => String((recipe.studioMeta as Record<string, unknown> | undefined)?.kind || "") === "routine_studio"
+    );
+  })();
+  const todayQuickTemplateId =
+    todayQuickTemplateCandidates.some((recipe) => recipe.id === uiState.routineStudio.applyTemplateId)
+      ? uiState.routineStudio.applyTemplateId
+      : todayQuickTemplateCandidates[0]?.id || "";
   const pageTitle = isTodayRoute ? "Today Planner" : "日別詳細";
   const pageDescription = isTodayRoute ? "1日の中でブロックとタスクを組み合わせて実行計画を作成します。" : `中央の日付 ${helpers.escapeHtml(selectedDate)} の詳細表示と管理操作を行います。`;
   const backHref = isTodayRoute ? "#/now" : "#/week";
@@ -45,6 +57,46 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
         </section>
       </section>
       <aside class="today-planner-side">
+        <section class="panel today-quick-panel">
+          <header class="row spread">
+            <h3>クイック登録</h3>
+            <span class="small">1日のブロック生成とルーティーン適用をまとめて実行します。</span>
+          </header>
+          <div class="today-quick-actions">
+            <div class="today-quick-grid">
+              <button id="today-generate-one-block" class="btn-secondary">1件生成</button>
+              <button id="today-generate-today-blocks" class="btn-secondary">本日再生成</button>
+            </div>
+            <div class="today-quick-inline">
+              <label>ルーティーン（テンプレート）
+                <select id="today-apply-template-id">
+                  <option value="">(テンプレートを選択)</option>
+                  ${
+                    todayQuickTemplateCandidates.length === 0
+                      ? ""
+                      : todayQuickTemplateCandidates
+                          .map(
+                            (recipe) =>
+                              `<option value="${helpers.escapeHtml(recipe.id)}" ${recipe.id === todayQuickTemplateId ? "selected" : ""}>${helpers.escapeHtml(
+                                recipe.name || recipe.id
+                              )}</option>`
+                          )
+                          .join("")
+                  }
+                </select>
+              </label>
+              <label>開始時刻
+                <input id="today-apply-trigger-time" type="time" value="${helpers.escapeHtml(todayQuickTriggerTime)}" />
+              </label>
+              <button id="today-apply-template" class="btn-primary" ${todayQuickTemplateCandidates.length === 0 ? "disabled" : ""}>今日に適用</button>
+            </div>
+            <p class="today-quick-note">${
+              todayQuickTemplateCandidates.length === 0
+                ? "テンプレートが見つかりません。ルーティーン画面で作成すると、ここから即時適用できます。"
+                : "衝突時は自動で後ろにシフトして配置します。"
+            }</p>
+          </div>
+        </section>
         <section class="panel today-task-panel">
           <header class="row spread">
             <h3>今日のタスク</h3>
@@ -141,7 +193,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
       </div>
       <div class="week-controls-actions">
         <button id="dashboard-sync" class="btn-primary">同期</button>
-        <button id="dashboard-generate" class="btn-secondary">本日再生成</button>
+        ${isTodayRoute ? "" : '<button id="dashboard-generate" class="btn-secondary">本日再生成</button>'}
         <button id="dashboard-refresh" class="btn-secondary">再読込</button>
       </div>
       <div class="week-controls-danger">
@@ -175,6 +227,20 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
       (document.getElementById("dashboard-account-id") as HTMLInputElement | null)?.value ||
         helpers.normalizeAccountId(uiState.accountId)
     );
+  const runGenerateBlocksForSelectedDate = async () => {
+    uiState.accountId = getSelectedAccount();
+    const date = getSelectedDate();
+    try {
+      await services.invokeCommandWithProgress("generate_today_blocks", helpers.withAccount({}));
+    } catch (error) {
+      if (!helpers.isUnknownCommandError(error)) {
+        throw error;
+      }
+      await services.invokeCommandWithProgress("generate_blocks", helpers.withAccount({ date }));
+    }
+    await deps.refreshCoreData(date);
+    rerender();
+  };
 
   document.getElementById("dashboard-date")?.addEventListener("change", async () => {
     if (isTodayRoute) {
@@ -210,20 +276,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   });
 
   document.getElementById("dashboard-generate")?.addEventListener("click", async () => {
-    await services.runUiAction(async () => {
-      uiState.accountId = getSelectedAccount();
-      const date = getSelectedDate();
-      try {
-        await services.invokeCommandWithProgress("generate_today_blocks", helpers.withAccount({}));
-      } catch (error) {
-        if (!helpers.isUnknownCommandError(error)) {
-          throw error;
-        }
-        await services.invokeCommandWithProgress("generate_blocks", helpers.withAccount({ date }));
-      }
-      await deps.refreshCoreData(date);
-      rerender();
-    });
+    await services.runUiAction(runGenerateBlocksForSelectedDate);
   });
 
   document.getElementById("dashboard-reset-blocks")?.addEventListener("click", async () => {
@@ -250,6 +303,37 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   });
 
   if (isTodayRoute) {
+    const runGenerateOneBlock = async () => {
+      uiState.accountId = getSelectedAccount();
+      const date = getSelectedDate();
+      const generated = (await services.safeInvoke("generate_one_block", helpers.withAccount({ date }))) as unknown[];
+      setStatus(generated.length === 0 ? "1件生成できる空きがありません" : "ブロックを1件生成しました");
+      await deps.refreshCoreData(date);
+      rerender();
+    };
+    document.getElementById("today-generate-one-block")?.addEventListener("click", async () => {
+      await services.runUiAction(runGenerateOneBlock);
+    });
+
+    document.getElementById("today-generate-today-blocks")?.addEventListener("click", async () => {
+      await services.runUiAction(runGenerateBlocksForSelectedDate);
+    });
+
+    document.getElementById("today-apply-template-id")?.addEventListener("change", () => {
+      const templateId = (document.getElementById("today-apply-template-id") as HTMLSelectElement | null)?.value || "";
+      uiState.routineStudio.applyTemplateId = templateId;
+    });
+
+    document.getElementById("today-apply-trigger-time")?.addEventListener("change", () => {
+      const triggerTimeRaw = (document.getElementById("today-apply-trigger-time") as HTMLInputElement | null)?.value || "";
+      const triggerTime = /^\d{2}:\d{2}$/.test(triggerTimeRaw) ? triggerTimeRaw : "09:00";
+      const input = document.getElementById("today-apply-trigger-time") as HTMLInputElement | null;
+      if (input && input.value !== triggerTime) {
+        input.value = triggerTime;
+      }
+      uiState.routineStudio.triggerTime = triggerTime;
+    });
+
     document.getElementById("today-task-create")?.addEventListener("click", async () => {
       await services.runUiAction(async () => {
         const title = (document.getElementById("today-task-title") as HTMLInputElement | null)?.value?.trim() || "";
@@ -301,6 +385,44 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
         }
         await services.safeInvoke("start_block_timer", { block_id: blockId, task_id: taskId });
         setStatus("ブロックとタスクを指定して開始しました");
+        rerender();
+      });
+    });
+
+    document.getElementById("today-apply-template")?.addEventListener("click", async () => {
+      await services.runUiAction(async () => {
+        uiState.accountId = getSelectedAccount();
+        const templateId = (document.getElementById("today-apply-template-id") as HTMLSelectElement | null)?.value || "";
+        const triggerTimeRaw = (document.getElementById("today-apply-trigger-time") as HTMLInputElement | null)?.value || "";
+        const triggerTime = /^\d{2}:\d{2}$/.test(triggerTimeRaw) ? triggerTimeRaw : "09:00";
+        const triggerInput = document.getElementById("today-apply-trigger-time") as HTMLInputElement | null;
+        if (triggerInput && triggerInput.value !== triggerTime) {
+          triggerInput.value = triggerTime;
+        }
+        uiState.routineStudio.triggerTime = triggerTime;
+        if (!templateId) {
+          setStatus("適用可能なルーティーンテンプレートを選択してください。");
+          return;
+        }
+        try {
+          await services.invokeCommandWithProgress(
+            "apply_studio_template_to_today",
+            helpers.withAccount({
+              template_id: templateId,
+              date: selectedDate,
+              trigger_time: triggerTime,
+              conflict_policy: "shift",
+            })
+          );
+        } catch (error) {
+          if (helpers.isUnknownCommandError(error)) {
+            setStatus("この環境ではテンプレート適用に未対応です。ルーティーン画面を開いて適用してください。");
+            return;
+          }
+          throw error;
+        }
+        await deps.refreshCoreData(selectedDate);
+        setStatus("テンプレートを今日に適用しました");
         rerender();
       });
     });
