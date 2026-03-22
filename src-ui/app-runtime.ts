@@ -25,6 +25,10 @@ const progressChip = getById<HTMLElement>("global-progress");
 const progressLabel = getById<HTMLElement>("global-progress-label");
 const progressFill = getById<HTMLElement>("global-progress-fill");
 const progressValue = getById<HTMLElement>("global-progress-value");
+const topbarZoomOut = getById<HTMLButtonElement>("topbar-zoom-out");
+const topbarZoomIn = getById<HTMLButtonElement>("topbar-zoom-in");
+const topbarZoomReset = getById<HTMLButtonElement>("topbar-zoom-reset");
+const topbarZoomLabel = getById<HTMLElement>("topbar-zoom-label");
 const routes = ["today", "week", "week-details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
@@ -49,6 +53,9 @@ const progressUpdateIntervalMs = 180;
 const BLOCKS_INITIAL_VISIBLE = 50;
 const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
 const WEEK_RESIZE_RENDER_MS = 120;
+const DAY_CALENDAR_ZOOM_MIN = 0.7;
+const DAY_CALENDAR_ZOOM_MAX = 1.8;
+const DAY_CALENDAR_ZOOM_STEP = 0.1;
 // Routine Studio のドラッグデータを保持するモジュール変数
 let routineStudioActiveDrag: {
     kind: string;
@@ -229,6 +236,7 @@ const uiState: UiState = {
     recipes: [],
     dayCalendarSelection: null,
     dayCalendarViewMode: "grid",
+    dayCalendarZoom: 1,
     blockTitles: loadBlockTitles(),
     nowUi: {
         taskOrder: [],
@@ -831,6 +839,25 @@ function waitForNextFrame() {
     }
     return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
+function clampDayCalendarZoom(value: unknown) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return 1;
+    }
+    return Math.max(DAY_CALENDAR_ZOOM_MIN, Math.min(DAY_CALENDAR_ZOOM_MAX, Math.round(numeric * 10) / 10));
+}
+function syncDayCalendarZoomUi() {
+    const zoom = clampDayCalendarZoom(uiState.dayCalendarZoom);
+    uiState.dayCalendarZoom = zoom;
+    document.body.style.setProperty("--day-track-zoom", String(zoom));
+    if (topbarZoomLabel) {
+        topbarZoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    }
+}
+function updateDayCalendarZoom(nextZoom: number) {
+    uiState.dayCalendarZoom = clampDayCalendarZoom(nextZoom);
+    syncDayCalendarZoomUi();
+}
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
     const [root, detail] = hash.split("/");
@@ -1356,6 +1383,19 @@ export function startApp(): void {
         return;
     }
     appStarted = true;
+    syncDayCalendarZoomUi();
+    topbarZoomOut?.addEventListener("click", () => {
+        updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
+        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+    });
+    topbarZoomIn?.addEventListener("click", () => {
+        updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
+        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+    });
+    topbarZoomReset?.addEventListener("click", () => {
+        updateDayCalendarZoom(1);
+        setStatus("スケジュール表示倍率を100%に戻しました");
+    });
     window.addEventListener("hashchange", () => {
         render();
     });

@@ -30,6 +30,12 @@
           <span aria-hidden="true">&#8981;</span>
           <input type="search" placeholder="プランを検索..." autocomplete="off" />
         </label>
+        <div class="topbar-zoom" aria-label="スケジュール表示倍率">
+          <button type="button" id="topbar-zoom-out" class="topbar-zoom-btn" title="スケジュールを縮小">-</button>
+          <span id="topbar-zoom-label" class="topbar-zoom-label">100%</span>
+          <button type="button" id="topbar-zoom-in" class="topbar-zoom-btn" title="スケジュールを拡大">+</button>
+          <button type="button" id="topbar-zoom-reset" class="topbar-zoom-reset" title="倍率をリセット">等倍</button>
+        </div>
         <div class="topbar-actions">
           <nav class="route-nav" id="route-nav" aria-label="メインナビゲーション">
             <a href="#/today" data-route="today">Today</a>

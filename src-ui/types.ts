@@ -232,6 +232,7 @@ export interface UiState {
   recipes: Recipe[];
   dayCalendarSelection: DayItemSelection;
   dayCalendarViewMode: DayCalendarViewMode;
+  dayCalendarZoom: number;
   blockTitles: Record<string, string>;
   nowUi: {
     taskOrder: string[];

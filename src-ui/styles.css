@@ -15,6 +15,7 @@
   --week-right-width: 340px;
   --rs-left-width: 300px;
   --rs-right-width: 340px;
+  --day-track-zoom: 1;
 }
 
 * {
@@ -130,7 +131,7 @@ p {
 
 .topbar {
   display: grid;
-  grid-template-columns: auto minmax(220px, 420px) minmax(340px, 1fr);
+  grid-template-columns: auto minmax(220px, 420px) auto minmax(340px, 1fr);
   align-items: center;
   gap: 14px;
 }
@@ -153,6 +154,37 @@ p {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.topbar-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 4px;
+  min-height: 44px;
+}
+
+.topbar-zoom-btn,
+.topbar-zoom-reset {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  font-weight: 700;
+}
+
+.topbar-zoom-label {
+  min-width: 48px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .topbar-search {
@@ -1016,7 +1048,7 @@ p {
 
 .now-day-schedule .day-time-axis,
 .now-day-schedule .day-lane-track {
-  height: var(--now-track-height);
+  height: calc(var(--now-track-height) * var(--day-track-zoom, 1));
 }
 
 .now-day-schedule .day-time-axis {
@@ -3317,12 +3349,12 @@ th {
 .day-time-axis,
 .day-lane-track {
   position: relative;
-  height: 1080px;
+  height: calc(1080px * var(--day-track-zoom, 1));
 }
 
 .route-week .day-time-axis,
 .route-week .day-lane-track {
-  height: var(--week-track-height);
+  height: calc(var(--week-track-height) * var(--day-track-zoom, 1));
 }
 
 .day-time-axis {
