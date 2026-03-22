@@ -864,6 +864,9 @@ function isScheduleZoomTarget(target: EventTarget | null) {
     }
     return Boolean(target.closest(".day-calendar, .week-board, .now-day-schedule, .rs-schedule-now-dropzone"));
 }
+function isScheduleRoute(route: string) {
+    return route === "today" || route === "week" || route === "week-details" || route === "now" || route === "routines";
+}
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
     const [root, detail] = hash.split("/");
@@ -1410,6 +1413,28 @@ export function startApp(): void {
         const direction = event.deltaY < 0 ? 1 : -1;
         updateDayCalendarZoom(uiState.dayCalendarZoom + direction * DAY_CALENDAR_ZOOM_STEP);
     }, { passive: false });
+    window.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (!event.ctrlKey || event.altKey || !isScheduleRoute(getRoute())) {
+            return;
+        }
+        const key = event.key;
+        const isZoomIn = key === "+" || key === "=";
+        const isZoomOut = key === "-" || key === "_";
+        const isReset = key === "0";
+        if (!isZoomIn && !isZoomOut && !isReset) {
+            return;
+        }
+        event.preventDefault();
+        if (isZoomIn) {
+            updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
+        }
+        else if (isZoomOut) {
+            updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
+        }
+        else {
+            updateDayCalendarZoom(1);
+        }
+    });
     window.addEventListener("hashchange", () => {
         render();
     });
