@@ -17,6 +17,7 @@ import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTe
 import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, blockRows as blockRowsValue } from "./day-calendar-bindings.js";
 import { renderNowNotesPanel as renderNowNotesPanelView } from "./pages/now/renderers.js";
 import { renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
+import { resolveTimerControlModel as resolveTimerControlModelValue, type TimerControlModel } from "./timer-controls.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -24,12 +25,12 @@ const progressChip = getById<HTMLElement>("global-progress");
 const progressLabel = getById<HTMLElement>("global-progress-label");
 const progressFill = getById<HTMLElement>("global-progress-fill");
 const progressValue = getById<HTMLElement>("global-progress-value");
-const routes = ["week", "week-details", "now", "routines", "insights", "settings"];
+const routes = ["today", "week", "week-details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
     blocks: "ブロック構成",
     git: "Git同期",
-    auth: "Google Auth",
+    auth: "Google認証",
 };
 const longRunningCommands = new Set([
     "sync_calendar",
@@ -849,6 +850,9 @@ function getRoute(): string {
     if (root === "week" && detail === "details") {
         return "week-details";
     }
+    if (root === "today") {
+        return "today";
+    }
     return routes.includes(root || "") ? String(root) : "week";
 }
 function markActiveRoute(route: string) {
@@ -1134,7 +1138,7 @@ function buildPageRenderDeps(): PageRenderDeps {
         },
         renderers: {
             renderWeekPage: () => renderWeekPage(buildPageRenderDeps()),
-            renderWeekDetailsPage: () => renderWeekDetailsPage(buildPageRenderDeps()),
+            renderWeekDetailsPage: () => renderWeekDetailsPage(buildPageRenderDeps(), { mode: getRoute() === "today" ? "today" : "details" }),
             renderPomodoro: () => renderNowPage(buildPageRenderDeps()),
             renderRoutines: () => renderRoutinesPage(buildPageRenderDeps()),
             renderReflection: () => renderInsightsPage(buildPageRenderDeps()),
@@ -1152,8 +1156,12 @@ function syncResponsiveRouteClasses(route: string) {
 }
 function render() {
     const route = getRoute();
+    if (route === "today") {
+        uiState.dashboardDate = isoDate(new Date());
+        uiState.weekView.bufferAnchorDate = uiState.dashboardDate;
+    }
     const pageDeps = buildPageRenderDeps();
-    const isWeekRoute = route === "week" || route === "week-details";
+    const isWeekRoute = route === "week" || route === "week-details" || route === "today";
     markActiveRoute(route);
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
@@ -1163,11 +1171,14 @@ function render() {
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
     switch (route) {
+        case "today":
+            renderWeekDetailsPage(pageDeps, { mode: "today" });
+            break;
         case "week":
             renderWeekPage(pageDeps);
             break;
         case "week-details":
-            renderWeekDetailsPage(pageDeps);
+            renderWeekDetailsPage(pageDeps, { mode: "details" });
             break;
         case "now":
             renderNowPage(pageDeps);
@@ -1235,36 +1246,12 @@ function refreshWeekStatusTimerDisplay() {
         : Math.max(0, Math.floor(state.remaining_seconds || 0));
     statusTime.textContent = toTimerText(displayRemainingSeconds);
 }
-function resolveTimerControlModel(stateInput: unknown = uiState.pomodoro) {
-    const state = normalizePomodoroState(stateInput || {});
-    const canStart = state.phase === "idle" && Boolean(resolveNowAutoStartBlock(state));
-    const isRunningPhase = state.phase === "focus" || state.phase === "break";
-    const canPause = isRunningPhase;
-    const canNext = isRunningPhase;
-    const canStop = isRunningPhase;
-    const canResume = state.phase === "paused";
-    const controlsDisabled = Boolean(uiState.nowUi.actionInFlight);
-    const leftAction = canStop ? "stop" : "";
-    const rightAction = canNext ? "next" : "";
-    const primaryAction = state.phase === "idle" ? "start" : canPause ? "pause" : canResume ? "resume" : "";
-    return {
-        leftAction,
-        leftLabel: "Stop",
-        leftIcon: "?",
-        leftDisabled: controlsDisabled || !leftAction,
-        rightAction,
-        rightLabel: "Next",
-        rightIcon: "?",
-        rightDisabled: controlsDisabled || !rightAction,
-        primaryAction,
-        primaryLabel: primaryAction === "start" ? "開始" : primaryAction === "pause" ? "中断" : "再開",
-        primaryIcon: primaryAction === "pause" ? "?" : "?",
-        primaryDisabled: controlsDisabled ||
-            !primaryAction ||
-            (primaryAction === "start" && !canStart) ||
-            (primaryAction === "pause" && !canPause) ||
-            (primaryAction === "resume" && !canResume),
-    };
+function resolveTimerControlModel(stateInput: unknown = uiState.pomodoro): TimerControlModel {
+    return resolveTimerControlModelValue(stateInput, {
+        actionInFlight: Boolean(uiState.nowUi.actionInFlight),
+        normalizePomodoroState,
+        resolveNowAutoStartBlock: (state) => resolveNowAutoStartBlock(state),
+    });
 }
 async function executeTimerAction(action: string, rerender: () => void) {
     if (!action || uiState.nowUi.actionInFlight)
@@ -1394,7 +1381,7 @@ export function startApp(): void {
     });
     setInterval(async () => {
         const route = getRoute();
-        if (route !== "now" && route !== "week") {
+        if (route !== "now" && route !== "week" && route !== "today") {
             return;
         }
         try {
@@ -1413,8 +1400,11 @@ export function startApp(): void {
             if (route === "now") {
                 renderNowPage(buildPageRenderDeps());
             }
-            else {
+            else if (route === "week") {
                 refreshWeekSidebarPanels();
+            }
+            else {
+                renderWeekDetailsPage(buildPageRenderDeps(), { mode: "today" });
             }
         }
         catch {
@@ -1465,7 +1455,7 @@ export function startApp(): void {
             // handled in safeInvoke
         }
         if (!window.location.hash) {
-            window.location.hash = "#/week";
+            window.location.hash = "#/today";
         }
         render();
     })();

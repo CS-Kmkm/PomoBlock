@@ -1,19 +1,5 @@
 import type { Block, PomodoroState, Task, UiState } from "../../types.js";
-
-type TimerControlModel = {
-  leftAction: string;
-  leftLabel: string;
-  leftIcon: string;
-  leftDisabled: boolean;
-  rightAction: string;
-  rightLabel: string;
-  rightIcon: string;
-  rightDisabled: boolean;
-  primaryAction: string;
-  primaryLabel: string;
-  primaryIcon: string;
-  primaryDisabled: boolean;
-};
+import type { TimerControlModel } from "../../timer-controls.js";
 
 type WeekRendererDeps = {
   uiState: UiState;
@@ -41,12 +27,12 @@ export function renderWeekStatusCard(deps: WeekRendererDeps): string {
     uiState.nowUi.lastSyncEpochMs > 0 ? Math.max(0, Math.floor(uiState.nowUi.displayRemainingSeconds || 0)) : Math.max(0, Math.floor(state.remaining_seconds || 0));
   return `
     <section class="week-right-section week-right-section--status">
-      <h3>Current Status</h3>
+      <h3>現在の状態</h3>
       <div class="week-status-card">
         <span class="pill week-status-pill">${phaseLabel}</span>
         <p class="week-status-title">${escapeHtml(currentTitle)}</p>
-        <p class="week-status-subtitle">Block: ${escapeHtml(state.current_block_id || "-")}</p>
-        <p class="week-status-subtitle">Task: ${escapeHtml(focusTask?.title || "-")}</p>
+        <p class="week-status-subtitle">ブロック: ${escapeHtml(state.current_block_id || "-")}</p>
+        <p class="week-status-subtitle">タスク: ${escapeHtml(focusTask?.title || "-")}</p>
         <div class="week-status-time" data-week-status-time>${toTimerText(displayRemainingSeconds)}</div>
         <div class="week-status-controls">
           <button class="week-status-action week-status-action--secondary" data-week-timer-action="${controls.leftAction}" aria-label="${controls.leftLabel}" title="${controls.leftLabel}" ${controls.leftDisabled ? "disabled" : ""}><span class="now-control-icon" aria-hidden="true">${controls.leftIcon}</span><span class="now-visually-hidden">${controls.leftLabel}</span></button>
@@ -69,8 +55,8 @@ export function renderWeekTaskPanel({ uiState, normalizePomodoroState, resolveCu
   return `
     <section class="week-right-section week-right-section--tasks">
       <div class="row spread">
-        <h3>Active Micro-Tasks</h3>
-        <span class="small">${focusTask ? `Current: ${escapeHtml(focusTask.title || "(untitled)")}` : "Current: -"}</span>
+        <h3>進行中タスク</h3>
+        <span class="small">${focusTask ? `現在: ${escapeHtml(focusTask.title || "(untitled)")}` : "現在: -"}</span>
       </div>
       <ul class="week-task-list">
         ${visibleTasks.length === 0 ? '<li class="week-task-empty">未完了タスクはありません。</li>' : visibleTasks
@@ -101,8 +87,8 @@ export function renderWeekTimelinePanel({
   return `
     <section class="week-timeline-panel">
       <div class="row spread">
-        <h3>Week Timeline</h3>
-        <span class="small">${uiState.blocks.length} items</span>
+        <h3>週のタイムライン</h3>
+        <span class="small">${uiState.blocks.length} 件</span>
       </div>
       <ul class="week-timeline-list">
         ${
@@ -110,7 +96,7 @@ export function renderWeekTimelinePanel({
             ? '<li class="week-timeline-empty">予定はまだありません。</li>'
             : timelineBlocks
                 .map((block: Block) => {
-                  const title = blockTitle(block) || "Untitled Block";
+                  const title = blockTitle(block) || "無題ブロック";
                   const timeRange = `${formatHHmm(block.start_at)} - ${formatHHmm(block.end_at)}`;
                   return `
                     <li class="week-timeline-item">
@@ -118,7 +104,7 @@ export function renderWeekTimelinePanel({
                       <div class="week-timeline-content">
                         <p class="week-timeline-title">${escapeHtml(title)}</p>
                         <p class="week-timeline-meta">${escapeHtml(block.firmness || "draft")} / ${escapeHtml(
-                          block.source || "generated"
+                          block.source || "自動生成"
                         )}</p>
                       </div>
                     </li>

@@ -1,27 +1,37 @@
 import type { PageRenderDeps } from "../../types.js";
 
-export function renderWeekDetailsPage(deps: PageRenderDeps): void {
+export type WeekDetailsPageMode = "details" | "today";
+
+export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: WeekDetailsPageMode } = {}): void {
   const { uiState, appRoot, services, setStatus } = deps;
   const helpers = {
     ...deps.commonHelpers,
     ...deps.calendarHelpers,
   };
   const fallbackDate = helpers.isoDate(new Date());
-  const selectedDate = uiState.dashboardDate || fallbackDate;
+  const isTodayRoute = options.mode === "today";
+  const selectedDate = isTodayRoute ? fallbackDate : uiState.dashboardDate || fallbackDate;
+  const pageTitle = isTodayRoute ? "Today" : "日別詳細";
+  const pageDescription = isTodayRoute
+    ? "今日の詳細表示と運用操作をまとめて行います。"
+    : `中央の日付 ${helpers.escapeHtml(selectedDate)} の詳細表示と管理操作を行います。`;
+  const backHref = isTodayRoute ? "#/now" : "#/week";
+  const backLabel = isTodayRoute ? "実行中へ" : "週ビューへ戻る";
   const selectedBlocks = uiState.blocks.filter((block) => block.date === selectedDate);
+  const rerender = () => renderWeekDetailsPage(deps, options);
 
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>Week Details</h2>
-        <p>中央の日付 ${helpers.escapeHtml(selectedDate)} の詳細表示と管理操作を行います。</p>
+        <h2>${pageTitle}</h2>
+        <p>${pageDescription}</p>
       </div>
-      <a href="#/week" class="week-manage-btn">Back to Week</a>
+      <a href="${backHref}" class="week-manage-btn">${backLabel}</a>
     </section>
     <section class="panel week-controls-panel">
       <div class="week-controls-grid">
-        <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" /></label>
-        <label>Account <input id="dashboard-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" /></label>
+        <label>日付 <input id="dashboard-date" type="date" value="${selectedDate}" ${isTodayRoute ? "disabled" : ""} /></label>
+        <label>アカウント <input id="dashboard-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" /></label>
       </div>
       <div class="week-controls-actions">
         <button id="dashboard-sync" class="btn-primary">同期</button>
@@ -54,11 +64,14 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
     );
 
   document.getElementById("dashboard-date")?.addEventListener("change", async () => {
+    if (isTodayRoute) {
+      return;
+    }
     await services.runUiAction(async () => {
       const date = getSelectedDate();
       uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
@@ -68,7 +81,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
       const date = getSelectedDate();
       uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
@@ -79,7 +92,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
       uiState.weekView.bufferAnchorDate = date;
       await deps.authenticateAndSyncCalendar(date);
       await deps.refreshCoreData(date);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
@@ -96,7 +109,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
         await services.invokeCommandWithProgress("generate_blocks", helpers.withAccount({ date }));
       }
       await deps.refreshCoreData(date);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
@@ -107,7 +120,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
       const deletedCount = await helpers.resetBlocksForDate(date);
       await deps.refreshCoreData(date);
       setStatus(`ブロックを削除しました: ${deletedCount}件 (${date})`);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
@@ -116,9 +129,9 @@ export function renderWeekDetailsPage(deps: PageRenderDeps): void {
       const date = getSelectedDate();
       uiState.weekView.bufferAnchorDate = date;
       await deps.refreshCoreData(date);
-      renderWeekDetailsPage(deps);
+      rerender();
     });
   });
 
-  helpers.bindDailyCalendarInteractions(() => renderWeekDetailsPage(deps));
+  helpers.bindDailyCalendarInteractions(() => rerender());
 }

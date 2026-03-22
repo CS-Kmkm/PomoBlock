@@ -1,4 +1,5 @@
 import type { CommandService } from "./services/command-service.js";
+import type { TimerControlModel } from "./timer-controls.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -296,7 +297,7 @@ export interface PageRenderDeps {
     resolveNowAutoStartTask: (stateInput: PomodoroState) => Task | null;
     pomodoroPhaseLabel: (phase: unknown) => string;
     nowBufferAvailableMinutes: () => number;
-    resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
+    resolveTimerControlModel: (stateInput?: unknown) => TimerControlModel;
     executeTimerAction: (action: string, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
     renderNowNotesPanel: () => string;

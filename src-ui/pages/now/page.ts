@@ -81,10 +81,10 @@ export function renderNowPage(deps: PageRenderDeps): void {
     <section class="now-mobile-schedule-shell">
       <header class="now-mobile-head">
         <div>
-          <h3>Today's Schedule</h3>
+          <h3>今日のスケジュール</h3>
           <p class="small">${helpers.escapeHtml(todayDate)}</p>
         </div>
-        <p class="small">${todayScheduleCount} items</p>
+        <p class="small">${todayScheduleCount} 件</p>
       </header>
       ${mobileSchedule}
     </section>
@@ -93,10 +93,10 @@ export function renderNowPage(deps: PageRenderDeps): void {
       <aside class="now-left-rail">
         <header class="now-left-head">
           <div>
-            <h3>Today's Schedule</h3>
+            <h3>今日のスケジュール</h3>
             <p class="small">${helpers.escapeHtml(todayDate)}</p>
           </div>
-          <p class="small">${todayScheduleCount} items</p>
+          <p class="small">${todayScheduleCount} 件</p>
         </header>
         <div class="now-schedule-wrap">
           ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
@@ -105,7 +105,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
       <div class="pane-splitter" data-pane-resize="now-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
 
       <section class="now-main-pane">
-        <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} MODE</p>
+        <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} モード</p>
         <div class="now-ring" style="--now-progress:${phaseProgress}%;">
           <div class="now-ring-core">
             <p class="now-ring-time">${helpers.toTimerText(displayRemainingSeconds)}</p>
@@ -119,24 +119,24 @@ export function renderNowPage(deps: PageRenderDeps): void {
         </div>
         <section class="now-objective-card">
           <div class="row spread">
-            <h3>Current Objective</h3>
-            <span class="pill">Step ${currentStep} of ${totalSteps}</span>
+            <h3>現在の目標</h3>
+            <span class="pill">ステップ ${currentStep} / ${totalSteps}</span>
           </div>
           <p>${helpers.escapeHtml(objectiveTitle)}</p>
-          <p class="small">Block: ${helpers.escapeHtml(objectiveBlockId)}</p>
+          <p class="small">ブロック: ${helpers.escapeHtml(objectiveBlockId)}</p>
         </section>
       </section>
       <div class="pane-splitter" data-pane-resize="now-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
 
       <aside class="now-right-rail">
         <header class="row spread">
-          <h3>Next Steps</h3>
-          <span class="small">${openTasks.length} open</span>
+          <h3>次のタスク</h3>
+          <span class="small">${openTasks.length} 件</span>
         </header>
         <div class="now-task-list">
           ${
             openTasks.length === 0
-              ? '<p class="small now-empty">No open tasks.</p>'
+              ? '<p class="small now-empty">未完了タスクはありません。</p>'
               : openTasks
                   .map((task, index) => {
                     const upDisabled = index === 0;
@@ -150,7 +150,7 @@ export function renderNowPage(deps: PageRenderDeps): void {
                         <div class="now-task-actions">
                           <button class="btn-secondary now-order-btn" data-now-task-move="${helpers.escapeHtml(String(task.id || ""))}" data-now-task-dir="up" ${upDisabled ? "disabled" : ""}>↑</button>
                           <button class="btn-secondary now-order-btn" data-now-task-move="${helpers.escapeHtml(String(task.id || ""))}" data-now-task-dir="down" ${downDisabled ? "disabled" : ""}>↓</button>
-                          <button class="btn-primary now-complete-btn" data-now-task-complete="${helpers.escapeHtml(String(task.id || ""))}">Done</button>
+                          <button class="btn-primary now-complete-btn" data-now-task-complete="${helpers.escapeHtml(String(task.id || ""))}">完了</button>
                         </div>
                       </article>
                     `;
@@ -165,9 +165,9 @@ export function renderNowPage(deps: PageRenderDeps): void {
       ${notesPanel}
     </section>
     <section class="now-bottom-bar">
-      <div class="now-bottom-item"><span>Buffer Available</span><strong>${bufferMinutes}m</strong></div>
-      <div class="now-bottom-item"><span>Deferred Tasks</span><strong>${deferredCount}</strong></div>
-      ${focusCompletion === null ? "" : `<div class="now-bottom-item"><span>Focus Completion</span><strong>${focusCompletion}%</strong></div>`}
+      <div class="now-bottom-item"><span>利用可能バッファ</span><strong>${bufferMinutes}m</strong></div>
+      <div class="now-bottom-item"><span>保留タスク</span><strong>${deferredCount}</strong></div>
+      ${focusCompletion === null ? "" : `<div class="now-bottom-item"><span>集中完了率</span><strong>${focusCompletion}%</strong></div>`}
     </section>
   `;
 
