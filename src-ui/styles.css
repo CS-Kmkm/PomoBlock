@@ -3405,6 +3405,10 @@ th {
 
 .day-board-body {
   padding: 10px;
+  height: calc(var(--week-track-height, 1080px) + 20px);
+  max-height: calc(var(--week-track-height, 1080px) + 20px);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .day-time-axis,
