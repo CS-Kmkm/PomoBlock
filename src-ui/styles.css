@@ -898,6 +898,12 @@ p {
   overflow-x: auto;
 }
 
+.week-blocks-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 14px;
+}
+
 .now-layout {
   flex: 1;
   min-height: 0;

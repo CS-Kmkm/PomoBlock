@@ -18,6 +18,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
   const backHref = isTodayRoute ? "#/now" : "#/week";
   const backLabel = isTodayRoute ? "実行中へ" : "週ビューへ戻る";
   const selectedBlocks = uiState.blocks.filter((block) => block.date === selectedDate);
+  const blockTableRows = helpers.blockRows(selectedBlocks);
   const totalBlockMinutes = selectedBlocks.reduce((sum, block) => {
     const start = new Date(block.start_at).getTime();
     const end = new Date(block.end_at).getTime();
@@ -75,7 +76,7 @@ export function renderWeekDetailsPage(deps: PageRenderDeps, options: { mode?: We
       <h3>中央日のブロック</h3>
       <table>
         <thead><tr><th>ID</th><th>開始</th><th>終了</th><th>Firmness</th></tr></thead>
-        <tbody>${helpers.blockRows(selectedBlocks)}</tbody>
+        <tbody>${blockTableRows || '<tr><td colspan="4" class="week-blocks-empty">ブロックがありません。同期または本日再生成を実行してください。</td></tr>'}</tbody>
       </table>
     </section>
   `;
