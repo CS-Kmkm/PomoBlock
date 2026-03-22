@@ -332,7 +332,7 @@ export function renderSimpleDailyCalendar(
         </div>
         ${renderSimpleTimelineRow("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         ${renderSimpleTimelineRow("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-        ${renderSimpleTimelineRow("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
+        ${renderSimpleTimelineRow("", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         `
         }
       </div>
@@ -361,13 +361,13 @@ export function renderGridDailyCalendar(
           <span class="day-board-head-time">時刻</span>
           <span>ブロック</span>
           <span>予定</span>
-          <span>空き枠</span>
+          <span></span>
         </div>
         <div class="day-board-body">
           ${renderDayTimeAxis(model.dayStartMs, model.dayEndMs, deps.toClockText)}
           ${renderDayLane("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
           ${renderDayLane("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-          ${renderDayLane("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
+          ${renderDayLane("", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         </div>
       </div>
       `
@@ -534,7 +534,7 @@ export function renderDailyDetail(
   }
   return `
     <div class="day-detail panel">
-      <h4>空き枠詳細</h4>
+      <h4>詳細</h4>
       <dl class="day-detail-list">
         <div><dt>時間</dt><dd>${deps.intervalRangeLabel(item)}</dd></div>
         <div><dt>長さ</dt><dd>${deps.toDurationLabel(item.durationMinutes)}</dd></div>
@@ -581,7 +581,6 @@ export function renderDailyCalendar(
       <div class="calendar-metrics">
         <span class="pill calendar-pill block">ブロック ${deps.toDurationLabel(params.model.totals.blockMinutes)}</span>
         <span class="pill calendar-pill event">予定 ${deps.toDurationLabel(params.model.totals.eventMinutes)}</span>
-        <span class="pill calendar-pill free">空き ${deps.toDurationLabel(params.model.totals.freeMinutes)}</span>
       </div>
       `
           : ""
