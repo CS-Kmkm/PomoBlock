@@ -64,6 +64,15 @@ export function renderNowPage(deps: PageRenderDeps): void {
     totalCycles > 0 ? totalCycles : Math.max(1, Number((autoStartBlock?.planned_pomodoros as number | undefined) || 1));
   const controls = helpers.resolveTimerControlModel(state);
   const notesPanel = helpers.renderNowNotesPanel();
+  const sessionStatusCards = [
+    { label: "Phase", value: phaseLabel },
+    { label: "Buffer", value: `${bufferMinutes}m` },
+    { label: "Deferred", value: String(deferredCount) },
+    { label: "Focus", value: focusCompletion === null ? "—" : `${focusCompletion}%` },
+  ];
+  const activeScheduleTitle = activeScheduleBlock
+    ? helpers.blockTitle(activeScheduleBlock as { id?: string } | null | undefined) || String(activeScheduleBlock.id || "")
+    : "進行中の予定はありません";
   const mobileSchedule = helpers.renderDailyCalendar(todayDate, {
     panelClass: "now-mobile-schedule",
     forceMode: "simple",
@@ -91,12 +100,13 @@ export function renderNowPage(deps: PageRenderDeps): void {
 
     <section class="now-layout">
       <aside class="now-left-rail">
-        <header class="now-left-head">
-          <div>
+        <header class="now-rail-head">
+          <div class="now-rail-title-group">
+            <p class="now-rail-kicker">Schedule</p>
             <h3>今日のスケジュール</h3>
             <p class="small">${helpers.escapeHtml(todayDate)}</p>
           </div>
-          <p class="small">${todayScheduleCount} 件</p>
+          <span class="pill now-rail-pill">${todayScheduleCount} 件</span>
         </header>
         <div class="now-schedule-wrap">
           ${helpers.renderSingleDayPlannerCalendar(todayPlannerModel)}
@@ -105,11 +115,19 @@ export function renderNowPage(deps: PageRenderDeps): void {
       <div class="pane-splitter" data-pane-resize="now-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
 
       <section class="now-main-pane">
-        <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} モード</p>
-        <div class="now-ring" style="--now-progress:${phaseProgress}%;">
-          <div class="now-ring-core">
-            <p class="now-ring-time">${helpers.toTimerText(displayRemainingSeconds)}</p>
-            <p class="now-ring-caption">${helpers.escapeHtml(objectiveTitle)}</p>
+        <header class="now-main-head">
+          <p class="now-mode-label">${helpers.escapeHtml(phaseLabel)} モード</p>
+          <div class="now-main-meta">
+            <span class="pill">ステップ ${currentStep} / ${totalSteps}</span>
+            <span class="pill now-pill-soft">${helpers.escapeHtml(activeScheduleTitle)}</span>
+          </div>
+        </header>
+        <div class="now-ring-shell">
+          <div class="now-ring" style="--now-progress:${phaseProgress}%;">
+            <div class="now-ring-core">
+              <p class="now-ring-time">${helpers.toTimerText(displayRemainingSeconds)}</p>
+              <p class="now-ring-caption">${helpers.escapeHtml(objectiveTitle)}</p>
+            </div>
           </div>
         </div>
         <div class="now-controls">
@@ -118,21 +136,49 @@ export function renderNowPage(deps: PageRenderDeps): void {
           <button id="now-right-action" class="now-control now-control--secondary" data-now-action="${String(controls.rightAction || "")}" aria-label="${String(controls.rightLabel || "")}" title="${String(controls.rightLabel || "")}" ${controls.rightDisabled ? "disabled" : ""}><span class="now-control-icon" aria-hidden="true">${String(controls.rightIcon || "")}</span><span class="now-visually-hidden">${String(controls.rightLabel || "")}</span></button>
         </div>
         <section class="now-objective-card">
-          <div class="row spread">
+          <div class="now-objective-head">
             <h3>現在の目標</h3>
-            <span class="pill">ステップ ${currentStep} / ${totalSteps}</span>
+            <span class="pill now-pill-soft">ブロック ${helpers.escapeHtml(objectiveBlockId)}</span>
           </div>
           <p>${helpers.escapeHtml(objectiveTitle)}</p>
-          <p class="small">ブロック: ${helpers.escapeHtml(objectiveBlockId)}</p>
+          <p class="small">今のセッションに集中する対象をここに固定します。</p>
+        </section>
+        <section class="now-status-strip" aria-label="session summary">
+          <div class="now-status-summary">
+            <span class="small">Current target</span>
+            <strong>${helpers.escapeHtml(activeScheduleTitle)}</strong>
+          </div>
+          <div class="now-status-summary">
+            <span class="small">Timer state</span>
+            <strong>${helpers.escapeHtml(phaseLabel)}</strong>
+          </div>
         </section>
       </section>
       <div class="pane-splitter" data-pane-resize="now-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
 
       <aside class="now-right-rail">
-        <header class="row spread">
-          <h3>次のタスク</h3>
-          <span class="small">${openTasks.length} 件</span>
+        <header class="now-rail-head">
+          <div class="now-rail-title-group">
+            <p class="now-rail-kicker">Focus rail</p>
+            <h3>次のタスク</h3>
+            <p class="small">${openTasks.length} 件の未完了タスク</p>
+          </div>
+          <span class="pill now-rail-pill">${helpers.escapeHtml(phaseLabel)}</span>
         </header>
+        <section class="now-status-card">
+          <div class="now-status-grid">
+            ${sessionStatusCards
+              .map(
+                (item) => `
+                  <div class="now-status-item">
+                    <span class="now-status-label">${helpers.escapeHtml(item.label)}</span>
+                    <strong class="now-status-value">${helpers.escapeHtml(item.value)}</strong>
+                  </div>
+                `,
+              )
+              .join("")}
+          </div>
+        </section>
         <div class="now-task-list">
           ${
             openTasks.length === 0
@@ -149,11 +195,19 @@ export function renderNowPage(deps: PageRenderDeps): void {
                   .map((task, index) => {
                     const upDisabled = index === 0;
                     const downDisabled = index === openTasks.length - 1;
+                    const taskStatus = String(task.status || "pending");
+                    const taskMeta = [
+                      taskStatus,
+                      Number.isFinite(task.estimated_pomodoros as number) ? `est ${task.estimated_pomodoros}` : null,
+                    ].filter(Boolean);
                     return `
                       <article class="now-task-item ${task.status === "in_progress" ? "is-active" : ""}">
-                        <div>
-                          <p class="now-task-title">${helpers.escapeHtml(String(task.title || "(untitled)"))}</p>
-                          <p class="small">${helpers.escapeHtml(String(task.status || ""))}${Number.isFinite(task.estimated_pomodoros as number) ? ` / est ${task.estimated_pomodoros}` : ""}</p>
+                        <div class="now-task-main">
+                          <div class="now-task-head">
+                            <p class="now-task-title">${helpers.escapeHtml(String(task.title || "(untitled)"))}</p>
+                            <span class="pill now-task-badge">${helpers.escapeHtml(taskStatus)}</span>
+                          </div>
+                          <p class="small now-task-meta">${helpers.escapeHtml(taskMeta.join(" / "))}</p>
                         </div>
                         <div class="now-task-actions">
                           <button class="btn-secondary now-order-btn" data-now-task-move="${helpers.escapeHtml(String(task.id || ""))}" data-now-task-dir="up" ${upDisabled ? "disabled" : ""}>↑</button>

@@ -18,17 +18,11 @@ import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, bl
 import { renderNowNotesPanel as renderNowNotesPanelView } from "./pages/now/renderers.js";
 import { renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
 import { resolveTimerControlModel as resolveTimerControlModelValue, type TimerControlModel } from "./timer-controls.js";
+import { renderAppHeader as renderAppHeaderView } from "./components/app-header.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
+type AppRoute = "today" | "week" | "week-details" | "now" | "routines" | "insights" | "settings";
+const headerRoot = getById<HTMLElement>("app-header");
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
-const statusChip = getById<HTMLElement>("global-status");
-const progressChip = getById<HTMLElement>("global-progress");
-const progressLabel = getById<HTMLElement>("global-progress-label");
-const progressFill = getById<HTMLElement>("global-progress-fill");
-const progressValue = getById<HTMLElement>("global-progress-value");
-const topbarZoomOut = getById<HTMLButtonElement>("topbar-zoom-out");
-const topbarZoomIn = getById<HTMLButtonElement>("topbar-zoom-in");
-const topbarZoomReset = getById<HTMLButtonElement>("topbar-zoom-reset");
-const topbarZoomLabel = getById<HTMLElement>("topbar-zoom-label");
 const routes = ["today", "week", "week-details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
@@ -773,6 +767,7 @@ function renderDailyCalendar(dateValue: unknown, options: unknown = {}) {
     });
 }
 function setStatus(message: unknown) {
+    const statusChip = getById<HTMLElement>("global-status");
     if (statusChip) {
         statusChip.textContent = String(message ?? "");
     }
@@ -788,6 +783,10 @@ function clearProgressTimers() {
     }
 }
 function renderGlobalProgress() {
+    const progressChip = getById<HTMLElement>("global-progress");
+    const progressLabel = getById<HTMLElement>("global-progress-label");
+    const progressFill = getById<HTMLElement>("global-progress-fill");
+    const progressValue = getById<HTMLElement>("global-progress-value");
     if (!progressChip || !progressLabel || !progressFill || !progressValue)
         return;
     progressChip.hidden = !progressState.active;
@@ -850,6 +849,7 @@ function syncDayCalendarZoomUi() {
     const zoom = clampDayCalendarZoom(uiState.dayCalendarZoom);
     uiState.dayCalendarZoom = zoom;
     document.body.style.setProperty("--day-track-zoom", String(zoom));
+    const topbarZoomLabel = getById<HTMLElement>("topbar-zoom-label");
     if (topbarZoomLabel) {
         topbarZoomLabel.textContent = `${Math.round(zoom * 100)}%`;
     }
@@ -874,7 +874,7 @@ function isScheduleZoomPoint(clientX: number, clientY: number, eventTarget: Even
 function isScheduleRoute(route: string) {
     return route === "today" || route === "week" || route === "week-details" || route === "now" || route === "routines";
 }
-function getRoute(): string {
+function getRoute(): AppRoute {
     const hash = window.location.hash.replace(/^#\/?/, "");
     const [root, detail] = hash.split("/");
     if (root === "auth") {
@@ -896,7 +896,7 @@ function getRoute(): string {
     if (root === "today") {
         return "today";
     }
-    return routes.includes(root || "") ? String(root) : "week";
+    return routes.includes(root || "") ? String(root) as AppRoute : "week";
 }
 function markActiveRoute(route: string) {
     const activeRoute = route === "week-details" ? "week" : route;
@@ -909,6 +909,17 @@ function markActiveRoute(route: string) {
             anchor.removeAttribute("aria-current");
         }
     });
+}
+function renderAppHeader(route: AppRoute) {
+    if (!headerRoot) {
+        return;
+    }
+    headerRoot.innerHTML = renderAppHeaderView({
+        route,
+        settingsPage: uiState.settings.page,
+    });
+    renderGlobalProgress();
+    syncDayCalendarZoomUi();
 }
 async function invokeCommand(name: string, payload: Record<string, unknown> = {}): Promise<unknown> {
     return await commandService.invokeCommand(name, payload);
@@ -1205,6 +1216,7 @@ function render() {
     }
     const pageDeps = buildPageRenderDeps();
     const isWeekRoute = route === "week" || route === "week-details" || route === "today";
+    renderAppHeader(route);
     markActiveRoute(route);
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
@@ -1400,17 +1412,26 @@ export function startApp(): void {
     }
     appStarted = true;
     syncDayCalendarZoomUi();
-    topbarZoomOut?.addEventListener("click", () => {
-        updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
-        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
-    });
-    topbarZoomIn?.addEventListener("click", () => {
-        updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
-        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
-    });
-    topbarZoomReset?.addEventListener("click", () => {
-        updateDayCalendarZoom(1);
-        setStatus("スケジュール表示倍率を100%に戻しました");
+    headerRoot?.addEventListener("click", (event: Event) => {
+        const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-topbar-action]");
+        if (!target) {
+            return;
+        }
+        const action = target.dataset.topbarAction;
+        if (action === "zoom-out") {
+            updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
+            setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+            return;
+        }
+        if (action === "zoom-in") {
+            updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
+            setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+            return;
+        }
+        if (action === "zoom-reset") {
+            updateDayCalendarZoom(1);
+            setStatus("スケジュール表示倍率を100%に戻しました");
+        }
     });
     window.addEventListener("wheel", (event: WheelEvent) => {
         if (!event.ctrlKey || !isScheduleRoute(getRoute()) || !isScheduleZoomPoint(event.clientX, event.clientY, event.target)) {

@@ -21,42 +21,7 @@
     </div>
 
     <div class="app-shell">
-      <header class="topbar">
-        <div class="brand">
-          <p class="brand-kicker">Workflow Console</p>
-          <h1>PomoBlock</h1>
-        </div>
-        <label class="topbar-search" aria-label="プラン検索">
-          <span aria-hidden="true">&#8981;</span>
-          <input type="search" placeholder="プランを検索..." autocomplete="off" />
-        </label>
-        <div class="topbar-zoom" aria-label="スケジュール表示倍率">
-          <button type="button" id="topbar-zoom-out" class="topbar-zoom-btn" title="スケジュールを縮小">-</button>
-          <span id="topbar-zoom-label" class="topbar-zoom-label">100%</span>
-          <button type="button" id="topbar-zoom-in" class="topbar-zoom-btn" title="スケジュールを拡大">+</button>
-          <button type="button" id="topbar-zoom-reset" class="topbar-zoom-reset" title="倍率をリセット">等倍</button>
-        </div>
-        <div class="topbar-actions">
-          <nav class="route-nav" id="route-nav" aria-label="メインナビゲーション">
-            <a href="#/today" data-route="today">Today</a>
-            <a href="#/week" data-route="week">週</a>
-            <a href="#/now" data-route="now">実行中</a>
-            <a href="#/routines" data-route="routines">ルーティン</a>
-            <a href="#/insights" data-route="insights">振り返り</a>
-          </nav>
-          <a href="#/now" class="focus-launch" data-route="now">集中を開始</a>
-          <a
-            href="#/settings/auth"
-            id="settings-link"
-            data-route="settings"
-            class="settings-gear"
-            aria-label="設定を開く"
-            title="設定"
-            >&#9881;</a
-          >
-        </div>
-      </header>
-
+      <div id="app-header"></div>
       <main id="app" class="view-root" aria-live="polite"></main>
     </div>
 

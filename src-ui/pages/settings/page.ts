@@ -16,83 +16,133 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
   switch (activePage) {
     case "blocks":
       pageContent = `
-        <div class="grid two">
-          <div class="panel grid">
-            <h3>ブロック構成</h3>
-            <label>勤務開始 <input id="set-work-start" type="time" value="${uiState.settings.workStart}" /></label>
-            <label>勤務終了 <input id="set-work-end" type="time" value="${uiState.settings.workEnd}" /></label>
-            <label>ブロック分数 <input id="set-block-duration" type="number" min="1" value="${uiState.settings.blockDuration}" /></label>
-            <label>休憩分数 <input id="set-break-duration" type="number" min="1" value="${uiState.settings.breakDuration}" /></label>
-            <button id="set-save-policy" class="btn-primary">セッション保存</button>
-          </div>
-          <div class="panel grid">
-            <h3>ルーティーン / テンプレート</h3>
-            <label>ルーティン JSON<textarea id="set-routine-json" placeholder='{"routines":[]}'></textarea></label>
-            <label>テンプレート JSON<textarea id="set-template-json" placeholder='{"templates":[]}'></textarea></label>
-          </div>
-        </div>
+        <section class="settings-admin-grid">
+          <article class="settings-admin-card settings-admin-card--primary">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Execution Policy</p>
+                <h3>Block Composition</h3>
+              </div>
+              <span class="settings-admin-badge">Live</span>
+            </div>
+            <div class="settings-admin-form">
+              <label class="settings-admin-field">勤務開始 <input id="set-work-start" type="time" value="${uiState.settings.workStart}" /></label>
+              <label class="settings-admin-field">勤務終了 <input id="set-work-end" type="time" value="${uiState.settings.workEnd}" /></label>
+              <label class="settings-admin-field">ブロック分数 <input id="set-block-duration" type="number" min="1" value="${uiState.settings.blockDuration}" /></label>
+              <label class="settings-admin-field">休憩分数 <input id="set-break-duration" type="number" min="1" value="${uiState.settings.breakDuration}" /></label>
+            </div>
+            <button id="set-save-policy" class="btn-primary">ポリシーを保存</button>
+          </article>
+          <article class="settings-admin-card">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Data</p>
+                <h3>Routines / Templates</h3>
+              </div>
+            </div>
+            <div class="settings-admin-stack">
+              <label class="settings-admin-field">ルーティン JSON<textarea id="set-routine-json" placeholder='{"routines":[]}'></textarea></label>
+              <label class="settings-admin-field">テンプレート JSON<textarea id="set-template-json" placeholder='{"templates":[]}'></textarea></label>
+            </div>
+          </article>
+        </section>
       `;
       break;
     case "git":
       pageContent = `
-        <div class="grid two">
-          <div class="panel grid">
-            <h3>同期用 Git</h3>
+        <section class="settings-admin-grid">
+          <article class="settings-admin-card settings-admin-card--primary">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Versioned Sync</p>
+                <h3>Git Remote</h3>
+              </div>
+              <span class="settings-admin-badge">${uiState.settings.gitRemote ? "Configured" : "Empty"}</span>
+            </div>
             <p class="small">同期先のリモート設定を管理します。</p>
-            <label>Git リモート <input id="set-git-remote" value="${uiState.settings.gitRemote}" placeholder="https://..." /></label>
+            <label class="settings-admin-field">Git リモート <input id="set-git-remote" value="${uiState.settings.gitRemote}" placeholder="https://..." /></label>
             <button id="set-git-check" class="btn-secondary">Git 設定確認</button>
-          </div>
-          <div class="panel grid">
-            <h3>現在の同期先</h3>
-            <pre class="small">${uiState.settings.gitRemote || "未設定"}</pre>
-          </div>
-        </div>
+          </article>
+          <article class="settings-admin-card">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Current Target</p>
+                <h3>Remote Snapshot</h3>
+              </div>
+            </div>
+            <pre class="settings-admin-pre">${uiState.settings.gitRemote || "未設定"}</pre>
+          </article>
+        </section>
       `;
       break;
     default:
       pageContent = `
-        <div class="grid two">
-          <div class="panel grid">
-            <h3>Google OAuth 認証</h3>
+        <section class="settings-admin-grid">
+          <article class="settings-admin-card settings-admin-card--primary">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Calendar Access</p>
+                <h3>Google OAuth</h3>
+              </div>
+              <span class="settings-admin-badge">${uiState.auth ? "Connected" : "Pending"}</span>
+            </div>
             <p class="small">推奨: 1クリックでSSO認証してカレンダー同期します。必要時のみ認可コードを手動交換します。</p>
-            <label>アカウント ID
+            <label class="settings-admin-field">アカウント ID
               <input id="auth-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" placeholder="default または email ラベル" />
             </label>
-            <label>認可コード
+            <label class="settings-admin-field">認可コード
               <input id="auth-code" placeholder="認可コードを貼り付け" />
             </label>
-            <div class="row">
+            <div class="row settings-admin-actions">
               <button id="auth-sso" class="btn-primary">SSOログインして同期</button>
               <button id="auth-check" class="btn-secondary">セッション確認</button>
               <button id="auth-exchange" class="btn-secondary">コード交換</button>
             </div>
-          </div>
-          <div class="panel">
-            <h3>認証結果</h3>
-            <pre id="auth-result" class="small">${uiState.auth ? JSON.stringify(uiState.auth, null, 2) : "未実行"}</pre>
-          </div>
-        </div>
+          </article>
+          <article class="settings-admin-card">
+            <div class="settings-admin-card-head">
+              <div>
+                <p class="settings-admin-kicker">Session State</p>
+                <h3>Auth Result</h3>
+              </div>
+            </div>
+            <pre id="auth-result" class="settings-admin-pre">${uiState.auth ? JSON.stringify(uiState.auth, null, 2) : "未実行"}</pre>
+          </article>
+        </section>
       `;
       break;
   }
 
   appRoot.innerHTML = `
-    <section class="view-head">
-      <div>
-        <h2>設定</h2>
-        <p>設定カテゴリをページ分割して管理します。</p>
-      </div>
+    <section class="settings-admin-page">
+      <header class="settings-admin-hero">
+        <div>
+          <p class="settings-admin-kicker">Management Console</p>
+          <h2>Settings</h2>
+          <p>設定カテゴリをページ分割して管理します。</p>
+        </div>
+        <div class="settings-admin-metrics">
+          <article>
+            <span>Focus Window</span>
+            <strong>${helpers.escapeHtml(uiState.settings.workStart)} - ${helpers.escapeHtml(uiState.settings.workEnd)}</strong>
+          </article>
+          <article>
+            <span>Block Size</span>
+            <strong>${uiState.settings.blockDuration}m / break ${uiState.settings.breakDuration}m</strong>
+          </article>
+        </div>
+      </header>
+      <nav class="settings-page-nav" aria-label="設定内ページ">
+        ${settingsPages
+          .map(
+            (page) => `
+          <a href="#/settings/${page}" data-settings-page="${page}" ${page === activePage ? 'aria-current="page"' : ""}>${settingsPageLabels[page] || page}</a>
+        `
+          )
+          .join("")}
+      </nav>
+      ${pageContent}
     </section>
-    <nav class="settings-page-nav" aria-label="設定内ページ">
-      ${settingsPages
-        .map(
-          (page) => `
-        <a href="#/settings/${page}" data-settings-page="${page}" ${page === activePage ? 'aria-current="page"' : ""}>${settingsPageLabels[page] || page}</a>
-      `
-        )
-        .join("")}
-    </nav>
-    ${pageContent}
   `;
 
   if (activePage === "blocks") {
