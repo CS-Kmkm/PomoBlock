@@ -17,6 +17,45 @@ function renderWeekSidebar(deps: PageRenderDeps): string {
   `;
 }
 
+function renderWeekHero(model: ReturnType<typeof buildWeekPageModel>, todayDateKey: string, showJumpToToday: boolean, escapeHtml: (value: unknown) => string): string {
+  return `
+    <section class="week-main-hero">
+      <header class="week-main-head">
+        <div class="week-main-head-copy">
+          <p class="week-main-eyebrow">Weekly planner</p>
+          <h2>週次プランナー</h2>
+          <p class="week-main-lead">
+            前後3日を含む7日を表示します。横スクロールは日単位で吸着し、端へ近づくと次のバッファを読み込みます。
+          </p>
+        </div>
+        <div class="week-main-head-actions">
+          ${showJumpToToday ? '<button type="button" class="week-manage-btn" data-week-jump-today>今日へ戻る</button>' : ""}
+        </div>
+      </header>
+      <div class="week-main-metrics" aria-label="週次サマリー">
+        <article class="week-main-metric">
+          <span class="week-main-metric-label">選択日</span>
+          <strong>${escapeHtml(model.selectedDateLabel)}</strong>
+          <span>${escapeHtml(model.selectedDate)}</span>
+        </article>
+        <article class="week-main-metric">
+          <span class="week-main-metric-label">表示範囲</span>
+          <strong>7日間</strong>
+          <span>${escapeHtml(model.visibleRangeLabel)}</span>
+        </article>
+        <article class="week-main-metric">
+          <span class="week-main-metric-label">バッファ</span>
+          <strong>${escapeHtml(model.bufferDateKeys.length)}日</strong>
+          <span>端へ寄ると次の7日を先読み</span>
+        </article>
+      </div>
+      <p class="week-week-hint small">
+        現在の基準日は ${escapeHtml(todayDateKey)}。詳細を開くと日別の編集面に移動します。
+      </p>
+    </section>
+  `;
+}
+
 function bindWeekTimerActions(deps: PageRenderDeps): void {
   const helpers = {
     ...deps.nowHelpers,
@@ -43,18 +82,7 @@ export function renderWeekPage(deps: PageRenderDeps): void {
   appRoot.innerHTML = `
     <section class="week-layout">
       <section class="week-main-pane">
-        <header class="week-main-head">
-          <div>
-            <h2>週次プランナー</h2>
-            <p>${helpers.escapeHtml(model.plannerModel.weekLabel || "")}</p>
-          </div>
-          <div class="week-main-head-actions">
-            ${showJumpToToday ? '<button type="button" class="week-manage-btn" data-week-jump-today>今日へ戻る</button>' : ""}
-          </div>
-        </header>
-        <p class="week-week-hint small">
-          前後3日を含む7日を表示します。横スクロールは日単位で吸着し、端へ近づくと次のバッファを読み込みます。
-        </p>
+        ${renderWeekHero(model, todayDateKey, showJumpToToday, helpers.escapeHtml)}
         <section class="panel week-planner-shell" data-week-planner tabindex="0">
           ${helpers.renderWeeklyPlannerCalendar(model.plannerModel)}
         </section>
