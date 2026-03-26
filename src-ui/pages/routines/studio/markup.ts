@@ -31,6 +31,33 @@ function scheduleRecurrenceLabel(studio: RoutineStudioState): string {
   return scheduleRecurrenceLabelForRecurrence(studio.scheduleRecurrence);
 }
 
+type RoutineStatChip = {
+  label: string;
+  value: string;
+  note?: string;
+};
+
+function renderRoutineStatChips(chips: RoutineStatChip[], escapeHtml: (value: unknown) => string): string {
+  if (chips.length === 0) {
+    return "";
+  }
+  return `
+    <div class="rs-stat-chips">
+      ${chips
+        .map(
+          (chip) => `
+        <div class="rs-stat-chip">
+          <span class="rs-stat-label">${escapeHtml(chip.label)}</span>
+          <strong class="rs-stat-value">${escapeHtml(chip.value)}</strong>
+          ${chip.note ? `<span class="rs-stat-note">${escapeHtml(chip.note)}</span>` : ""}
+        </div>
+      `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 type BuildRoutineStudioMarkupParams = {
   studio: RoutineStudioState;
   folderAssets: RoutineStudioFolderView[];
@@ -69,9 +96,25 @@ function buildRoutineStudioEditorWorkspace(params: {
   canvasGroups: ReturnType<typeof collectStudioEntryGroups>;
 }): string {
   const { studio, folderAssets, totalMinutes, routineStudioContexts, escapeHtml, canvasGroups } = params;
+  const groupedCount = canvasGroups.filter((group) => group.isGrouped).length;
+  const totalAssets = folderAssets.reduce((sum, folder) => sum + folder.modules.length + folder.templates.length, 0);
   return `
         <div class="routine-studio-layout">
           <aside class="rs-library">
+            <div class="rs-library-hero">
+              <div class="rs-section-copy">
+                <p class="rs-section-kicker">Library</p>
+                <h3>アセットを追加</h3>
+                <p class="small">フォルダー単位でモジュールと複合モジュールを整理し、キャンバスへ送ります。</p>
+              </div>
+              ${renderRoutineStatChips(
+                [
+                  { label: "フォルダー", value: String(folderAssets.length) },
+                  { label: "アセット", value: String(totalAssets) },
+                ],
+                escapeHtml,
+              )}
+            </div>
             <div class="rs-library-tools">
               <div class="rs-search-wrap">
                 <input id="studio-search-input" type="search" placeholder="モジュールを検索..." value="${escapeHtml(studio.search)}" />
@@ -150,9 +193,20 @@ function buildRoutineStudioEditorWorkspace(params: {
           <div class="pane-splitter" data-pane-resize="rs-left" role="separator" aria-orientation="vertical" aria-label="Resize left panel" tabindex="0"></div>
           <section class="rs-canvas">
             <header class="rs-canvas-head">
-              <div>
-                <h3>ルーティンキャンバス</h3>
-                <p>モジュールをドラッグして追加</p>
+              <div class="rs-canvas-head-copy">
+                <div class="rs-section-copy">
+                  <p class="rs-section-kicker">Canvas</p>
+                  <h3>ルーティンキャンバス</h3>
+                  <p>モジュールをドラッグして並べ、右側で詳細を調整します。</p>
+                </div>
+                ${renderRoutineStatChips(
+                  [
+                    { label: "ステップ", value: String(studio.canvasEntries.length) },
+                    { label: "複合", value: String(groupedCount) },
+                    { label: "合計", value: `${totalMinutes} min` },
+                  ],
+                  escapeHtml,
+                )}
               </div>
               <div class="rs-history-actions">
                 <button type="button" id="studio-undo" class="rs-btn rs-btn-ghost" ${studio.historyIndex <= 0 ? "disabled" : ""}>元に戻す</button>
@@ -163,7 +217,7 @@ function buildRoutineStudioEditorWorkspace(params: {
               <div id="routine-studio-dropzone" class="rs-dropzone">
                 ${
                   studio.canvasEntries.length === 0
-                    ? '<div class="rs-drop-empty"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">追加ボタンからも追加できます</p></div>'
+                    ? '<div class="rs-drop-empty rs-drop-empty--hero"><p class="rs-drop-empty-title">モジュールをドラッグ</p><p class="small">左のライブラリから追加するか、各カードの追加ボタンを使えます。</p></div>'
                     : canvasGroups
                         .map((group) => {
                           const anchor = group.entries[0];
@@ -225,11 +279,24 @@ function buildRoutineStudioEditorWorkspace(params: {
           <div class="pane-splitter" data-pane-resize="rs-right" role="separator" aria-orientation="vertical" aria-label="Resize right panel" tabindex="0"></div>
           <aside class="rs-intel">
             <header class="rs-intel-head">
-              <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
-              <p class="small">編集済み</p>
+              <div class="rs-intel-head-copy">
+                <p class="rs-section-kicker">Details</p>
+                <h3 data-studio-title>${escapeHtml(studio.draftName)}</h3>
+                <p class="small">編集済み</p>
+              </div>
               <div class="rs-total">${totalMinutes}<span> min</span></div>
             </header>
             <div class="rs-intel-body">
+              <div class="rs-intel-summary">
+                ${renderRoutineStatChips(
+                  [
+                    { label: "モジュール", value: String(studio.modules.length) },
+                    { label: "履歴", value: String(studio.history.length) },
+                    { label: "コンテキスト", value: String(routineStudioContexts.length) },
+                  ],
+                  escapeHtml,
+                )}
+              </div>
               <details class="rs-properties" open>
                 <summary class="rs-properties-summary">プロパティ</summary>
                 <label class="rs-field">ルーティン名<input id="studio-draft-name" value="${escapeHtml(studio.draftName)}" /></label>
@@ -263,15 +330,30 @@ function buildRoutineStudioScheduleCenterMarkup(params: {
   return `
           <section class="rs-schedule-main">
             <header class="rs-schedule-head">
-              <div>
-                <h3 class="rs-schedule-title">${escapeHtml(scheduleTitle)}</h3>
-                <p class="small">Now の左ペインのように 1 日の定型予定を並べ、左の編集ワークスペースからアセットをドラッグして追加します。</p>
+              <div class="rs-schedule-head-copy">
+                <div class="rs-section-copy">
+                  <p class="rs-section-kicker">Schedule</p>
+                  <h3 class="rs-schedule-title">${escapeHtml(scheduleTitle)}</h3>
+                  <p class="small">Now の左ペインのように 1 日の定型予定を並べ、左の編集ワークスペースからアセットをドラッグして追加します。</p>
+                </div>
+                ${renderRoutineStatChips(
+                  [
+                    { label: "予定数", value: String(studio.scheduleEntries.length) },
+                    { label: "表示", value: showExtendedScheduleWindow ? "3日" : "24h" },
+                    { label: "開始", value: scheduleWindowStartMinutes < 0 ? "-24h" : "0h" },
+                  ],
+                  escapeHtml,
+                )}
               </div>
               <div class="rs-schedule-head-meta">
                 <span class="rs-badge">${escapeHtml(scheduleRecurrenceLabel(studio))}</span>
                 <span class="small">${studio.scheduleEntries.length} 件</span>
               </div>
             </header>
+            <div class="rs-schedule-banner">
+              <span class="rs-badge">${showExtendedScheduleWindow ? "日跨ぎ表示" : "当日表示"}</span>
+              <p class="small">左のアセットから予定を追加し、右で繰り返し条件と保存対象を整えます。</p>
+            </div>
             <section class="rs-schedule-day">
               <header class="rs-schedule-section-head">
                 <div>
@@ -305,8 +387,23 @@ function buildRoutineStudioScheduleLeftMarkup(params: {
   escapeHtml: (value: unknown) => string;
 }): string {
   const { studio, folderAssets, escapeHtml } = params;
+  const totalAssets = folderAssets.reduce((sum, folder) => sum + folder.modules.length + folder.templates.length, 0);
   return `
             <section class="rs-library rs-library--schedule">
+              <div class="rs-library-hero">
+                <div class="rs-section-copy">
+                  <p class="rs-section-kicker">Library</p>
+                  <h3>ルーティン編集</h3>
+                  <p class="small">フォルダー別のルーティン一覧から中央へドラッグして定型予定を作ります。</p>
+                </div>
+                ${renderRoutineStatChips(
+                  [
+                    { label: "フォルダー", value: String(folderAssets.length) },
+                    { label: "アセット", value: String(totalAssets) },
+                  ],
+                  escapeHtml,
+                )}
+              </div>
               <div class="rs-library-tools">
                 <div class="rs-search-wrap">
                   <input id="studio-search-input" type="search" placeholder="モジュールを検索..." value="${escapeHtml(studio.search)}" />
@@ -398,95 +495,108 @@ function buildRoutineStudioScheduleRightMarkup(params: {
   return `
           <aside class="rs-schedule-side">
             <section class="rs-schedule-props">
-              <h4>繰り返し設定</h4>
-              <label class="rs-field">スケジュールセット
-                <select id="studio-schedule-group">
-                  <option value="${escapeHtml(currentDraftScheduleValue)}" ${studio.scheduleGroupId === currentDraftScheduleValue ? "selected" : ""}>現在の下書き (${escapeHtml(studio.draftName)})</option>
-                  ${allComplexModuleAssets
-                    .map(
-                      (cm) =>
-                        `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} ステップ)</option>`,
-                    )
-                    .join("")}
-                  ${savedScheduleGroups
-                    .filter((group) => !knownGroupIds.has(group.groupId))
-                    .map(
-                      (group) =>
-                        `<option value="${escapeHtml(group.groupId)}" ${group.groupId === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(group.name)} (${group.entryCount} 件)</option>`,
-                    )
-                    .join("")}
-                </select>
-              </label>
-              <div class="rs-repeat-tabs" role="tablist" aria-label="繰り返し種別">
-                <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "weekly" ? "is-active" : ""}" data-studio-repeat-type="weekly">毎週</button>
-                <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_date" ? "is-active" : ""}" data-studio-repeat-type="monthly_date">毎月日付</button>
-                <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_nth" ? "is-active" : ""}" data-studio-repeat-type="monthly_nth">第n曜日</button>
+              <div class="rs-schedule-props-head">
+                <div class="rs-section-copy">
+                  <p class="rs-section-kicker">Settings</p>
+                  <h4>繰り返し設定</h4>
+                  <p class="small">保存先と繰り返し条件をここでまとめて整えます。</p>
+                </div>
+                <span class="rs-badge">${escapeHtml(selectedApplyTemplate?.name || studio.draftName)}</span>
               </div>
-              ${
-                studio.scheduleRecurrence.repeatType === "weekly"
-                  ? `
-                <div class="rs-weekday-grid">
-                  ${weekdayOptions
-                    .map(
-                      (option) => `
-                    <label class="rs-choice-chip">
-                      <input type="checkbox" data-studio-repeat-weekday="${option.id}" ${studio.scheduleRecurrence.weekdays.includes(option.id) ? "checked" : ""} />
-                      <span>${option.label}</span>
+              <div class="rs-schedule-panel-card">
+                <label class="rs-field">スケジュールセット
+                  <select id="studio-schedule-group">
+                    <option value="${escapeHtml(currentDraftScheduleValue)}" ${studio.scheduleGroupId === currentDraftScheduleValue ? "selected" : ""}>現在の下書き (${escapeHtml(studio.draftName)})</option>
+                    ${allComplexModuleAssets
+                      .map(
+                        (cm) =>
+                          `<option value="${escapeHtml(cm.id)}" ${cm.id === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(cm.name)} (${cm.stepCount} ステップ)</option>`,
+                      )
+                      .join("")}
+                    ${savedScheduleGroups
+                      .filter((group) => !knownGroupIds.has(group.groupId))
+                      .map(
+                        (group) =>
+                          `<option value="${escapeHtml(group.groupId)}" ${group.groupId === studio.scheduleGroupId ? "selected" : ""}>${escapeHtml(group.name)} (${group.entryCount} 件)</option>`,
+                      )
+                      .join("")}
+                  </select>
+                </label>
+              </div>
+              <div class="rs-schedule-panel-card">
+                <div class="rs-repeat-tabs" role="tablist" aria-label="繰り返し種別">
+                  <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "weekly" ? "is-active" : ""}" data-studio-repeat-type="weekly">毎週</button>
+                  <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_date" ? "is-active" : ""}" data-studio-repeat-type="monthly_date">毎月日付</button>
+                  <button type="button" class="rs-subnav-tab ${studio.scheduleRecurrence.repeatType === "monthly_nth" ? "is-active" : ""}" data-studio-repeat-type="monthly_nth">第n曜日</button>
+                </div>
+                ${
+                  studio.scheduleRecurrence.repeatType === "weekly"
+                    ? `
+                  <div class="rs-weekday-grid">
+                    ${weekdayOptions
+                      .map(
+                        (option) => `
+                      <label class="rs-choice-chip">
+                        <input type="checkbox" data-studio-repeat-weekday="${option.id}" ${studio.scheduleRecurrence.weekdays.includes(option.id) ? "checked" : ""} />
+                        <span>${option.label}</span>
+                      </label>
+                    `,
+                      )
+                      .join("")}
+                  </div>
+                `
+                    : studio.scheduleRecurrence.repeatType === "monthly_date"
+                      ? `<label class="rs-field">毎月何日<input id="studio-repeat-day-of-month" type="number" min="1" max="31" value="${Math.max(1, Number(studio.scheduleRecurrence.dayOfMonth) || 1)}" /></label>`
+                      : `
+                  <div class="rs-inline-fields">
+                    <label class="rs-field">第何週
+                      <select id="studio-repeat-nth-week">
+                        ${[1, 2, 3, 4, 5]
+                          .map((value) => `<option value="${value}" ${value === studio.scheduleRecurrence.nthWeek ? "selected" : ""}>第${value}</option>`)
+                          .join("")}
+                      </select>
                     </label>
-                  `,
-                    )
-                    .join("")}
-                </div>
-              `
-                  : studio.scheduleRecurrence.repeatType === "monthly_date"
-                    ? `<label class="rs-field">毎月何日<input id="studio-repeat-day-of-month" type="number" min="1" max="31" value="${Math.max(1, Number(studio.scheduleRecurrence.dayOfMonth) || 1)}" /></label>`
-                    : `
-                <div class="rs-inline-fields">
-                  <label class="rs-field">第何週
-                    <select id="studio-repeat-nth-week">
-                      ${[1, 2, 3, 4, 5]
-                        .map((value) => `<option value="${value}" ${value === studio.scheduleRecurrence.nthWeek ? "selected" : ""}>第${value}</option>`)
-                        .join("")}
-                    </select>
-                  </label>
-                  <label class="rs-field">曜日
-                    <select id="studio-repeat-nth-weekday">
-                      ${weekdayOptions
-                        .map((option) => `<option value="${option.id}" ${option.id === studio.scheduleRecurrence.nthWeekday ? "selected" : ""}>${option.label}</option>`)
-                        .join("")}
-                    </select>
-                  </label>
-                </div>
-              `
-              }
-              <div class="rs-inline-fields">
-                <label class="rs-field">開始日<input id="studio-repeat-start-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.startDate)}" /></label>
-                <label class="rs-field">終了日<input id="studio-repeat-end-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.endDate)}" /></label>
+                    <label class="rs-field">曜日
+                      <select id="studio-repeat-nth-weekday">
+                        ${weekdayOptions
+                          .map((option) => `<option value="${option.id}" ${option.id === studio.scheduleRecurrence.nthWeekday ? "selected" : ""}>${option.label}</option>`)
+                          .join("")}
+                      </select>
+                    </label>
+                  </div>
+                `
+                }
               </div>
-              ${
-                studio.scheduleSelectedEntryId
-                  ? (() => {
-                      const selectedEntry = studio.scheduleEntries.find((entry) => entry.id === studio.scheduleSelectedEntryId);
-                      if (!selectedEntry) return "";
-                      return `
-                <div class="rs-schedule-detail">
-                  <h5>選択中の予定</h5>
-                  <label class="rs-field">タイトル<input value="${escapeHtml(selectedEntry.title)}" data-studio-schedule-field="title" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
-                  <label class="rs-field">開始時刻<input type="time" value="${escapeHtml(selectedEntry.startTime)}" data-studio-schedule-field="startTime" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
-                  <label class="rs-field">日オフセット
-                    <select data-studio-schedule-field="dayOffset" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}">
-                      <option value="-1" ${Number(selectedEntry.dayOffset || 0) === -1 ? "selected" : ""}>-1日 (前日)</option>
-                      <option value="0" ${Number(selectedEntry.dayOffset || 0) === 0 ? "selected" : ""}>0日 (当日)</option>
-                      <option value="1" ${Number(selectedEntry.dayOffset || 0) === 1 ? "selected" : ""}>+1日 (翌日)</option>
-                    </select>
-                  </label>
-                  <label class="rs-field">分<input type="number" min="1" value="${Math.max(1, Number(selectedEntry.durationMinutes) || 1)}" data-studio-schedule-field="durationMinutes" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+              <div class="rs-schedule-panel-card">
+                <div class="rs-inline-fields">
+                  <label class="rs-field">開始日<input id="studio-repeat-start-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.startDate)}" /></label>
+                  <label class="rs-field">終了日<input id="studio-repeat-end-date" type="date" value="${escapeHtml(studio.scheduleRecurrence.endDate)}" /></label>
                 </div>
-              `;
-                    })()
-                  : ""
-              }
-              ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
+                ${
+                  studio.scheduleSelectedEntryId
+                    ? (() => {
+                        const selectedEntry = studio.scheduleEntries.find((entry) => entry.id === studio.scheduleSelectedEntryId);
+                        if (!selectedEntry) return "";
+                        return `
+                  <div class="rs-schedule-detail">
+                    <h5>選択中の予定</h5>
+                    <label class="rs-field">タイトル<input value="${escapeHtml(selectedEntry.title)}" data-studio-schedule-field="title" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                    <label class="rs-field">開始時刻<input type="time" value="${escapeHtml(selectedEntry.startTime)}" data-studio-schedule-field="startTime" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                    <label class="rs-field">日オフセット
+                      <select data-studio-schedule-field="dayOffset" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}">
+                        <option value="-1" ${Number(selectedEntry.dayOffset || 0) === -1 ? "selected" : ""}>-1日 (前日)</option>
+                        <option value="0" ${Number(selectedEntry.dayOffset || 0) === 0 ? "selected" : ""}>0日 (当日)</option>
+                        <option value="1" ${Number(selectedEntry.dayOffset || 0) === 1 ? "selected" : ""}>+1日 (翌日)</option>
+                      </select>
+                    </label>
+                    <label class="rs-field">分<input type="number" min="1" value="${Math.max(1, Number(selectedEntry.durationMinutes) || 1)}" data-studio-schedule-field="durationMinutes" data-studio-schedule-id="${escapeHtml(selectedEntry.id)}" /></label>
+                  </div>
+                `;
+                      })()
+                    : ""
+                }
+                ${studio.lastApplyResult ? `<p class="small rs-apply-status">${escapeHtml(studio.lastApplyResult)}</p>` : ""}
+              </div>
             </section>
             <footer class="rs-schedule-actions">
               <button type="button" id="studio-save-schedule" class="rs-btn rs-btn-primary">定期予定を保存</button>
@@ -499,29 +609,44 @@ function buildRoutineStudioScheduleRightMarkup(params: {
 function buildRoutineStudioSavedSchedulesPage(params: {
   studio: RoutineStudioState;
   savedScheduleGroups: RoutineScheduleGroupSummary[];
+  activeScheduleName: string;
   escapeHtml: (value: unknown) => string;
 }): string {
-  const { studio, savedScheduleGroups, escapeHtml } = params;
+  const { studio, savedScheduleGroups, activeScheduleName, escapeHtml } = params;
   return `
         <section class="rs-saved-page">
           <header class="rs-saved-page-head">
-            <div>
-              <h3>登録済み定期予定</h3>
-              <p class="small">保存済みの定期予定を一覧し、編集対象の選択や削除を行います。開始日・終了日は編集画面で変更して保存してください。</p>
+            <div class="rs-saved-page-intro">
+              <div class="rs-section-copy">
+                <p class="rs-section-kicker">Management</p>
+                <h3>登録済み定期予定</h3>
+                <p class="small">保存済みの定期予定を一覧し、編集対象の選択や削除を行います。開始日・終了日は編集画面で変更して保存してください。</p>
+              </div>
             </div>
-            <span class="rs-badge">${savedScheduleGroups.length}</span>
+            <div class="rs-saved-page-summary">
+              ${renderRoutineStatChips(
+                [
+                  { label: "保存件数", value: String(savedScheduleGroups.length) },
+                  { label: "編集中", value: activeScheduleName || studio.draftName },
+                ],
+                escapeHtml,
+              )}
+            </div>
           </header>
           <div class="rs-saved-schedules-list rs-saved-schedules-list--page">
             ${
               savedScheduleGroups.length === 0
-                ? `<section class="rs-empty-state"><p>まだ登録された定期予定はありません。</p><p class="small">定型予定化ページでスケジュールを保存すると、ここに表示されます。</p></section>`
+                ? `<section class="rs-empty-state rs-empty-state--routines"><p>まだ登録された定期予定はありません。</p><p class="small">定型予定化ページでスケジュールを保存すると、ここに表示されます。</p></section>`
                 : savedScheduleGroups
                     .map(
                       (group) => `
               <article class="rs-saved-schedule-card ${group.groupId === studio.scheduleGroupId ? "is-active" : ""}">
                 <div class="rs-saved-schedule-main">
-                  <span class="rs-saved-schedule-name">${escapeHtml(group.name)}</span>
-                  <span class="rs-saved-schedule-meta">${group.entryCount}件 / ${escapeHtml(scheduleRecurrenceLabelForRecurrence(group.recurrence))}</span>
+                  <div class="rs-saved-schedule-topline">
+                    <span class="rs-saved-schedule-name">${escapeHtml(group.name)}</span>
+                    <span class="rs-badge">${escapeHtml(scheduleRecurrenceLabelForRecurrence(group.recurrence))}</span>
+                  </div>
+                  <span class="rs-saved-schedule-meta">${group.entryCount}件 / 保存済み</span>
                   <span class="rs-saved-schedule-period">${escapeHtml(group.recurrence.startDate || "開始日未設定")} - ${escapeHtml(group.recurrence.endDate || "終了日未設定")}</span>
                 </div>
                 <div class="rs-saved-schedule-actions">
@@ -603,6 +728,7 @@ export function buildRoutineStudioMarkup(params: BuildRoutineStudioMarkupParams)
         ${buildRoutineStudioSavedSchedulesPage({
           studio,
           savedScheduleGroups,
+          activeScheduleName: scheduleTitle,
           escapeHtml,
         })}
       ` : `
