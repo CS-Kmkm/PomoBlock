@@ -1221,10 +1221,14 @@ function render() {
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
     document.body.classList.toggle("route-routines", route === "routines");
+    document.body.classList.toggle("route-insights", route === "insights");
+    document.body.classList.toggle("route-settings", route === "settings");
     syncResponsiveRouteClasses(route);
     appRoot.classList.toggle("view-root--week", isWeekRoute);
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
+    appRoot.classList.toggle("view-root--insights", route === "insights");
+    appRoot.classList.toggle("view-root--settings", route === "settings");
     switch (route) {
         case "today":
             renderWeekDetailsPage(pageDeps, { mode: "today" });
@@ -1413,7 +1417,7 @@ export function startApp(): void {
     appStarted = true;
     syncDayCalendarZoomUi();
     headerRoot?.addEventListener("click", (event: Event) => {
-        const target = (event.target as HTMLElement | null)?.closest<HTMLElement>("[data-topbar-action]");
+        const target = ((event.target as HTMLElement | null)?.closest("[data-topbar-action]") as HTMLElement | null);
         if (!target) {
             return;
         }

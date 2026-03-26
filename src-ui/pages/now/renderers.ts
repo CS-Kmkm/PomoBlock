@@ -20,9 +20,14 @@ export function renderNowNotesPanel({
     <section class="now-notes-panel">
       <div class="row spread">
         <h3>Session Notes</h3>
-        <span class="small">${activeTask ? "active task linked" : "free form"}</span>
+        <span class="small">AUTO-SAVED 14:22</span>
       </div>
       <textarea class="now-notes-input" placeholder="${escapeHtml(defaultNote)}"></textarea>
+      <div class="now-notes-toolbar">
+        <span>B</span>
+        <span>&#8801;</span>
+        <span>&#128206;</span>
+      </div>
     </section>
   `;
 }

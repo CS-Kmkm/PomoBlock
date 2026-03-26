@@ -22,36 +22,16 @@ function renderWeekHero(model: ReturnType<typeof buildWeekPageModel>, todayDateK
     <section class="week-main-hero">
       <header class="week-main-head">
         <div class="week-main-head-copy">
-          <p class="week-main-eyebrow">Weekly planner</p>
-          <h2>週次プランナー</h2>
-          <p class="week-main-lead">
-            前後3日を含む7日を表示します。横スクロールは日単位で吸着し、端へ近づくと次のバッファを読み込みます。
-          </p>
+          <h2>Weekly Flow</h2>
+          <p class="week-main-date">${escapeHtml(model.visibleRangeLabel)}</p>
         </div>
         <div class="week-main-head-actions">
-          ${showJumpToToday ? '<button type="button" class="week-manage-btn" data-week-jump-today>今日へ戻る</button>' : ""}
+          <button type="button" class="week-nav-btn" aria-label="previous week">&#8249;</button>
+          <button type="button" class="week-today-btn ${showJumpToToday ? "" : "is-current"}" data-week-jump-today>Today</button>
+          <button type="button" class="week-nav-btn" aria-label="next week">&#8250;</button>
         </div>
       </header>
-      <div class="week-main-metrics" aria-label="週次サマリー">
-        <article class="week-main-metric">
-          <span class="week-main-metric-label">選択日</span>
-          <strong>${escapeHtml(model.selectedDateLabel)}</strong>
-          <span>${escapeHtml(model.selectedDate)}</span>
-        </article>
-        <article class="week-main-metric">
-          <span class="week-main-metric-label">表示範囲</span>
-          <strong>7日間</strong>
-          <span>${escapeHtml(model.visibleRangeLabel)}</span>
-        </article>
-        <article class="week-main-metric">
-          <span class="week-main-metric-label">バッファ</span>
-          <strong>${escapeHtml(model.bufferDateKeys.length)}日</strong>
-          <span>端へ寄ると次の7日を先読み</span>
-        </article>
-      </div>
-      <p class="week-week-hint small">
-        現在の基準日は ${escapeHtml(todayDateKey)}。詳細を開くと日別の編集面に移動します。
-      </p>
+      <p class="week-week-hint small">Selected: ${escapeHtml(model.selectedDateLabel)} / Today: ${escapeHtml(todayDateKey)}</p>
     </section>
   `;
 }
