@@ -19,7 +19,7 @@ export function renderInsightsPage(deps: PageRenderDeps): void {
   appRoot.innerHTML = `
     <section class="view-head">
       <div>
-        <h2>Insights</h2>
+        <h2>振り返り</h2>
         <p>日次・週次の実行傾向を確認して、次のルーチン改善に繋げます。</p>
       </div>
     </section>
@@ -47,7 +47,7 @@ export function renderInsightsPage(deps: PageRenderDeps): void {
             <div class="panel">
               <p><b>${(log as { phase?: string }).phase ?? ""}</b> / ${(log as { block_id?: string }).block_id ?? ""}</p>
               <p class="small">${helpers.formatTime((log as { start_time?: string }).start_time ?? null)} - ${helpers.formatTime((log as { end_time?: string }).end_time ?? null)}</p>
-              <p class="small">reason: ${(log as { interruption_reason?: string | null }).interruption_reason ?? "-"}</p>
+              <p class="small">理由: ${(log as { interruption_reason?: string | null }).interruption_reason ?? "-"}</p>
             </div>`
           )
           .join("")}

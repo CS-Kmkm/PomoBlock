@@ -16,7 +16,7 @@
     "build:ui:watch": "tsc -p tsconfig.ui.json --watch --preserveWatchOutput",
     "test": "npm run test:rust && npm run test:ui",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "test:ui": "npm run build:ui && node --test tests/now.test.js",
+    "test:ui": "npm run build:ui && node --test tests/*.test.js",
     "test:watch": "node scripts/ui-test-watch.mjs",
     "typecheck": "tsc -p tsconfig.ui.json --noEmit"
   },

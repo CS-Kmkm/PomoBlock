@@ -5,7 +5,8 @@ use super::runtime_support::{lock_runtime, RuntimeState, StoredBlock};
 use crate::application::test_support::workspace::TempWorkspace;
 use crate::application::commands::{
     create_module_impl, create_recipe_impl, delete_module_impl, list_blocks_impl,
-    list_modules_impl, list_recipes_impl, update_module_impl, update_recipe_impl,
+    list_module_folders_impl, list_modules_impl, list_recipes_impl, move_module_impl,
+    update_module_impl, update_recipe_impl,
 };
 use crate::application::studio_template_application;
 use crate::domain::models::{AutoDriveMode, BlockContents, Firmness};
@@ -59,6 +60,8 @@ fn modules_crud_persists_to_modules_json() {
 
     let listed = list_modules_impl(&state).expect("list modules");
     assert!(listed.iter().any(|module| module.id == "mod-test-module"));
+    let listed_folders = list_module_folders_impl(&state).expect("list module folders");
+    assert!(listed_folders.iter().any(|folder| folder.id == "Testing"));
 
     let deleted = delete_module_impl(&state, "mod-test-module".to_string()).expect("delete module");
     assert!(deleted);
@@ -66,6 +69,89 @@ fn modules_crud_persists_to_modules_json() {
     assert!(after_delete
         .iter()
         .all(|module| module.id != "mod-test-module"));
+}
+
+#[test]
+fn move_module_reorders_within_and_across_folders() {
+    let workspace = TempWorkspace::new();
+    let state = workspace.app_state();
+
+    create_module_impl(
+        &state,
+        json!({
+            "id": "mod-a",
+            "name": "A",
+            "category": "Alpha",
+            "stepType": "micro",
+            "durationMinutes": 5
+        }),
+    )
+    .expect("create mod a");
+    create_module_impl(
+        &state,
+        json!({
+            "id": "mod-b",
+            "name": "B",
+            "category": "Alpha",
+            "stepType": "micro",
+            "durationMinutes": 5
+        }),
+    )
+    .expect("create mod b");
+    create_module_impl(
+        &state,
+        json!({
+            "id": "mod-c",
+            "name": "C",
+            "category": "Beta",
+            "stepType": "micro",
+            "durationMinutes": 5
+        }),
+    )
+    .expect("create mod c");
+
+    let reordered = move_module_impl(
+        &state,
+        "mod-b".to_string(),
+        "Alpha".to_string(),
+        Some("mod-a".to_string()),
+    )
+    .expect("reorder in same folder");
+    let relevant_after_reorder = reordered
+        .iter()
+        .filter(|module| ["mod-a", "mod-b", "mod-c"].contains(&module.id.as_str()))
+        .map(|module| (module.id.as_str(), module.category.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        relevant_after_reorder,
+        vec![("mod-b", "Alpha"), ("mod-a", "Alpha"), ("mod-c", "Beta")]
+    );
+
+    let moved = move_module_impl(&state, "mod-a".to_string(), "Beta".to_string(), None)
+        .expect("move to beta");
+    let relevant_after_move = moved
+        .iter()
+        .filter(|module| ["mod-a", "mod-b", "mod-c"].contains(&module.id.as_str()))
+        .map(|module| (module.id.as_str(), module.category.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        relevant_after_move,
+        vec![("mod-b", "Alpha"), ("mod-c", "Beta"), ("mod-a", "Beta")]
+    );
+    let moved_a = moved
+        .iter()
+        .find(|module| module.id == "mod-a")
+        .expect("mod a present");
+    assert_eq!(moved_a.category, "Beta");
+    let persisted = list_modules_impl(&state).expect("list modules after move");
+    let persisted_relevant = persisted
+        .iter()
+        .filter(|module| ["mod-a", "mod-b", "mod-c"].contains(&module.id.as_str()))
+        .map(|module| (module.id.as_str(), module.category.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(persisted_relevant, relevant_after_move);
+    let folders = list_module_folders_impl(&state).expect("list folders");
+    assert!(folders.iter().any(|folder| folder.id == "Beta"));
 }
 
 #[tokio::test]

@@ -45,7 +45,7 @@ export function renderWeekPage(deps: PageRenderDeps): void {
       <section class="week-main-pane">
         <header class="week-main-head">
           <div>
-            <h2>Week Planner</h2>
+            <h2>週次プランナー</h2>
             <p>${helpers.escapeHtml(model.plannerModel.weekLabel || "")}</p>
           </div>
           <div class="week-main-head-actions">

@@ -7,10 +7,14 @@ type BindRoutineStudioAsyncEventsParams = {
   closeModuleEditor: () => void;
   closeEntryEditor: () => void;
   onRefreshAssets: () => Promise<void>;
+  onCreateFolder: () => Promise<void>;
+  onDeleteFolder: (folderId: string) => Promise<void>;
   onSaveModule: () => Promise<void>;
   onDeleteModule: (moduleId: string) => Promise<void>;
   onSaveTemplate: () => Promise<void>;
+  onSaveSchedule: () => Promise<void>;
   onApplyToday: () => Promise<void>;
+  onDeleteScheduleGroup: (groupId: string) => Promise<void>;
   onDeleteRecipe: (recipeId: string) => Promise<void>;
 };
 
@@ -22,10 +26,14 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
     closeModuleEditor,
     closeEntryEditor,
     onRefreshAssets,
+    onCreateFolder,
+    onDeleteFolder,
     onSaveModule,
     onDeleteModule,
     onSaveTemplate,
+    onSaveSchedule,
     onApplyToday,
+    onDeleteScheduleGroup,
     onDeleteRecipe,
   } = params;
 
@@ -35,6 +43,10 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
 
   document.getElementById("studio-new-module")?.addEventListener("click", () => {
     openModuleEditor(null);
+  });
+
+  document.getElementById("studio-new-folder")?.addEventListener("click", () => {
+    void onCreateFolder();
   });
 
   document.getElementById("studio-module-cancel")?.addEventListener("click", closeModuleEditor);
@@ -75,12 +87,32 @@ export function bindRoutineStudioAsyncEvents(params: BindRoutineStudioAsyncEvent
     });
   });
 
+  appRoot.querySelectorAll("[data-studio-folder-delete]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const folderId = (node as HTMLElement).dataset.studioFolderDelete || "";
+      if (!folderId) return;
+      void onDeleteFolder(folderId);
+    });
+  });
+
   document.getElementById("studio-save-template")?.addEventListener("click", () => {
     void onSaveTemplate();
   });
 
   document.getElementById("studio-apply-today")?.addEventListener("click", () => {
     void onApplyToday();
+  });
+
+  document.getElementById("studio-save-schedule")?.addEventListener("click", () => {
+    void onSaveSchedule();
+  });
+
+  appRoot.querySelectorAll("[data-studio-saved-schedule-delete]").forEach((node) => {
+    node.addEventListener("click", () => {
+      const groupId = (node as HTMLElement).dataset.studioSavedScheduleDelete || "";
+      if (!groupId) return;
+      void onDeleteScheduleGroup(groupId);
+    });
   });
 
   appRoot.querySelectorAll("[data-studio-recipe-delete]").forEach((node) => {

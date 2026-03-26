@@ -1,4 +1,4 @@
-import type { Block, Module, PomodoroState, Recipe, ReflectionSummary, SyncedEvent, Task } from "./types.js";
+import type { Block, Module, ModuleFolder, PomodoroState, Recipe, ReflectionSummary, SyncedEvent, Task } from "./types.js";
 import { isUnknownCommandError } from "./utils/command-errors.js";
 
 export type CommandPayload = Record<string, unknown>;
@@ -91,13 +91,29 @@ export interface CommandMap {
     response: CarryOverTaskResponse;
   };
   list_recipes: { payload: {}; response: Recipe[] };
+  list_routines: { payload: {}; response: Record<string, unknown>[] };
   create_recipe: { payload: { payload: Record<string, unknown> }; response: Recipe };
   update_recipe: { payload: { recipe_id: string; recipeId?: string; payload: Record<string, unknown> }; response: Recipe };
   delete_recipe: { payload: { recipe_id: string; recipeId?: string }; response: boolean };
+  list_routine_schedules: { payload: {}; response: Record<string, unknown>[] };
+  save_routine_schedule: { payload: { payload: Record<string, unknown> }; response: Record<string, unknown> };
+  save_routine_schedule_group: { payload: { payload: { group_id?: string; groupId?: string; routines: Record<string, unknown>[] } }; response: Record<string, unknown>[] };
+  delete_routine_schedule: { payload: { routine_id: string; routineId?: string }; response: boolean };
   list_modules: { payload: {}; response: Module[] };
+  list_module_folders: { payload: {}; response: ModuleFolder[] };
   create_module: { payload: { payload: Record<string, unknown> }; response: Module };
   update_module: { payload: { module_id: string; moduleId?: string; payload: Record<string, unknown> }; response: Module };
   delete_module: { payload: { module_id: string; moduleId?: string }; response: boolean };
+  move_module: {
+    payload: { module_id: string; moduleId?: string; folder_id: string; folderId?: string; before_module_id?: string | null; beforeModuleId?: string | null };
+    response: Module[];
+  };
+  create_module_folder: { payload: { name: string }; response: ModuleFolder };
+  delete_module_folder: { payload: { folder_id: string; folderId?: string }; response: boolean };
+  move_module_folder: {
+    payload: { folder_id: string; folderId?: string; direction: string };
+    response: ModuleFolder[];
+  };
   apply_studio_template_to_today: {
     payload: {
       template_id: string;
@@ -162,8 +178,17 @@ const commandArgAliases: Record<string, Array<[string, string]>> = {
   interrupt_timer: [["reason", "reason"]],
   update_recipe: [["recipe_id", "recipeId"]],
   delete_recipe: [["recipe_id", "recipeId"]],
+  delete_routine_schedule: [["routine_id", "routineId"]],
+  save_routine_schedule_group: [["group_id", "groupId"]],
   update_module: [["module_id", "moduleId"]],
   delete_module: [["module_id", "moduleId"]],
+  move_module: [
+    ["module_id", "moduleId"],
+    ["folder_id", "folderId"],
+    ["before_module_id", "beforeModuleId"],
+  ],
+  delete_module_folder: [["folder_id", "folderId"]],
+  move_module_folder: [["folder_id", "folderId"]],
   apply_studio_template_to_today: [
     ["template_id", "templateId"],
     ["trigger_time", "triggerTime"],

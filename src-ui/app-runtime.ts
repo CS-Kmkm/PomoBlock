@@ -17,6 +17,7 @@ import { intervalRangeLabel as intervalRangeLabelValue, toClockText as toClockTe
 import { bindDailyCalendarInteractions as bindDailyCalendarInteractionsValue, blockRows as blockRowsValue } from "./day-calendar-bindings.js";
 import { renderNowNotesPanel as renderNowNotesPanelView } from "./pages/now/renderers.js";
 import { renderWeekStatusCard as renderWeekStatusCardView, renderWeekTaskPanel as renderWeekTaskPanelView, renderWeekTimelinePanel as renderWeekTimelinePanelView, } from "./pages/week/renderers.js";
+import { resolveTimerControlModel as resolveTimerControlModelValue, type TimerControlModel } from "./timer-controls.js";
 import type { Block, DayBlockDragState, JsonObject, MockState, Module, PageRenderDeps, PomodoroState, ProgressState, Recipe, Task, UiState, } from "./types.js";
 const appRoot = getById<HTMLElement>("app") as HTMLElement;
 const statusChip = getById<HTMLElement>("global-status");
@@ -24,12 +25,16 @@ const progressChip = getById<HTMLElement>("global-progress");
 const progressLabel = getById<HTMLElement>("global-progress-label");
 const progressFill = getById<HTMLElement>("global-progress-fill");
 const progressValue = getById<HTMLElement>("global-progress-value");
-const routes = ["week", "week-details", "now", "routines", "insights", "settings"];
+const topbarZoomOut = getById<HTMLButtonElement>("topbar-zoom-out");
+const topbarZoomIn = getById<HTMLButtonElement>("topbar-zoom-in");
+const topbarZoomReset = getById<HTMLButtonElement>("topbar-zoom-reset");
+const topbarZoomLabel = getById<HTMLElement>("topbar-zoom-label");
+const routes = ["today", "week", "week-details", "now", "routines", "insights", "settings"];
 const settingsPages = ["blocks", "git", "auth"];
 const settingsPageLabels = {
     blocks: "ブロック構成",
     git: "Git同期",
-    auth: "Google Auth",
+    auth: "Google認証",
 };
 const longRunningCommands = new Set([
     "sync_calendar",
@@ -47,6 +52,10 @@ const progressTargetPercent = 92;
 const progressUpdateIntervalMs = 180;
 const BLOCKS_INITIAL_VISIBLE = 50;
 const BLOCK_TITLE_STORAGE_KEY = "pomo_block_titles_v1";
+const WEEK_RESIZE_RENDER_MS = 120;
+const DAY_CALENDAR_ZOOM_MIN = 0.7;
+const DAY_CALENDAR_ZOOM_MAX = 1.8;
+const DAY_CALENDAR_ZOOM_STEP = 0.1;
 // Routine Studio のドラッグデータを保持するモジュール変数
 let routineStudioActiveDrag: {
     kind: string;
@@ -60,6 +69,7 @@ let _rsDragGhost: HTMLElement | null = null;
 let _rsDragSource: HTMLElement | null = null;
 let _rsDragOffsetX = 0;
 let _rsDragOffsetY = 0;
+let weekResizeRenderTimer = 0 as ReturnType<typeof setTimeout> | 0;
 const routineStudioSeedModules: Module[] = [
     {
         id: "mod-deep-work-init",
@@ -170,6 +180,17 @@ const routineStudioSeedModules: Module[] = [
         },
     },
 ];
+const routineStudioSeedFolders = routineStudioSeedModules.reduce<Array<{ id: string; name: string }>>((folders, module) => {
+    const category = String(module.category || "").trim();
+    if (!category || folders.some((folder) => folder.id === category)) {
+        return folders;
+    }
+    folders.push({
+        id: category,
+        name: category,
+    });
+    return folders;
+}, []);
 const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
 let routineStudioSequence = 1;
 type DayItemKind = "block" | "event" | "free";
@@ -215,6 +236,7 @@ const uiState: UiState = {
     recipes: [],
     dayCalendarSelection: null,
     dayCalendarViewMode: "grid",
+    dayCalendarZoom: 1,
     blockTitles: loadBlockTitles(),
     nowUi: {
         taskOrder: [],
@@ -233,13 +255,29 @@ const uiState: UiState = {
         search: "",
         draftName: "Morning Deep Work",
         templateId: "rcp-routine-studio",
+        applyTemplateId: "",
         triggerTime: "09:00",
         context: "Work - Deep Focus",
         autoStart: true,
         macroTargetMinutes: 30,
         modules: [],
+        moduleFolders: [],
         hiddenTemplateCount: 0,
         canvasEntries: [],
+        scheduleEntries: [],
+        scheduleSelectedEntryId: "",
+        scheduleRecurrence: {
+            repeatType: "weekly",
+            weekdays: ["mon", "tue", "wed", "thu", "fri"],
+            dayOfMonth: 1,
+            nthWeek: 1,
+            nthWeekday: "mon",
+            startDate: "",
+            endDate: "",
+        },
+        scheduleGroupId: "rcp-routine-studio",
+        scheduleLoadedGroupId: "",
+        scheduleDirty: false,
         history: [],
         historyIndex: -1,
         dragInsertIndex: -1,
@@ -264,7 +302,9 @@ const mockState: MockState = {
     tasks: [],
     blocks: [],
     recipes: [],
+    routines: [],
     modules: [],
+    moduleFolders: [],
     syncedEventsByAccount: {},
     taskAssignmentsByTask: {},
     taskAssignmentsByBlock: {},
@@ -383,14 +423,19 @@ function ensureMockRecipesSeeded() {
     ];
 }
 function ensureMockModulesSeeded() {
-    if (mockState.modules.length > 0)
-        return;
-    mockState.modules = routineStudioSeedModules.map((module) => ({
-        ...module,
-        checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
-        pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
-        executionHints: module.executionHints ? { ...module.executionHints } : null,
-    }));
+    if (mockState.modules.length === 0) {
+        mockState.modules = routineStudioSeedModules.map((module) => ({
+            ...module,
+            checklist: Array.isArray(module.checklist) ? [...module.checklist] : [],
+            pomodoro: module.pomodoro ? { ...module.pomodoro } : null,
+            executionHints: module.executionHints ? { ...module.executionHints } : null,
+        }));
+    }
+    if (mockState.moduleFolders.length === 0) {
+        mockState.moduleFolders = routineStudioSeedFolders.map((folder) => ({
+            ...folder,
+        }));
+    }
 }
 function isoDate(value: Date) {
     return isoDateValue(value);
@@ -794,6 +839,41 @@ function waitForNextFrame() {
     }
     return new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
+function clampDayCalendarZoom(value: unknown) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return 1;
+    }
+    return Math.max(DAY_CALENDAR_ZOOM_MIN, Math.min(DAY_CALENDAR_ZOOM_MAX, Math.round(numeric * 10) / 10));
+}
+function syncDayCalendarZoomUi() {
+    const zoom = clampDayCalendarZoom(uiState.dayCalendarZoom);
+    uiState.dayCalendarZoom = zoom;
+    document.body.style.setProperty("--day-track-zoom", String(zoom));
+    if (topbarZoomLabel) {
+        topbarZoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+    }
+}
+function updateDayCalendarZoom(nextZoom: number) {
+    uiState.dayCalendarZoom = clampDayCalendarZoom(nextZoom);
+    syncDayCalendarZoomUi();
+}
+function isScheduleZoomTarget(target: EventTarget | null) {
+    if (!(target instanceof Element)) {
+        return false;
+    }
+    return Boolean(target.closest(".day-calendar, .week-board, .now-day-schedule, .rs-schedule-now-dropzone"));
+}
+function isScheduleZoomPoint(clientX: number, clientY: number, eventTarget: EventTarget | null) {
+    const pointed = document.elementFromPoint(clientX, clientY);
+    if (pointed instanceof Element && isScheduleZoomTarget(pointed)) {
+        return true;
+    }
+    return isScheduleZoomTarget(eventTarget);
+}
+function isScheduleRoute(route: string) {
+    return route === "today" || route === "week" || route === "week-details" || route === "now" || route === "routines";
+}
 function getRoute(): string {
     const hash = window.location.hash.replace(/^#\/?/, "");
     const [root, detail] = hash.split("/");
@@ -812,6 +892,9 @@ function getRoute(): string {
     }
     if (root === "week" && detail === "details") {
         return "week-details";
+    }
+    if (root === "today") {
+        return "today";
     }
     return routes.includes(root || "") ? String(root) : "week";
 }
@@ -1098,7 +1181,7 @@ function buildPageRenderDeps(): PageRenderDeps {
         },
         renderers: {
             renderWeekPage: () => renderWeekPage(buildPageRenderDeps()),
-            renderWeekDetailsPage: () => renderWeekDetailsPage(buildPageRenderDeps()),
+            renderWeekDetailsPage: () => renderWeekDetailsPage(buildPageRenderDeps(), { mode: getRoute() === "today" ? "today" : "details" }),
             renderPomodoro: () => renderNowPage(buildPageRenderDeps()),
             renderRoutines: () => renderRoutinesPage(buildPageRenderDeps()),
             renderReflection: () => renderInsightsPage(buildPageRenderDeps()),
@@ -1116,8 +1199,12 @@ function syncResponsiveRouteClasses(route: string) {
 }
 function render() {
     const route = getRoute();
+    if (route === "today") {
+        uiState.dashboardDate = isoDate(new Date());
+        uiState.weekView.bufferAnchorDate = uiState.dashboardDate;
+    }
     const pageDeps = buildPageRenderDeps();
-    const isWeekRoute = route === "week" || route === "week-details";
+    const isWeekRoute = route === "week" || route === "week-details" || route === "today";
     markActiveRoute(route);
     document.body.classList.toggle("route-week", isWeekRoute);
     document.body.classList.toggle("route-now", route === "now");
@@ -1127,11 +1214,14 @@ function render() {
     appRoot.classList.toggle("view-root--now", route === "now");
     appRoot.classList.toggle("view-root--routines", route === "routines");
     switch (route) {
+        case "today":
+            renderWeekDetailsPage(pageDeps, { mode: "today" });
+            break;
         case "week":
             renderWeekPage(pageDeps);
             break;
         case "week-details":
-            renderWeekDetailsPage(pageDeps);
+            renderWeekDetailsPage(pageDeps, { mode: "details" });
             break;
         case "now":
             renderNowPage(pageDeps);
@@ -1199,36 +1289,12 @@ function refreshWeekStatusTimerDisplay() {
         : Math.max(0, Math.floor(state.remaining_seconds || 0));
     statusTime.textContent = toTimerText(displayRemainingSeconds);
 }
-function resolveTimerControlModel(stateInput: unknown = uiState.pomodoro) {
-    const state = normalizePomodoroState(stateInput || {});
-    const canStart = state.phase === "idle" && Boolean(resolveNowAutoStartBlock(state));
-    const isRunningPhase = state.phase === "focus" || state.phase === "break";
-    const canPause = isRunningPhase;
-    const canNext = isRunningPhase;
-    const canStop = isRunningPhase;
-    const canResume = state.phase === "paused";
-    const controlsDisabled = Boolean(uiState.nowUi.actionInFlight);
-    const leftAction = canStop ? "stop" : "";
-    const rightAction = canNext ? "next" : "";
-    const primaryAction = state.phase === "idle" ? "start" : canPause ? "pause" : canResume ? "resume" : "";
-    return {
-        leftAction,
-        leftLabel: "Stop",
-        leftIcon: "?",
-        leftDisabled: controlsDisabled || !leftAction,
-        rightAction,
-        rightLabel: "Next",
-        rightIcon: "?",
-        rightDisabled: controlsDisabled || !rightAction,
-        primaryAction,
-        primaryLabel: primaryAction === "start" ? "開始" : primaryAction === "pause" ? "中断" : "再開",
-        primaryIcon: primaryAction === "pause" ? "?" : "?",
-        primaryDisabled: controlsDisabled ||
-            !primaryAction ||
-            (primaryAction === "start" && !canStart) ||
-            (primaryAction === "pause" && !canPause) ||
-            (primaryAction === "resume" && !canResume),
-    };
+function resolveTimerControlModel(stateInput: unknown = uiState.pomodoro): TimerControlModel {
+    return resolveTimerControlModelValue(stateInput, {
+        actionInFlight: Boolean(uiState.nowUi.actionInFlight),
+        normalizePomodoroState,
+        resolveNowAutoStartBlock: (state) => resolveNowAutoStartBlock(state),
+    });
 }
 async function executeTimerAction(action: string, rerender: () => void) {
     if (!action || uiState.nowUi.actionInFlight)
@@ -1333,15 +1399,75 @@ export function startApp(): void {
         return;
     }
     appStarted = true;
+    syncDayCalendarZoomUi();
+    topbarZoomOut?.addEventListener("click", () => {
+        updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
+        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+    });
+    topbarZoomIn?.addEventListener("click", () => {
+        updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
+        setStatus(`スケジュール表示倍率: ${Math.round(uiState.dayCalendarZoom * 100)}%`);
+    });
+    topbarZoomReset?.addEventListener("click", () => {
+        updateDayCalendarZoom(1);
+        setStatus("スケジュール表示倍率を100%に戻しました");
+    });
+    window.addEventListener("wheel", (event: WheelEvent) => {
+        if (!event.ctrlKey || !isScheduleRoute(getRoute()) || !isScheduleZoomPoint(event.clientX, event.clientY, event.target)) {
+            return;
+        }
+        event.preventDefault();
+        const direction = event.deltaY < 0 ? 1 : -1;
+        updateDayCalendarZoom(uiState.dayCalendarZoom + direction * DAY_CALENDAR_ZOOM_STEP);
+    }, { passive: false });
+    window.addEventListener("keydown", (event: KeyboardEvent) => {
+        if (!event.ctrlKey || event.altKey || !isScheduleRoute(getRoute())) {
+            return;
+        }
+        const key = event.key;
+        const isZoomIn = key === "+" || key === "=";
+        const isZoomOut = key === "-" || key === "_";
+        const isReset = key === "0";
+        if (!isZoomIn && !isZoomOut && !isReset) {
+            return;
+        }
+        event.preventDefault();
+        if (isZoomIn) {
+            updateDayCalendarZoom(uiState.dayCalendarZoom + DAY_CALENDAR_ZOOM_STEP);
+        }
+        else if (isZoomOut) {
+            updateDayCalendarZoom(uiState.dayCalendarZoom - DAY_CALENDAR_ZOOM_STEP);
+        }
+        else {
+            updateDayCalendarZoom(1);
+        }
+    });
     window.addEventListener("hashchange", () => {
         render();
     });
     window.addEventListener("resize", () => {
-        syncResponsiveRouteClasses(getRoute());
+        const route = getRoute();
+        syncResponsiveRouteClasses(route);
+        if (route !== "week") {
+            if (weekResizeRenderTimer) {
+                clearTimeout(weekResizeRenderTimer);
+                weekResizeRenderTimer = 0;
+            }
+            return;
+        }
+        if (weekResizeRenderTimer) {
+            clearTimeout(weekResizeRenderTimer);
+        }
+        weekResizeRenderTimer = setTimeout(() => {
+            weekResizeRenderTimer = 0;
+            if (getRoute() === "week") {
+                render();
+            }
+        }, WEEK_RESIZE_RENDER_MS);
     });
     setInterval(async () => {
         const route = getRoute();
-        if (route !== "now" && route !== "week") {
+        if (route !== "now" && route !== "week" && route !== "today") {
             return;
         }
         try {
@@ -1360,8 +1486,11 @@ export function startApp(): void {
             if (route === "now") {
                 renderNowPage(buildPageRenderDeps());
             }
-            else {
+            else if (route === "week") {
                 refreshWeekSidebarPanels();
+            }
+            else {
+                renderWeekDetailsPage(buildPageRenderDeps(), { mode: "today" });
             }
         }
         catch {
@@ -1412,7 +1541,7 @@ export function startApp(): void {
             // handled in safeInvoke
         }
         if (!window.location.hash) {
-            window.location.hash = "#/week";
+            window.location.hash = "#/today";
         }
         render();
     })();

@@ -1,4 +1,5 @@
 import type { CommandService } from "./services/command-service.js";
+import type { TimerControlModel } from "./timer-controls.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
@@ -105,20 +106,36 @@ export type Module = {
   [key: string]: unknown;
 };
 
+export type ModuleFolder = {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+};
+
 export type DayItemKind = string;
 export type DayItemSelection = { kind: DayItemKind; id: string } | null;
 export type DayCalendarViewMode = "grid" | "simple";
 export type RoutineStudioDragKind = "module" | "template" | "entry";
+export type RoutineSchedule = JsonObject;
+export type RoutineScheduleAssetKind = "module" | "template";
+export type RoutineScheduleRepeatType = "weekly" | "monthly_date" | "monthly_nth";
 
 export interface RoutineStudioEntry {
   entryId: string;
   sourceKind: string;
   sourceId: string;
+  groupId?: string;
   moduleId: string;
   title: string;
   subtitle: string;
   durationMinutes: number;
   note: string;
+  stepType: string;
+  checklist: string[];
+  pomodoro: JsonObject | null;
+  executionHints: JsonObject | null;
+  overrunPolicy: string;
+  rawStep: JsonObject;
 }
 
 export interface RoutineStudioModuleEditor {
@@ -130,6 +147,37 @@ export interface RoutineStudioModuleEditor {
   durationMinutes: number;
 }
 
+export interface RoutineScheduleEntry {
+  id: string;
+  assetKind: RoutineScheduleAssetKind;
+  assetId: string;
+  recipeId: string;
+  moduleId: string;
+  title: string;
+  subtitle: string;
+  dayOffset: number;
+  startTime: string;
+  durationMinutes: number;
+}
+
+export interface RoutineScheduleRecurrence {
+  repeatType: RoutineScheduleRepeatType;
+  weekdays: string[];
+  dayOfMonth: number;
+  nthWeek: number;
+  nthWeekday: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface RoutineScheduleGroupSummary {
+  groupId: string;
+  name: string;
+  entryCount: number;
+  routineIds: string[];
+  recurrence: RoutineScheduleRecurrence;
+}
+
 export interface RoutineStudioState {
   assetsLoaded: boolean;
   assetsLoading: boolean;
@@ -138,13 +186,21 @@ export interface RoutineStudioState {
   search: string;
   draftName: string;
   templateId: string;
+  applyTemplateId: string;
   triggerTime: string;
   context: string;
   autoStart: boolean;
   macroTargetMinutes: number;
   modules: Module[];
+  moduleFolders: ModuleFolder[];
   hiddenTemplateCount: number;
   canvasEntries: RoutineStudioEntry[];
+  scheduleEntries: RoutineScheduleEntry[];
+  scheduleSelectedEntryId: string;
+  scheduleRecurrence: RoutineScheduleRecurrence;
+  scheduleGroupId: string;
+  scheduleLoadedGroupId: string;
+  scheduleDirty: boolean;
   history: RoutineStudioEntry[][];
   historyIndex: number;
   dragInsertIndex: number;
@@ -176,6 +232,7 @@ export interface UiState {
   recipes: Recipe[];
   dayCalendarSelection: DayItemSelection;
   dayCalendarViewMode: DayCalendarViewMode;
+  dayCalendarZoom: number;
   blockTitles: Record<string, string>;
   nowUi: {
     taskOrder: string[];
@@ -241,7 +298,7 @@ export interface PageRenderDeps {
     resolveNowAutoStartTask: (stateInput: PomodoroState) => Task | null;
     pomodoroPhaseLabel: (phase: unknown) => string;
     nowBufferAvailableMinutes: () => number;
-    resolveTimerControlModel: (stateInput?: unknown) => Record<string, unknown>;
+    resolveTimerControlModel: (stateInput?: unknown) => TimerControlModel;
     executeTimerAction: (action: string, rerender: () => void) => Promise<void>;
     syncNowTaskOrder: (tasksInput?: Task[]) => void;
     renderNowNotesPanel: () => string;
@@ -268,7 +325,9 @@ export interface MockState {
   tasks: Task[];
   blocks: Block[];
   recipes: Recipe[];
+  routines: RoutineSchedule[];
   modules: Module[];
+  moduleFolders: ModuleFolder[];
   syncedEventsByAccount: Record<string, SyncedEvent[]>;
   taskAssignmentsByTask: Record<string, string>;
   taskAssignmentsByBlock: Record<string, string>;

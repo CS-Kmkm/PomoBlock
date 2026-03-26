@@ -27,8 +27,8 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
           </div>
           <div class="panel grid">
             <h3>ルーティーン / テンプレート</h3>
-            <label>Routine JSON<textarea id="set-routine-json" placeholder='{"routines":[]}'></textarea></label>
-            <label>Template JSON<textarea id="set-template-json" placeholder='{"templates":[]}'></textarea></label>
+            <label>ルーティン JSON<textarea id="set-routine-json" placeholder='{"routines":[]}'></textarea></label>
+            <label>テンプレート JSON<textarea id="set-template-json" placeholder='{"templates":[]}'></textarea></label>
           </div>
         </div>
       `;
@@ -39,12 +39,12 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
           <div class="panel grid">
             <h3>同期用 Git</h3>
             <p class="small">同期先のリモート設定を管理します。</p>
-            <label>Git Remote <input id="set-git-remote" value="${uiState.settings.gitRemote}" placeholder="https://..." /></label>
-            <button id="set-git-check" class="btn-secondary">Git設定確認</button>
+            <label>Git リモート <input id="set-git-remote" value="${uiState.settings.gitRemote}" placeholder="https://..." /></label>
+            <button id="set-git-check" class="btn-secondary">Git 設定確認</button>
           </div>
           <div class="panel grid">
             <h3>現在の同期先</h3>
-            <pre class="small">${uiState.settings.gitRemote || "not configured"}</pre>
+            <pre class="small">${uiState.settings.gitRemote || "未設定"}</pre>
           </div>
         </div>
       `;
@@ -55,11 +55,11 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
           <div class="panel grid">
             <h3>Google OAuth 認証</h3>
             <p class="small">推奨: 1クリックでSSO認証してカレンダー同期します。必要時のみ認可コードを手動交換します。</p>
-            <label>Account ID
-              <input id="auth-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" placeholder="default or email label" />
+            <label>アカウント ID
+              <input id="auth-account-id" value="${helpers.normalizeAccountId(uiState.accountId)}" placeholder="default または email ラベル" />
             </label>
-            <label>Authorization Code
-              <input id="auth-code" placeholder="paste authorization code" />
+            <label>認可コード
+              <input id="auth-code" placeholder="認可コードを貼り付け" />
             </label>
             <div class="row">
               <button id="auth-sso" class="btn-primary">SSOログインして同期</button>
@@ -69,7 +69,7 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
           </div>
           <div class="panel">
             <h3>認証結果</h3>
-            <pre id="auth-result" class="small">${uiState.auth ? JSON.stringify(uiState.auth, null, 2) : "not executed"}</pre>
+            <pre id="auth-result" class="small">${uiState.auth ? JSON.stringify(uiState.auth, null, 2) : "未実行"}</pre>
           </div>
         </div>
       `;
@@ -101,7 +101,7 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
       uiState.settings.workEnd = (document.getElementById("set-work-end") as HTMLInputElement).value;
       uiState.settings.blockDuration = Number((document.getElementById("set-block-duration") as HTMLInputElement).value);
       uiState.settings.breakDuration = Number((document.getElementById("set-break-duration") as HTMLInputElement).value);
-      setStatus("settings saved in session");
+      setStatus("設定をセッションに保存しました");
     });
     return;
   }
@@ -109,7 +109,7 @@ export function renderSettingsPage(deps: PageRenderDeps): void {
   if (activePage === "git") {
     document.getElementById("set-git-check")?.addEventListener("click", () => {
       uiState.settings.gitRemote = (document.getElementById("set-git-remote") as HTMLInputElement).value;
-      setStatus(uiState.settings.gitRemote ? "git remote configured" : "git remote is empty");
+      setStatus(uiState.settings.gitRemote ? "Git リモートを設定しました" : "Git リモートが未設定です");
       renderSettingsPage(deps);
     });
     return;

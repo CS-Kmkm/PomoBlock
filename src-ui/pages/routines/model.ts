@@ -1,4 +1,4 @@
-import type { Module } from "../../types.js";
+import type { Module, ModuleFolder, Recipe } from "../../types.js";
 
 export type RoutineStudioModuleView = {
   id: string;
@@ -9,15 +9,46 @@ export type RoutineStudioModuleView = {
   durationMinutes: number;
 };
 
+export type RoutineStudioFolderView = {
+  id: string;
+  name: string;
+  modules: RoutineStudioModuleView[];
+  templates: Array<{
+    id: string;
+    name: string;
+    category: string;
+    stepCount: number;
+    totalMinutes: number;
+  }>;
+};
+
+export const ROUTINE_STUDIO_DEFAULT_FOLDER_ID = "(default)";
+
+export function routineStudioFolderLabel(folder: Pick<ModuleFolder, "id" | "name"> | { id: string; name?: string }) {
+  const id = String(folder?.id || "").trim();
+  const name = String(folder?.name || "").trim();
+  if (id === ROUTINE_STUDIO_DEFAULT_FOLDER_ID) {
+    return "";
+  }
+  return name || id;
+}
+
 export type RoutineStudioEntryView = {
   entryId: string;
   sourceKind: string;
   sourceId: string;
+  groupId?: string;
   moduleId: string;
   title: string;
   subtitle: string;
   durationMinutes: number;
   note: string;
+  stepType: string;
+  checklist: string[];
+  pomodoro: Record<string, unknown> | null;
+  executionHints: Record<string, unknown> | null;
+  overrunPolicy: string;
+  rawStep: Record<string, unknown>;
 };
 
 export function toPositiveInt(value: unknown, fallback: number, min = 1): number {
@@ -139,13 +170,46 @@ export const routineStudioSeedModules: Module[] = [
   },
 ];
 
+export function deriveModuleFolders(modules: Array<Pick<Module, "category">>): ModuleFolder[] {
+  const seen = new Set<string>([ROUTINE_STUDIO_DEFAULT_FOLDER_ID]);
+  const folders: ModuleFolder[] = [{ id: ROUTINE_STUDIO_DEFAULT_FOLDER_ID, name: "" }];
+  modules.forEach((module) => {
+    const category = String(module?.category || "").trim();
+    if (!category || seen.has(category)) {
+      return;
+    }
+    seen.add(category);
+    folders.push({
+      id: category,
+      name: category,
+    });
+  });
+  return folders;
+}
+
+export const routineStudioSeedFolders: ModuleFolder[] = deriveModuleFolders(routineStudioSeedModules);
+
 export const routineStudioContexts = ["Work - Deep Focus", "Admin", "Planning", "Learning", "Personal"];
 
 let routineStudioSequence = 1;
+let routineStudioGroupSequence = 1;
+let routineScheduleSequence = 1;
 
 export function nextRoutineStudioEntryId() {
   const id = `studio-entry-${routineStudioSequence}`;
   routineStudioSequence += 1;
+  return id;
+}
+
+export function nextRoutineStudioEntryGroupId() {
+  const id = `studio-group-${routineStudioGroupSequence}`;
+  routineStudioGroupSequence += 1;
+  return id;
+}
+
+export function nextRoutineScheduleEntryId() {
+  const id = `schedule-entry-${routineScheduleSequence}`;
+  routineScheduleSequence += 1;
   return id;
 }
 
@@ -168,6 +232,13 @@ export function isRoutineStudioRecipe(recipe: unknown) {
   const source = (recipe ?? {}) as Record<string, unknown>;
   const meta = (source.studioMeta || source.studio_meta || null) as Record<string, unknown> | null;
   return meta?.kind === "routine_studio";
+}
+
+export function routineStudioRecipeCategory(recipe: unknown, fallback = ROUTINE_STUDIO_DEFAULT_FOLDER_ID) {
+  const source = (recipe ?? {}) as Record<string, unknown>;
+  const meta = (source.studioMeta || source.studio_meta || null) as Record<string, unknown> | null;
+  const category = typeof meta?.category === "string" ? meta.category.trim() : "";
+  return category || fallback;
 }
 
 export function cloneValue<T>(value: T): T {

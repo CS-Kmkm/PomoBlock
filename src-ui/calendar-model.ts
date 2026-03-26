@@ -224,8 +224,8 @@ export function buildDailyCalendarModel(
       kind: "free",
       id: `${interval.startMs}-${interval.endMs}`,
       key: dayItemKey("free", `${interval.startMs}-${interval.endMs}`),
-      title: "空き枠",
-      subtitle: "available",
+      title: "",
+      subtitle: "",
       startMs: interval.startMs,
       endMs: interval.endMs,
       durationMinutes: minutesBetween(interval.startMs, interval.endMs),
@@ -240,7 +240,7 @@ export function buildDailyCalendarModel(
       : options.currentSelection || null;
 
   const selectedByState = selectionSource ? itemMap.get(dayItemKey(selectionSource.kind, selectionSource.id)) : null;
-  const selectedItem = selectedByState || blockItems[0] || eventItems[0] || freeItems[0] || null;
+  const selectedItem = selectedByState || blockItems[0] || eventItems[0] || null;
   const selection = syncSelection && selectedItem ? { kind: selectedItem.kind, id: selectedItem.id } : syncSelection ? null : options.currentSelection || null;
 
   return {
@@ -287,7 +287,7 @@ export function buildPlannerStripModel(
   const days = safeDateKeys.map((dayKey) => {
     const dayDate = parseLocalDate(dayKey);
     const dailyModel = options.buildDaily(dayKey, { syncSelection: false });
-    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems, ...dailyModel.freeItems].sort(
+    const combinedItems = [...dailyModel.blockItems, ...dailyModel.eventItems].sort(
       (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
     );
     return {

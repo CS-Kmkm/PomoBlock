@@ -101,6 +101,16 @@ fn default_files() -> HashMap<&'static str, serde_json::Value> {
             MODULES_JSON,
             serde_json::json!({
                 "schema": 1,
+                "folders": [
+                    {
+                        "id": "Focus Work",
+                        "name": "Focus Work"
+                    },
+                    {
+                        "id": "Communication",
+                        "name": "Communication"
+                    }
+                ],
                 "modules": [
                     {
                         "id": "mod-deep-work-init",

@@ -3,6 +3,7 @@ mod blocks;
 mod bootstrap;
 mod calendar;
 mod catalog;
+mod routines;
 #[cfg(test)]
 mod regression_tests;
 mod pomodoro;
@@ -22,8 +23,14 @@ pub use calendar::{
     SyncCalendarResponse,
 };
 pub use catalog::{
-    create_module_impl, create_recipe_impl, delete_module_impl, delete_recipe_impl,
-    list_modules_impl, list_recipes_impl, update_module_impl, update_recipe_impl,
+    create_module_folder_impl, create_module_impl, create_recipe_impl, delete_module_folder_impl,
+    delete_module_impl, delete_recipe_impl, list_module_folders_impl, list_modules_impl,
+    list_recipes_impl, move_module_folder_impl, move_module_impl, update_module_impl,
+    update_recipe_impl,
+};
+pub use routines::{
+    delete_routine_schedule_impl, list_routine_schedules_impl, list_routines_impl,
+    save_routine_schedule_group_impl, save_routine_schedule_impl,
 };
 pub use pomodoro::{
     advance_pomodoro_impl, complete_pomodoro_impl, get_pomodoro_state_impl, interrupt_timer_impl,

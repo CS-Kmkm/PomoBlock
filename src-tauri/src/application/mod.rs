@@ -13,6 +13,7 @@ pub mod block_calendar_events;
 pub mod configured_block_plans;
 pub mod configured_modules;
 pub mod configured_recipes;
+pub mod configured_routines;
 pub mod external_edit_service;
 pub mod id_factory;
 pub mod oauth;

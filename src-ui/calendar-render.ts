@@ -251,7 +251,7 @@ export function renderSimpleTimelineRow(
     <div class="day-simple-row">
       <span class="day-simple-row-label">${label}</span>
       <div class="day-simple-track">
-        ${segments || '<span class="day-simple-empty">なし</span>'}
+        ${segments || '<span class="day-simple-empty" aria-hidden="true"></span>'}
       </div>
     </div>
   `;
@@ -275,7 +275,7 @@ export function renderDayLane(
       </header>
       <div class="day-lane-track">
         ${renderDayHourGuides()}
-        ${entries || '<span class="day-lane-empty">なし</span>'}
+        ${entries || '<span class="day-lane-empty" aria-hidden="true"></span>'}
       </div>
     </section>
   `;
@@ -301,10 +301,10 @@ export function renderSimpleDailyCalendar(
   const includeDetail = options?.includeDetail !== false;
   const includeTimeline = options?.includeTimeline !== false;
   const compactSummary = options?.compactSummary === true;
-  const allItems = [...model.blockItems, ...model.eventItems, ...model.freeItems].sort(
+  const allItems = [...model.blockItems, ...model.eventItems].sort(
     (left, right) => left.startMs - right.startMs || left.endMs - right.endMs
   ) as Array<RenderItem & { kind: string }>;
-  const combinedItems = compactSummary ? allItems.filter((item) => item.kind !== "free") : allItems;
+  const combinedItems = allItems;
   return `
     <div class="day-view-simple">
       ${
@@ -316,7 +316,7 @@ export function renderSimpleDailyCalendar(
           compactSummary
             ? `
         <div class="day-simple-track day-simple-track-compact">
-          ${renderSimpleMergedTimelineSegments(combinedItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps) || '<span class="day-simple-empty">なし</span>'}
+          ${renderSimpleMergedTimelineSegments(combinedItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps) || '<span class="day-simple-empty" aria-hidden="true"></span>'}
         </div>
         `
             : `
@@ -332,7 +332,6 @@ export function renderSimpleDailyCalendar(
         </div>
         ${renderSimpleTimelineRow("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         ${renderSimpleTimelineRow("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-        ${renderSimpleTimelineRow("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         `
         }
       </div>
@@ -361,13 +360,11 @@ export function renderGridDailyCalendar(
           <span class="day-board-head-time">時刻</span>
           <span>ブロック</span>
           <span>予定</span>
-          <span>空き枠</span>
         </div>
         <div class="day-board-body">
           ${renderDayTimeAxis(model.dayStartMs, model.dayEndMs, deps.toClockText)}
           ${renderDayLane("ブロック", "block", model.blockItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
           ${renderDayLane("予定", "event", model.eventItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
-          ${renderDayLane("空き枠", "free", model.freeItems, model.dayStartMs, model.dayEndMs, model.selectedItem, deps)}
         </div>
       </div>
       `
@@ -390,7 +387,7 @@ function renderPlannerDayLane(
   const showNowLine = day.isToday && nowMs >= day.dayStartMs && nowMs <= day.dayEndMs;
 
   return `
-    <section class="week-day-lane ${day.isCurrent ? "is-current" : ""}">
+    <section class="week-day-lane ${day.isToday ? "is-today" : ""}">
       <div class="day-lane-track week-day-track">
         ${renderDayHourGuides()}
         ${
@@ -402,7 +399,7 @@ function renderPlannerDayLane(
         `
             : ""
         }
-        ${entries || '<span class="day-lane-empty">なし</span>'}
+        ${entries || '<span class="day-lane-empty" aria-hidden="true"></span>'}
       </div>
     </section>
   `;
@@ -429,7 +426,7 @@ export function renderWeeklyPlannerCalendar(
               (day) => `
             <button
               type="button"
-              class="week-board-day ${day.isCurrent ? "is-current" : ""}"
+              class="week-board-day ${day.isToday ? "is-today" : ""}"
               data-week-day-key="${deps.escapeHtml(day.dayKey)}"
               data-week-open-details="${deps.escapeHtml(day.dayKey)}"
             >
@@ -501,7 +498,7 @@ export function renderDailyDetail(
               type="text"
               value="${deps.escapeHtml(titleValue)}"
               data-block-title-input="${deps.escapeHtml(block.id || "")}"
-              placeholder="タイトルなし"
+              placeholder="タイトルを入力"
             />
           </label>
           <button type="button" class="btn-secondary" data-block-title-save="${deps.escapeHtml(block.id || "")}">タイトル保存</button>
@@ -534,7 +531,7 @@ export function renderDailyDetail(
   }
   return `
     <div class="day-detail panel">
-      <h4>空き枠詳細</h4>
+      <h4>詳細</h4>
       <dl class="day-detail-list">
         <div><dt>時間</dt><dd>${deps.intervalRangeLabel(item)}</dd></div>
         <div><dt>長さ</dt><dd>${deps.toDurationLabel(item.durationMinutes)}</dd></div>
@@ -581,7 +578,6 @@ export function renderDailyCalendar(
       <div class="calendar-metrics">
         <span class="pill calendar-pill block">ブロック ${deps.toDurationLabel(params.model.totals.blockMinutes)}</span>
         <span class="pill calendar-pill event">予定 ${deps.toDurationLabel(params.model.totals.eventMinutes)}</span>
-        <span class="pill calendar-pill free">空き ${deps.toDurationLabel(params.model.totals.freeMinutes)}</span>
       </div>
       `
           : ""

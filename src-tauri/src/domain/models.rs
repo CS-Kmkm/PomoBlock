@@ -56,6 +56,10 @@ pub struct ExecutionHints {
 pub struct RecipeStudioMeta {
     pub version: u8,
     pub kind: String,
+    #[serde(default)]
+    pub context: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -122,6 +126,12 @@ impl Recipe {
                 return Err("recipe.studio_meta.version must be 1".to_string());
             }
             validate_non_empty(&meta.kind, "recipe.studio_meta.kind")?;
+            if let Some(context) = &meta.context {
+                validate_non_empty(context, "recipe.studio_meta.context")?;
+            }
+            if let Some(category) = &meta.category {
+                validate_non_empty(category, "recipe.studio_meta.category")?;
+            }
         }
         for step in &self.steps {
             step.validate()?;
@@ -177,6 +187,20 @@ impl Module {
                 return Err("module.pomodoro.cycles must be > 0".to_string());
             }
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModuleFolder {
+    pub id: String,
+    pub name: String,
+}
+
+impl ModuleFolder {
+    pub fn validate(&self) -> Result<(), String> {
+        validate_non_empty(&self.id, "module_folder.id")?;
+        validate_non_empty(&self.name, "module_folder.name")?;
         Ok(())
     }
 }

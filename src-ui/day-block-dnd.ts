@@ -60,19 +60,7 @@ function clearDayBlockDragDocumentListeners(state: DayBlockDragState) {
   }
 }
 
-function setHoveredFreeEntry(state: DayBlockDragState, entry: HTMLElement | null) {
-  if (state.hoveredFreeEntry === entry) return;
-  if (state.hoveredFreeEntry) {
-    state.hoveredFreeEntry.classList.remove("is-drop-target");
-  }
-  state.hoveredFreeEntry = entry;
-  if (state.hoveredFreeEntry) {
-    state.hoveredFreeEntry.classList.add("is-drop-target");
-  }
-}
-
 function resetDayBlockDragVisualState(state: DayBlockDragState) {
-  setHoveredFreeEntry(state, null);
   if (state.entry) {
     state.entry.classList.remove("is-dragging");
     state.entry.style.top = state.originalTopCss;
@@ -246,39 +234,13 @@ function bindGridDrag(deps: DayBlockDndDeps) {
       const onMove = (moveEvent: PointerEvent) => {
         if (!state.active || moveEvent.pointerId !== state.pointerId) return;
         const durationMs = state.originEndMs - state.originStartMs;
-        const hovered = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
-        const hoveredFreeEntry =
-          hovered instanceof Element ? hovered.closest(".day-entry-free[data-day-item-start-ms][data-day-item-end-ms]") : null;
-        const hoveredFree = hoveredFreeEntry instanceof HTMLElement ? hoveredFreeEntry : null;
-        let movedByFreeDrop = false;
-        if (hoveredFree) {
-          const freeStartMs = Number(hoveredFree.dataset.dayItemStartMs || "");
-          const freeEndMs = Number(hoveredFree.dataset.dayItemEndMs || "");
-          if (
-            Number.isFinite(freeStartMs) &&
-            Number.isFinite(freeEndMs) &&
-            freeEndMs > freeStartMs &&
-            freeEndMs - freeStartMs >= durationMs
-          ) {
-            setHoveredFreeEntry(state, hoveredFree);
-            const nextInterval = snapAndClampBlockInterval(freeStartMs, durationMs, state.dayStartMs, state.dayEndMs);
-            applyDayBlockPreview(deps, entry, nextInterval);
-            movedByFreeDrop = true;
-          } else {
-            setHoveredFreeEntry(state, null);
-          }
-        } else {
-          setHoveredFreeEntry(state, null);
-        }
         const deltaY = moveEvent.clientY - state.originClientY;
-        if (!movedByFreeDrop) {
-          if (!state.moved && Math.abs(deltaY) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
-            return;
-          }
-          const deltaMsRaw = (deltaY / state.trackHeightPx) * state.rangeMs;
-          const nextInterval = snapAndClampBlockInterval(state.originStartMs + deltaMsRaw, durationMs, state.dayStartMs, state.dayEndMs);
-          applyDayBlockPreview(deps, entry, nextInterval);
+        if (!state.moved && Math.abs(deltaY) < DAY_BLOCK_DRAG_THRESHOLD_PX) {
+          return;
         }
+        const deltaMsRaw = (deltaY / state.trackHeightPx) * state.rangeMs;
+        const nextInterval = snapAndClampBlockInterval(state.originStartMs + deltaMsRaw, durationMs, state.dayStartMs, state.dayEndMs);
+        applyDayBlockPreview(deps, entry, nextInterval);
         state.moved =
           Math.abs(state.previewStartMs - state.originStartMs) >= 1000 ||
           Math.abs(state.previewEndMs - state.originEndMs) >= 1000;

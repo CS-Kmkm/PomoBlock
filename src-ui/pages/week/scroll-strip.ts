@@ -13,6 +13,26 @@ type AttachWeekScrollStripParams = {
   onBufferEdge: (dateKey: string) => void;
 };
 
+export function resolveWeekSnapStartIndex(
+  targetIndex: number,
+  totalDayCount: number,
+  viewportWidth: number,
+  leadingOffset: number,
+  dayStep: number
+): number {
+  const safeTotalDayCount = Math.max(0, Math.floor(totalDayCount));
+  if (safeTotalDayCount <= 1) {
+    return 0;
+  }
+
+  const safeViewportWidth = Math.max(0, viewportWidth - Math.max(0, leadingOffset));
+  const safeDayStep = Math.max(1, dayStep);
+  const viewportDayCount = Math.max(1, Math.floor(safeViewportWidth / safeDayStep));
+  const leadDayCount = Math.floor(viewportDayCount / 2);
+  const maxStartIndex = Math.max(0, safeTotalDayCount - viewportDayCount);
+  return Math.max(0, Math.min(Math.floor(targetIndex) - leadDayCount, maxStartIndex));
+}
+
 export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void {
   const { appRoot, uiState, selectedDate, bufferDateKeys, visibleStartIndex, onSelectDate, onBufferEdge } = params;
   const scrollContainer = appRoot.querySelector("[data-week-scroll-container]");
@@ -28,6 +48,20 @@ export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void
 
   let settleTimer = 0 as ReturnType<typeof setTimeout> | 0;
   let suppressScrollUntil = 0;
+
+  const resolveDayStep = () => {
+    if (dayNodes.length <= 1) {
+      return dayNodes[0]?.offsetWidth || 1;
+    }
+    const steps = dayNodes
+      .slice(1)
+      .map((node, index) => node.offsetLeft - dayNodes[index]!.offsetLeft)
+      .filter((step) => step > 0);
+    return steps[0] || dayNodes[0]?.offsetWidth || 1;
+  };
+
+  const resolveStartIndex = (targetIndex: number) =>
+    resolveWeekSnapStartIndex(targetIndex, dayNodes.length, scrollContainer.clientWidth, leadingOffset, resolveDayStep());
 
   const alignToVisibleStart = (startIndex: number) => {
     const targetNode = dayNodes[Math.max(0, Math.min(startIndex, dayNodes.length - 1))];
@@ -62,7 +96,7 @@ export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void
     settleTimer = 0;
     uiState.weekView.isInteracting = false;
     const { dateKey, index } = resolveClosestDateKey();
-    alignToVisibleStart(Math.max(0, index - 3));
+    alignToVisibleStart(resolveStartIndex(index));
     if (dateKey !== selectedDate) {
       onSelectDate(dateKey);
     }
@@ -95,12 +129,13 @@ export function attachWeekScrollStrip(params: AttachWeekScrollStripParams): void
     const currentIndex = Math.max(0, bufferDateKeys.indexOf(selectedDate));
     const nextIndex = event.key === "ArrowRight" ? currentIndex + 1 : currentIndex - 1;
     const nextDateKey = bufferDateKeys[Math.max(0, Math.min(nextIndex, bufferDateKeys.length - 1))] || selectedDate;
-    alignToVisibleStart(Math.max(0, Math.min(nextIndex - 3, bufferDateKeys.length - 7)));
+    alignToVisibleStart(resolveStartIndex(nextIndex));
     onSelectDate(nextDateKey);
     if (nextIndex <= EDGE_RELOAD_INDEX || nextIndex >= bufferDateKeys.length - EDGE_RELOAD_INDEX - 1) {
       onBufferEdge(nextDateKey);
     }
   });
 
-  alignToVisibleStart(visibleStartIndex);
+  const selectedIndex = bufferDateKeys.indexOf(selectedDate);
+  alignToVisibleStart(selectedIndex >= 0 ? resolveStartIndex(selectedIndex) : visibleStartIndex);
 }

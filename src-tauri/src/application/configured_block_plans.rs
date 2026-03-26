@@ -1,4 +1,5 @@
 use crate::application::block_calendar_events::planned_pomodoros;
+use crate::application::configured_routines::load_configured_routines;
 use crate::application::policy_service::{parse_weekday, RuntimePolicy};
 use crate::domain::models::{AutoDriveMode, Firmness, Recipe};
 use chrono::{Datelike, NaiveDate, NaiveTime, Weekday};
@@ -38,7 +39,7 @@ pub fn load_configured_block_plans(
     recipes: &[Recipe],
 ) -> Vec<ConfiguredBlockPlan> {
     let templates_raw = read_config_array(config_dir, "templates.json", "templates");
-    let routines_raw = read_config_array(config_dir, "routines.json", "routines");
+    let routines_raw = load_configured_routines(config_dir);
     let templates = parse_template_definitions(&templates_raw);
     let mut plans = Vec::new();
 
@@ -327,16 +328,67 @@ fn parse_rrule(rrule: &str) -> HashMap<String, String> {
     map
 }
 
-fn weekday_to_rrule_code(weekday: Weekday) -> &'static str {
-    match weekday {
-        Weekday::Mon => "MO",
-        Weekday::Tue => "TU",
-        Weekday::Wed => "WE",
-        Weekday::Thu => "TH",
-        Weekday::Fri => "FR",
-        Weekday::Sat => "SA",
-        Weekday::Sun => "SU",
+fn parse_date_value(value: Option<&serde_json::Value>) -> Option<NaiveDate> {
+    value?
+        .as_str()?
+        .trim()
+        .parse::<NaiveDate>()
+        .ok()
+}
+
+fn last_day_of_month(date: NaiveDate) -> Option<NaiveDate> {
+    let next_month = if date.month() == 12 {
+        NaiveDate::from_ymd_opt(date.year() + 1, 1, 1)
+    } else {
+        NaiveDate::from_ymd_opt(date.year(), date.month() + 1, 1)
+    }?;
+    next_month.pred_opt()
+}
+
+fn month_weekday_ordinal(date: NaiveDate) -> i32 {
+    ((date.day() as i32 - 1) / 7) + 1
+}
+
+fn month_weekday_ordinal_from_end(date: NaiveDate) -> Option<i32> {
+    let last_day = last_day_of_month(date)?;
+    Some(((last_day.day() as i32 - date.day() as i32) / 7) + 1)
+}
+
+fn matches_nth_weekday(date: NaiveDate, weekday: Weekday, nth: i32) -> bool {
+    if date.weekday() != weekday {
+        return false;
     }
+    if nth == 0 {
+        return false;
+    }
+    if nth > 0 {
+        return month_weekday_ordinal(date) == nth;
+    }
+    month_weekday_ordinal_from_end(date).map(|ordinal| ordinal == nth.abs()).unwrap_or(false)
+}
+
+fn parse_rrule_weekday_token(token: &str) -> Option<(Option<i32>, Weekday)> {
+    let token = token.trim().to_ascii_uppercase();
+    if token.len() < 2 {
+        return None;
+    }
+    let weekday_code = &token[token.len().saturating_sub(2)..];
+    let weekday = match weekday_code {
+        "MO" => Weekday::Mon,
+        "TU" => Weekday::Tue,
+        "WE" => Weekday::Wed,
+        "TH" => Weekday::Thu,
+        "FR" => Weekday::Fri,
+        "SA" => Weekday::Sat,
+        "SU" => Weekday::Sun,
+        _ => return None,
+    };
+    let ordinal = if token.len() > 2 {
+        token[..token.len() - 2].parse::<i32>().ok()
+    } else {
+        None
+    };
+    Some((ordinal, weekday))
 }
 
 fn rrule_matches_date(rrule: &str, date: NaiveDate) -> bool {
@@ -349,12 +401,17 @@ fn rrule_matches_date(rrule: &str, date: NaiveDate) -> bool {
     }
 
     if let Some(by_day) = parts.get("BYDAY") {
-        let target = weekday_to_rrule_code(date.weekday());
         let day_matches = by_day
             .split(',')
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .any(|value| value == target);
+            .any(|value| {
+                parse_rrule_weekday_token(value).map_or(false, |(ordinal, weekday)| {
+                    ordinal
+                        .map(|nth| matches_nth_weekday(date, weekday, nth))
+                        .unwrap_or_else(|| weekday == date.weekday())
+                })
+            });
         if !day_matches {
             return false;
         }
@@ -372,6 +429,23 @@ fn rrule_matches_date(rrule: &str, date: NaiveDate) -> bool {
         }
     }
 
+    true
+}
+
+fn routine_in_date_range(routine: &serde_json::Map<String, serde_json::Value>, date: NaiveDate) -> bool {
+    let schedule = value_by_keys(routine, &["schedule"]).and_then(serde_json::Value::as_object);
+    let start_date = value_by_keys(routine, &["startDate", "start_date"])
+        .or_else(|| schedule.and_then(|value| value_by_keys(value, &["startDate", "start_date"])))
+        .and_then(|value| parse_date_value(Some(value)));
+    let end_date = value_by_keys(routine, &["endDate", "end_date"])
+        .or_else(|| schedule.and_then(|value| value_by_keys(value, &["endDate", "end_date"])))
+        .and_then(|value| parse_date_value(Some(value)));
+    if start_date.map(|start| date < start).unwrap_or(false) {
+        return false;
+    }
+    if end_date.map(|end| date > end).unwrap_or(false) {
+        return false;
+    }
     true
 }
 
@@ -425,16 +499,41 @@ fn schedule_matches_date(schedule: &serde_json::Map<String, serde_json::Value>, 
             .and_then(serde_json::Value::as_str)
             .and_then(parse_weekday)
             .map(|weekday| weekday == date.weekday())
-            .unwrap_or(false),
+            .unwrap_or_else(|| {
+                value_by_keys(schedule, &["days"])
+                    .and_then(serde_json::Value::as_array)
+                    .map(|days| {
+                        days.iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .filter_map(parse_weekday)
+                            .any(|weekday| weekday == date.weekday())
+                    })
+                    .unwrap_or(false)
+            }),
         Some("monthly") => value_by_keys(schedule, &["day", "dayOfMonth", "day_of_month"])
             .and_then(parse_positive_u32_value)
             .map(|day| day == date.day())
             .unwrap_or(false),
+        Some("nth_weekday") | Some("monthly_nth") | Some("monthly_weekday") | Some("week_of_month") => {
+            let weekday = value_by_keys(schedule, &["weekday", "day", "dayOfWeek", "day_of_week"])
+                .and_then(serde_json::Value::as_str)
+                .and_then(parse_weekday);
+            let nth = value_by_keys(schedule, &["nth", "ordinal", "weekOfMonth", "week_of_month", "nthWeek", "nth_week"])
+                .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|item| item as i64)))
+                .map(|value| value as i32);
+            match (weekday, nth) {
+                (Some(weekday), Some(nth)) => matches_nth_weekday(date, weekday, nth),
+                _ => false,
+            }
+        }
         Some(_) | None => false,
     }
 }
 
 fn routine_matches_date(routine: &serde_json::Map<String, serde_json::Value>, date: NaiveDate) -> bool {
+    if !routine_in_date_range(routine, date) {
+        return false;
+    }
     if routine_is_skipped_on_date(routine, date) {
         return false;
     }
@@ -646,5 +745,80 @@ mod tests {
         assert_eq!(plans[0].source_id.as_deref(), Some("tpl-deep"));
         assert_eq!(plans[1].source, "routine");
         assert_eq!(plans[1].source_id.as_deref(), Some("rtn-daily"));
+    }
+
+    #[test]
+    fn load_configured_block_plans_honors_date_ranges_and_nth_weekdays() {
+        let config_dir = TempConfigDir::new("plans", "recurrence");
+        fs::write(
+            config_dir.join("routines.json"),
+            r#"{
+  "schema": 1,
+  "routines": [
+    {
+      "id": "rtn-weekly",
+      "recipeId": "rcp-default",
+      "startDate": "2026-02-05",
+      "endDate": "2026-02-20",
+      "schedule": {
+        "type": "weekly",
+        "days": ["tue"]
+      },
+      "default": {
+        "start": "10:00",
+        "durationMinutes": 30
+      }
+    },
+    {
+      "id": "rtn-monthly",
+      "recipeId": "rcp-default",
+      "startDate": "2026-02-01",
+      "endDate": "2026-02-28",
+      "schedule": {
+        "type": "monthly",
+        "dayOfMonth": 10
+      },
+      "default": {
+        "start": "11:00",
+        "durationMinutes": 45
+      }
+    },
+    {
+      "id": "rtn-nth",
+      "recipeId": "rcp-default",
+      "schedule": {
+        "type": "nth_weekday",
+        "weekday": "Tue",
+        "nthWeek": 2
+      },
+      "default": {
+        "start": "12:00",
+        "durationMinutes": 60
+      }
+    }
+  ]
+}
+"#,
+        )
+        .expect("write routines");
+
+        let matching_plans = load_configured_block_plans(
+            config_dir.path(),
+            NaiveDate::from_ymd_opt(2026, 2, 10).expect("date"),
+            &sample_policy(),
+            &sample_recipes(),
+        );
+        assert_eq!(matching_plans.len(), 3);
+        assert!(matching_plans
+            .iter()
+            .all(|plan| plan.source == "routine" && plan.recipe_id == "rcp-default"));
+
+        let outside_plans = load_configured_block_plans(
+            config_dir.path(),
+            NaiveDate::from_ymd_opt(2026, 2, 3).expect("date"),
+            &sample_policy(),
+            &sample_recipes(),
+        );
+        assert!(outside_plans.is_empty());
     }
 }

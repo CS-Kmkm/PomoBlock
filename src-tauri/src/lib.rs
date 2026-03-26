@@ -5,19 +5,25 @@ mod infrastructure;
 use application::bootstrap::bootstrap_workspace;
 use application::commands::{
     adjust_block_time_impl, advance_pomodoro_impl, approve_blocks_impl, authenticate_google_impl,
-    authenticate_google_sso_impl, carry_over_task_impl, complete_pomodoro_impl, create_module_impl,
-    create_recipe_impl, create_task_impl, delete_block_impl, delete_module_impl, delete_recipe_impl,
-    delete_task_impl, generate_blocks_impl, generate_one_block_impl, generate_today_blocks_impl,
-    get_pomodoro_state_impl, get_reflection_summary_impl, interrupt_timer_impl,
-    list_blocks_impl, list_modules_impl, list_recipes_impl, list_synced_events_impl,
-    list_tasks_impl, next_step_impl, pause_pomodoro_impl, pause_timer_impl, relocate_if_needed_impl,
-    resume_pomodoro_impl, resume_timer_impl, split_task_impl, start_block_timer_impl,
-    start_pomodoro_impl, sync_calendar_impl, update_module_impl, update_recipe_impl, update_task_impl,
-    AppState, apply_studio_template_to_today_impl, ApplyStudioResult, AuthenticateGoogleResponse,
+    authenticate_google_sso_impl, carry_over_task_impl, complete_pomodoro_impl,
+    create_module_folder_impl, create_module_impl, create_recipe_impl, create_task_impl,
+    delete_block_impl, delete_module_folder_impl, delete_module_impl, delete_recipe_impl,
+    delete_routine_schedule_impl, delete_task_impl, generate_blocks_impl, generate_one_block_impl,
+    generate_today_blocks_impl, get_pomodoro_state_impl, get_reflection_summary_impl,
+    interrupt_timer_impl, list_blocks_impl, list_module_folders_impl, list_modules_impl,
+    list_recipes_impl, list_routine_schedules_impl, list_routines_impl, list_synced_events_impl,
+    list_tasks_impl,
+    move_module_folder_impl, move_module_impl, next_step_impl,
+    pause_pomodoro_impl,
+    pause_timer_impl, relocate_if_needed_impl, resume_pomodoro_impl, resume_timer_impl,
+    save_routine_schedule_group_impl, save_routine_schedule_impl, split_task_impl,
+    start_block_timer_impl, start_pomodoro_impl,
+    sync_calendar_impl, update_module_impl, update_recipe_impl, update_task_impl, AppState,
+    apply_studio_template_to_today_impl, ApplyStudioResult, AuthenticateGoogleResponse,
     CarryOverTaskResponse, PomodoroStateResponse,
     ReflectionSummaryResponse, SyncedEventSlotResponse, SyncCalendarResponse,
 };
-use domain::models::{Block, Module, Recipe, Task};
+use domain::models::{Block, Module, ModuleFolder, Recipe, Task};
 use serde_json::Value;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -271,8 +277,46 @@ fn delete_recipe(state: tauri::State<'_, AppState>, recipe_id: String) -> Result
 }
 
 #[tauri::command]
+fn list_routine_schedules(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    list_routine_schedules_impl(state.inner())
+        .map_err(|error| state.command_error("list_routine_schedules", &error))
+}
+
+#[tauri::command]
+fn list_routines(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    list_routines_impl(state.inner()).map_err(|error| state.command_error("list_routines", &error))
+}
+
+#[tauri::command]
+fn save_routine_schedule(state: tauri::State<'_, AppState>, payload: Value) -> Result<Value, String> {
+    save_routine_schedule_impl(state.inner(), payload)
+        .map_err(|error| state.command_error("save_routine_schedule", &error))
+}
+
+#[tauri::command]
+fn save_routine_schedule_group(
+    state: tauri::State<'_, AppState>,
+    payload: Value,
+) -> Result<Vec<Value>, String> {
+    save_routine_schedule_group_impl(state.inner(), payload)
+        .map_err(|error| state.command_error("save_routine_schedule_group", &error))
+}
+
+#[tauri::command]
+fn delete_routine_schedule(state: tauri::State<'_, AppState>, routine_id: String) -> Result<bool, String> {
+    delete_routine_schedule_impl(state.inner(), routine_id)
+        .map_err(|error| state.command_error("delete_routine_schedule", &error))
+}
+
+#[tauri::command]
 fn list_modules(state: tauri::State<'_, AppState>) -> Result<Vec<Module>, String> {
     list_modules_impl(state.inner()).map_err(|error| state.command_error("list_modules", &error))
+}
+
+#[tauri::command]
+fn list_module_folders(state: tauri::State<'_, AppState>) -> Result<Vec<ModuleFolder>, String> {
+    list_module_folders_impl(state.inner())
+        .map_err(|error| state.command_error("list_module_folders", &error))
 }
 
 #[tauri::command]
@@ -295,6 +339,45 @@ fn update_module(
 fn delete_module(state: tauri::State<'_, AppState>, module_id: String) -> Result<bool, String> {
     delete_module_impl(state.inner(), module_id)
         .map_err(|error| state.command_error("delete_module", &error))
+}
+
+#[tauri::command]
+fn create_module_folder(
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<ModuleFolder, String> {
+    create_module_folder_impl(state.inner(), name)
+        .map_err(|error| state.command_error("create_module_folder", &error))
+}
+
+#[tauri::command]
+fn delete_module_folder(
+    state: tauri::State<'_, AppState>,
+    folder_id: String,
+) -> Result<bool, String> {
+    delete_module_folder_impl(state.inner(), folder_id)
+        .map_err(|error| state.command_error("delete_module_folder", &error))
+}
+
+#[tauri::command]
+fn move_module_folder(
+    state: tauri::State<'_, AppState>,
+    folder_id: String,
+    direction: String,
+) -> Result<Vec<ModuleFolder>, String> {
+    move_module_folder_impl(state.inner(), folder_id, direction)
+        .map_err(|error| state.command_error("move_module_folder", &error))
+}
+
+#[tauri::command]
+fn move_module(
+    state: tauri::State<'_, AppState>,
+    module_id: String,
+    folder_id: String,
+    before_module_id: Option<String>,
+) -> Result<Vec<Module>, String> {
+    move_module_impl(state.inner(), module_id, folder_id, before_module_id)
+        .map_err(|error| state.command_error("move_module", &error))
 }
 
 #[tauri::command]
@@ -458,9 +541,14 @@ pub fn run() {
             update_recipe,
             delete_recipe,
             list_modules,
+            list_module_folders,
             create_module,
             update_module,
             delete_module,
+            create_module_folder,
+            delete_module_folder,
+            move_module_folder,
+            move_module,
             apply_studio_template_to_today,
             start_pomodoro,
             start_block_timer,
@@ -477,6 +565,11 @@ pub fn run() {
             create_task,
             update_task,
             delete_task,
+            list_routine_schedules,
+            list_routines,
+            save_routine_schedule,
+            save_routine_schedule_group,
+            delete_routine_schedule,
             split_task,
             carry_over_task,
             relocate_if_needed,
